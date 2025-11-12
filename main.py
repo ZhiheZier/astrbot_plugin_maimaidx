@@ -176,21 +176,21 @@ class MaimaiDXPlugin(Star):
         async for result in update_data_handler(event, self.superusers):
             yield result
 
-    @filter.command(["帮助maimaiDX", "帮助maimaidx"])
+    @filter.regex(r'^(帮助maimaiDX|帮助maimaidx)$')
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
         from .command.mai_base import maimaidxhelp_handler
         async for result in maimaidxhelp_handler(event):
             yield result
 
-    @filter.command(["项目地址maimaiDX", "项目地址maimaidx"])
+    @filter.regex(r'^(项目地址maimaiDX|项目地址maimaidx)$')
     async def maimaidxrepo(self, event: AstrMessageEvent):
         """项目地址"""
         from .command.mai_base import maimaidxrepo_handler
         async for result in maimaidxrepo_handler(event):
             yield result
 
-    @filter.command(["今日mai", "今日舞萌", "今日运势"])
+    @filter.regex(r'^(今日mai|今日舞萌|今日运势)$')
     async def mai_today(self, event: AstrMessageEvent):
         """今日运势"""
         from .command.mai_base import mai_today_handler
@@ -211,7 +211,7 @@ class MaimaiDXPlugin(Star):
         async for result in random_song_handler(event):
             yield result
 
-    @filter.command(["查看排名", "查看排行"])
+    @filter.regex(r'^(查看排名|查看排行)$')
     async def rating_ranking(self, event: AstrMessageEvent):
         """查看排名"""
         from .command.mai_base import rating_ranking_handler
@@ -405,7 +405,7 @@ class MaimaiDXPlugin(Star):
         async for result in update_alias_handler(event, self.superusers):
             yield result
 
-    @filter.command(["全局开启别名推送", "全局关闭别名推送"])
+    @filter.regex(r'^(全局开启别名推送|全局关闭别名推送)$')
     async def alias_switch_on_off(self, event: AstrMessageEvent):
         """全局开启/关闭别名推送命令"""
         from .command.mai_alias import alias_switch_on_off_handler
@@ -455,7 +455,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     # 机厅相关命令
-    @filter.command(["帮助maimaiDX排卡", "帮助maimaidx排卡"])
+    @filter.regex(r'^(帮助maimaiDX排卡|帮助maimaidx排卡)$')
     async def dx_arcade_help(self, event: AstrMessageEvent):
         """帮助maimaiDX排卡"""
         from .command.mai_arcade import dx_arcade_help_handler
@@ -497,7 +497,7 @@ class MaimaiDXPlugin(Star):
         async for result in subscribe_arcade_handler(event):
             yield result
 
-    @filter.command(["查看订阅", "查看订阅机厅"])
+    @filter.regex(r'^(查看订阅|查看订阅机厅)$')
     async def check_subscribe(self, event: AstrMessageEvent):
         """查看订阅"""
         from .command.mai_arcade import check_subscribe_handler
@@ -518,7 +518,7 @@ class MaimaiDXPlugin(Star):
         async for result in arcade_person_handler(event):
             yield result
 
-    @filter.command(["机厅几人", "jtj"])
+    @filter.regex(r'^(机厅几人|jtj)$')
     async def arcade_query_multiple(self, event: AstrMessageEvent):
         """机厅几人"""
         from .command.mai_arcade import arcade_query_multiple_handler
