@@ -6,7 +6,7 @@ from typing import Callable
 import pyecharts.options as opts
 from pyecharts.charts import Pie
 
-from .. import MessageSegment
+from .. import *
 from .image import *
 from .maimai_best_50 import ScoreBaseImage, changeColumnWidth, coloumWidth, computeRa
 from .maimaidx_api_data import *

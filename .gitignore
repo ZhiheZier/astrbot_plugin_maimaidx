@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Static resources (except config.json)
+static/*
+!static/config.json
+!static/echarts.min.js
+!static/temp_pie.html

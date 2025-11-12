@@ -5,7 +5,7 @@ from typing import Optional, Tuple, Union, overload
 
 from PIL import Image, ImageDraw
 
-from .. import MessageSegment
+from .. import *
 from .image import DrawText, image_to_base64, music_picture
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
