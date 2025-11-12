@@ -455,8 +455,12 @@ async def ws_alias_server(context=None):
                         log.info('别名推送服务器连接成功')
                         while True:
                             data = await ws.receive_str()
+                            # 处理 WebSocket 心跳消息
                             if data == 'Hello':
                                 log.info('别名推送服务器正常运行')
+                                continue
+                            if data == 'ping' or data == 'pong':
+                                # WebSocket 心跳消息，忽略
                                 continue
                             if not data or not data.strip():
                                 continue
@@ -465,7 +469,9 @@ async def ws_alias_server(context=None):
                                 status = PushAliasStatus.model_validate(newdata)
                                 await asyncio.create_task(push_alias(status, context))
                             except json.JSONDecodeError as e:
-                                log.warning(f'别名推送数据 JSON 解析失败: {e}, 数据: {data[:100] if len(data) > 100 else data}')
+                                # 如果不是已知的控制消息，才记录警告
+                                if data not in ['ping', 'pong', 'Hello']:
+                                    log.warning(f'别名推送数据 JSON 解析失败: {e}, 数据: {data[:100] if len(data) > 100 else data}')
                                 continue
                             except Exception as e:
                                 log.warning(f'处理别名推送数据失败: {e}')
