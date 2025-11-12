@@ -94,13 +94,17 @@ async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
 
 async def maimaidxhelp_handler(event: AstrMessageEvent):
     """帮助maimaiDX"""
+    log.info('maimaidxhelp_handler 被调用')
     help_image_path = Root / 'maimaidxhelp.png'
+    log.info(f'帮助图片路径: {help_image_path}, 存在: {help_image_path.exists()}')
     if help_image_path.exists():
         chain = [
             Comp.Image.fromFileSystem(str(help_image_path))
         ]
+        log.info('准备发送帮助图片')
         yield event.chain_result(chain)
     else:
+        log.warning('帮助图片未找到，发送文本')
         yield event.plain_result('帮助图片未找到')
 
 

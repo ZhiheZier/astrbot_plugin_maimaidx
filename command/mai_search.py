@@ -48,19 +48,27 @@ def _text_to_image_chain(text: str):
 
 async def search_music_handler(event: AstrMessageEvent):
     """查歌/search - 搜索歌曲"""
+    from .. import log
+    log.info('search_music_handler 被调用')
     try:
         message_str = event.message_str.strip()
+        log.info(f'原始消息: {message_str}')
         # 移除命令前缀
         name = message_str.replace('查歌', '').replace('search', '').strip()
+        log.info(f'提取的关键词: {name}')
         
         if not name:
+            log.info('关键词为空，返回提示')
             yield event.plain_result('请输入关键词')
             return
         
         # 检查数据是否加载
         if not hasattr(mai, 'total_list') or not mai.total_list:
+            log.error('歌曲数据未加载')
             yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
             return
+        
+        log.info(f'开始搜索，数据量: {len(mai.total_list)}')
         
         result = mai.total_list.filter(title_search=name)
         if len(result) == 0:

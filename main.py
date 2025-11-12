@@ -38,7 +38,7 @@ class MaimaiDXPlugin(Star):
                 bot_client = None
                 try:
                     # 从 platform_manager 获取适配器实例
-                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_adapter import AiocqhttpAdapter
+                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import AiocqhttpAdapter
                     for inst in self.context.platform_manager.platform_insts:
                         if isinstance(inst, AiocqhttpAdapter):
                             bot_client = inst.get_client()
@@ -46,6 +46,8 @@ class MaimaiDXPlugin(Star):
                                 break
                 except Exception as e:
                     log.warning(f'获取 bot client 失败: {e}')
+                    import traceback
+                    log.error(traceback.format_exc())
                 asyncio.ensure_future(ws_alias_server(bot_client))
             else:
                 log.info('别名推送为「关闭」状态')
@@ -117,14 +119,17 @@ class MaimaiDXPlugin(Star):
                 log.info(f'歌曲数据数量: {len(mai.total_list)}')
             else:
                 log.error('歌曲数据未加载！')
-            if hasattr(mai, 'alias') and mai.alias:
-                log.info(f'别名数据数量: {len(mai.alias)}')
+            if hasattr(mai, 'total_alias_list') and mai.total_alias_list:
+                log.info(f'别名数据数量: {len(mai.total_alias_list)}')
             else:
                 log.warning('别名数据未加载')
         except Exception as e:
             log.warning(f'检查数据状态时出错: {e}')
             import traceback
             log.error(traceback.format_exc())
+        
+        # 输出命令注册信息
+        log.info('命令注册完成，等待用户输入...')
 
     async def _daily_update(self):
         """定时任务：每日更新数据"""
@@ -141,9 +146,17 @@ class MaimaiDXPlugin(Star):
         await arcade_daily_update()
 
     # 注册命令处理函数
+    # 测试命令 - 用于验证命令注册是否正常
+    @filter.command("测试maimai")
+    async def test_command(self, event: AstrMessageEvent):
+        """测试命令"""
+        log.info('测试命令被触发')
+        yield event.plain_result('测试命令正常工作！')
+    
     @filter.command("更新maimai数据")
     async def update_data(self, event: AstrMessageEvent):
         """更新maimai数据"""
+        log.info(f'收到更新maimai数据命令')
         from .command.mai_base import update_data_handler
         async for result in update_data_handler(event, self.superusers):
             yield result
@@ -151,9 +164,12 @@ class MaimaiDXPlugin(Star):
     @filter.command(["帮助maimaiDX", "帮助maimaidx"])
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
+        log.info(f'收到帮助命令，来自: {event.get_sender_id()}')
         try:
             from .command.mai_base import maimaidxhelp_handler
+            log.info('开始执行帮助命令处理函数')
             async for result in maimaidxhelp_handler(event):
+                log.info(f'帮助命令返回结果: {type(result)}')
                 yield result
         except Exception as e:
             log.error(f'帮助命令执行失败: {e}')
@@ -190,67 +206,126 @@ class MaimaiDXPlugin(Star):
     @filter.regex(r'.*mai.*什么(.+)?')
     async def mai_what(self, event: AstrMessageEvent):
         """mai什么"""
-        from .command.mai_base import mai_what_handler
-        async for result in mai_what_handler(event):
-            yield result
+        log.info(f'收到mai什么命令: {event.message_str}')
+        try:
+            from .command.mai_base import mai_what_handler
+            async for result in mai_what_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'mai什么命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.regex(r'^[来随给]个((?:dx|sd|标准))?([绿黄红紫白]?)([0-9]+\+?)$')
     async def random_song(self, event: AstrMessageEvent):
         """随机歌曲"""
-        from .command.mai_base import random_song_handler
-        async for result in random_song_handler(event):
-            yield result
+        log.info(f'收到随机歌曲命令: {event.message_str}')
+        try:
+            from .command.mai_base import random_song_handler
+            async for result in random_song_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'随机歌曲命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["查看排名", "查看排行"])
     async def rating_ranking(self, event: AstrMessageEvent):
         """查看排名"""
-        from .command.mai_base import rating_ranking_handler
-        async for result in rating_ranking_handler(event):
-            yield result
+        log.info(f'收到查看排名命令: {event.message_str}')
+        try:
+            from .command.mai_base import rating_ranking_handler
+            async for result in rating_ranking_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'查看排名命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command("我的排名")
     async def my_rating_ranking(self, event: AstrMessageEvent):
         """我的排名"""
-        from .command.mai_base import my_rating_ranking_handler
-        async for result in my_rating_ranking_handler(event):
-            yield result
+        log.info(f'收到我的排名命令: {event.message_str}')
+        try:
+            from .command.mai_base import my_rating_ranking_handler
+            async for result in my_rating_ranking_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'我的排名命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     # 成绩相关命令
     @filter.command(["b50", "B50"])
     async def best50(self, event: AstrMessageEvent):
         """查询最佳50首"""
-        from .command.mai_score import best50_handler
-        async for result in best50_handler(event):
-            yield result
+        log.info(f'收到b50命令: {event.message_str}')
+        try:
+            from .command.mai_score import best50_handler
+            async for result in best50_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'b50命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["minfo", "Minfo", "MINFO", "info", "Info", "INFO"])
     async def minfo(self, event: AstrMessageEvent):
         """查询谱面信息"""
-        from .command.mai_score import minfo_handler
-        async for result in minfo_handler(event):
-            yield result
+        log.info(f'收到minfo命令: {event.message_str}')
+        try:
+            from .command.mai_score import minfo_handler
+            async for result in minfo_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'minfo命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["ginfo", "Ginfo", "GINFO"])
     async def ginfo(self, event: AstrMessageEvent):
         """查询全局统计信息"""
-        from .command.mai_score import ginfo_handler
-        async for result in ginfo_handler(event):
-            yield result
+        log.info(f'收到ginfo命令: {event.message_str}')
+        try:
+            from .command.mai_score import ginfo_handler
+            async for result in ginfo_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'ginfo命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command("分数线")
     async def score(self, event: AstrMessageEvent):
         """查询分数线"""
-        from .command.mai_score import score_handler
-        async for result in score_handler(event):
-            yield result
+        log.info(f'收到分数线命令: {event.message_str}')
+        try:
+            from .command.mai_score import score_handler
+            async for result in score_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'分数线命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     # 搜索相关命令
     @filter.command(["查歌", "search"])
     async def search_music(self, event: AstrMessageEvent):
         """搜索歌曲"""
+        log.info(f'收到查歌命令，消息: {event.message_str}')
         try:
             from .command.mai_search import search_music_handler
+            log.info('开始执行查歌命令处理函数')
             async for result in search_music_handler(event):
+                log.info(f'查歌命令返回结果: {type(result)}')
                 yield result
         except Exception as e:
             log.error(f'查歌命令执行失败: {e}')
@@ -261,44 +336,86 @@ class MaimaiDXPlugin(Star):
     @filter.command(["定数查歌", "search base"])
     async def search_base(self, event: AstrMessageEvent):
         """按定数搜索"""
-        from .command.mai_search import search_base_handler
-        async for result in search_base_handler(event):
-            yield result
+        log.info(f'收到定数查歌命令: {event.message_str}')
+        try:
+            from .command.mai_search import search_base_handler
+            async for result in search_base_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'定数查歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["bpm查歌", "search bpm"])
     async def search_bpm(self, event: AstrMessageEvent):
         """按BPM搜索"""
-        from .command.mai_search import search_bpm_handler
-        async for result in search_bpm_handler(event):
-            yield result
+        log.info(f'收到bpm查歌命令: {event.message_str}')
+        try:
+            from .command.mai_search import search_bpm_handler
+            async for result in search_bpm_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'bpm查歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["曲师查歌", "search artist"])
     async def search_artist(self, event: AstrMessageEvent):
         """按曲师搜索"""
-        from .command.mai_search import search_artist_handler
-        async for result in search_artist_handler(event):
-            yield result
+        log.info(f'收到曲师查歌命令: {event.message_str}')
+        try:
+            from .command.mai_search import search_artist_handler
+            async for result in search_artist_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'曲师查歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["谱师查歌", "search charter"])
     async def search_charter(self, event: AstrMessageEvent):
         """按谱师搜索"""
-        from .command.mai_search import search_charter_handler
-        async for result in search_charter_handler(event):
-            yield result
+        log.info(f'收到谱师查歌命令: {event.message_str}')
+        try:
+            from .command.mai_search import search_charter_handler
+            async for result in search_charter_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'谱师查歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["是什么歌", "是啥歌"])
     async def search_alias_song(self, event: AstrMessageEvent):
         """通过别名搜索"""
-        from .command.mai_search import search_alias_song_handler
-        async for result in search_alias_song_handler(event):
-            yield result
+        log.info(f'收到是什么歌命令: {event.message_str}')
+        try:
+            from .command.mai_search import search_alias_song_handler
+            async for result in search_alias_song_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'是什么歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.regex(r'^id\s?([0-9]+)$')
     async def query_chart(self, event: AstrMessageEvent):
         """通过ID查询"""
-        from .command.mai_search import query_chart_handler
-        async for result in query_chart_handler(event):
-            yield result
+        log.info(f'收到id查询命令: {event.message_str}')
+        try:
+            from .command.mai_search import query_chart_handler
+            async for result in query_chart_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'id查询命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     # 猜歌相关命令
     @filter.command("猜歌")
@@ -342,15 +459,19 @@ class MaimaiDXPlugin(Star):
     @filter.command("更新定数表")
     async def update_table(self, event: AstrMessageEvent):
         """更新定数表"""
+        log.info(f'收到更新定数表命令，来自: {event.get_sender_id()}')
         from .command.mai_table import update_table_handler
         async for result in update_table_handler(event, self.superusers):
+            log.info(f'更新定数表返回结果: {type(result)}')
             yield result
 
     @filter.command("更新完成表")
     async def update_plate(self, event: AstrMessageEvent):
         """更新完成表"""
+        log.info(f'收到更新完成表命令，来自: {event.get_sender_id()}')
         from .command.mai_table import update_plate_handler
         async for result in update_plate_handler(event, self.superusers):
+            log.info(f'更新完成表返回结果: {type(result)}')
             yield result
 
     @filter.command("定数表")
