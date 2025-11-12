@@ -37,7 +37,6 @@ class MaimaiDXPlugin(Star):
         """插件初始化，加载数据并设置定时任务"""
         # 尝试获取 bot 名称
         try:
-            from astrbot.api.platform import AiocqhttpAdapter
             from astrbot.api.event import filter
             platform = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
             if platform:

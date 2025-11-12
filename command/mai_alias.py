@@ -326,10 +326,9 @@ async def push_alias(push: PushAliasStatus, context=None):
     # 获取 bot client
     bot_client = None
     try:
-        from astrbot.api.platform import AiocqhttpAdapter
         from astrbot.api.event import filter
         platform = context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
-        if platform and isinstance(platform, AiocqhttpAdapter):
+        if platform:
             bot_client = platform.get_client()
     except Exception as e:
         log.error(f'获取 bot client 失败: {e}')
@@ -458,12 +457,20 @@ async def ws_alias_server(context=None):
                             data = await ws.receive_str()
                             if data == 'Hello':
                                 log.info('别名推送服务器正常运行')
+                                continue
+                            if not data or not data.strip():
+                                continue
                             try:
                                 newdata = json.loads(data)
                                 status = PushAliasStatus.model_validate(newdata)
                                 await asyncio.create_task(push_alias(status, context))
+                            except json.JSONDecodeError as e:
+                                log.warning(f'别名推送数据 JSON 解析失败: {e}, 数据: {data[:100] if len(data) > 100 else data}')
+                                continue
                             except Exception as e:
                                 log.warning(f'处理别名推送数据失败: {e}')
+                                import traceback
+                                log.debug(traceback.format_exc())
                                 continue
                     except aiohttp.WSServerHandshakeError:
                         log.warning('别名推送服务器已断开连接，将在1分钟后重新尝试连接')
