@@ -7,7 +7,7 @@ from astrbot.api import logger
 ### 必须
 log = logger
 loga = logger
-BOTNAME = "Bot"  # 默认机器人名称，可以从配置中读取
+BOTNAME = "Bot"  # 默认机器人名称，会在插件初始化时从配置中读取并更新
 
 
 # 兼容 MessageSegment 类，避免依赖 hoshino 包

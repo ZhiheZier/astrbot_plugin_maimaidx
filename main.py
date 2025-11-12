@@ -20,6 +20,15 @@ class MaimaiDXPlugin(Star):
         self.config = config or {}
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
+        
+        # 从插件配置中读取 bot 名称并设置到 __init__.py
+        bot_name = self.config.get("bot_name", "Bot")
+        import sys
+        pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
+        if pkg_name in sys.modules:
+            setattr(sys.modules[pkg_name], 'BOTNAME', bot_name)
+            log.info(f'已设置 bot 名称: {bot_name}')
+        
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
         # 使用 context.get_config() 获取配置，字段名为 admins_id
@@ -35,15 +44,6 @@ class MaimaiDXPlugin(Star):
 
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
-        # 从配置中读取 bot 名称
-        bot_name = self.config.get("bot_name", "Bot")
-        if bot_name:
-            import sys
-            # 获取当前包的 __init__ 模块
-            pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
-            if pkg_name in sys.modules:
-                setattr(sys.modules[pkg_name], 'BOTNAME', bot_name)
-                log.info(f'已设置 bot 名称: {bot_name}')
         
         try:
             if maiApi.config.maimaidxproberproxy:
