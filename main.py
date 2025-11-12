@@ -23,10 +23,14 @@ class MaimaiDXPlugin(Star):
         
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
+        from . import _BOTNAME
         import sys
         pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
         if pkg_name in sys.modules:
-            setattr(sys.modules[pkg_name], 'BOTNAME', bot_name)
+            module = sys.modules[pkg_name]
+            # 更新内部变量和公共变量
+            setattr(module, '_BOTNAME', bot_name)
+            setattr(module, 'BOTNAME', bot_name)
             log.info(f'已设置 bot 名称: {bot_name}')
         
         # 从 astrbot 配置文件中获取管理员ID列表

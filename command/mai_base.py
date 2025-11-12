@@ -6,7 +6,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import BOTNAME, Root, log
+from .. import Root, log, get_botname
 from ..libraries.image import image_to_base64, music_picture
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import *
@@ -155,7 +155,10 @@ async def mai_today_handler(event: AstrMessageEvent):
             msg += f'忌 {wm_list[i]}\n'
     music = mai.total_list[h % len(mai.total_list)]
     ds = '/'.join([str(_) for _ in music.ds])
-    msg += f'{BOTNAME} Bot提醒您：打机时不要大力拍打或滑动哦\n今日推荐歌曲：\n'
+    # 动态获取 BOTNAME，确保获取最新值
+    from .. import get_botname
+    botname = get_botname()
+    msg += f'{botname} Bot提醒您：打机时不要大力拍打或滑动哦\n今日推荐歌曲：\n'
     msg += f'ID.{music.id} - {music.title}\n'
     msg += ds
     
