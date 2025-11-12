@@ -47,8 +47,8 @@ class MaimaiDXPlugin(Star):
                         if self_info and 'nickname' in self_info:
                             # 更新 BOTNAME
                             import sys
-                            # 直接更新 __init__.py 模块的 BOTNAME
-                            from . import __name__ as pkg_name
+                            # 获取当前包的 __init__ 模块
+                            pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
                             if pkg_name in sys.modules:
                                 setattr(sys.modules[pkg_name], 'BOTNAME', self_info['nickname'])
                                 log.info(f'已获取 bot 名称: {self_info["nickname"]}')
