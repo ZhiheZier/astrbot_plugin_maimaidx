@@ -367,14 +367,14 @@ class MaimaiDXPlugin(Star):
         async for result in update_plate_handler(event, self.superusers):
             yield result
 
-    @filter.regex(r'^(.+?)定数表$')
+    @filter.regex(r'^(?!更新)(.+?)定数表$')
     async def rating_table(self, event: AstrMessageEvent):
         """定数表命令"""
         from .command.mai_table import rating_table_handler
         async for result in rating_table_handler(event):
             yield result
 
-    @filter.regex(r'^(.+?)完成表$')
+    @filter.regex(r'^(?!更新)(.+?)完成表$')
     async def table_pfm(self, event: AstrMessageEvent):
         """完成表命令"""
         from .command.mai_table import table_pfm_handler
