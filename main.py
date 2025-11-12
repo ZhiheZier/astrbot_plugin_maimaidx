@@ -14,7 +14,7 @@ from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
 from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn
 
-@register("astrbot_plugin_maimaidx", "Yuri-YuzuChaN", "maimaiDX 查分插件", "1.0.0")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX 查分插件", "1.0.0")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
@@ -36,11 +36,13 @@ class MaimaiDXPlugin(Star):
             # 获取 bot client 用于别名推送
             bot_client = None
             try:
-                # 尝试从 context 获取 bot client
-                adapters = self.context.get_adapters()
-                if adapters:
-                    adapter = list(adapters.values())[0]
-                    bot_client = adapter.get_client() if hasattr(adapter, 'get_client') else None
+                # 从 platform_manager 获取适配器实例
+                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_adapter import AiocqhttpAdapter
+                for inst in self.context.platform_manager.platform_insts:
+                    if isinstance(inst, AiocqhttpAdapter):
+                        bot_client = inst.get_client()
+                        if bot_client:
+                            break
             except Exception as e:
                 log.warning(f'获取 bot client 失败: {e}')
             asyncio.ensure_future(ws_alias_server(bot_client))

@@ -34,15 +34,22 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 
 ### 3. 安装依赖
 
+**重要：AstrBot 不会自动安装插件依赖，需要手动安装。**
+
+安装 Python 依赖：
+
 ```bash
+cd astrbot_plugin_maimaidx
 pip install -r requirements.txt
 ```
 
 安装 Chromium（用于图片生成）：
 
 ```bash
-playwright install --with-deps chromium
+python -m playwright install --with-deps chromium
 ```
+
+**注意**：在 Windows 上需要使用 `python -m playwright` 而不是直接使用 `playwright` 命令。
 
 安装字体（Linux 系统，Windows 可跳过）：
 
