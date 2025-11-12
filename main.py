@@ -26,36 +26,41 @@ class MaimaiDXPlugin(Star):
 
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
-        if maiApi.config.maimaidxproberproxy:
-            log.info('正在使用代理服务器访问查分器')
-        if maiApi.config.maimaidxaliasproxy:
-            log.info('正在使用代理服务器访问别名服务器')
-        maiApi.load_token_proxy()
-        if maiApi.config.maimaidxaliaspush:
-            log.info('别名推送为「开启」状态')
-            # 获取 bot client 用于别名推送
-            bot_client = None
-            try:
-                # 从 platform_manager 获取适配器实例
-                from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_adapter import AiocqhttpAdapter
-                for inst in self.context.platform_manager.platform_insts:
-                    if isinstance(inst, AiocqhttpAdapter):
-                        bot_client = inst.get_client()
-                        if bot_client:
-                            break
-            except Exception as e:
-                log.warning(f'获取 bot client 失败: {e}')
-            asyncio.ensure_future(ws_alias_server(bot_client))
-        else:
-            log.info('别名推送为「关闭」状态')
-        log.info('正在获取maimai所有曲目信息')
-        await mai.get_music()
-        log.info('正在获取maimai牌子数据')
-        await mai.get_plate_json()
-        log.info('正在获取maimai所有曲目别名信息')
-        await mai.get_music_alias()
-        mai.guess()
-        log.info('maimai数据获取完成')
+        try:
+            if maiApi.config.maimaidxproberproxy:
+                log.info('正在使用代理服务器访问查分器')
+            if maiApi.config.maimaidxaliasproxy:
+                log.info('正在使用代理服务器访问别名服务器')
+            maiApi.load_token_proxy()
+            if maiApi.config.maimaidxaliaspush:
+                log.info('别名推送为「开启」状态')
+                # 获取 bot client 用于别名推送
+                bot_client = None
+                try:
+                    # 从 platform_manager 获取适配器实例
+                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_adapter import AiocqhttpAdapter
+                    for inst in self.context.platform_manager.platform_insts:
+                        if isinstance(inst, AiocqhttpAdapter):
+                            bot_client = inst.get_client()
+                            if bot_client:
+                                break
+                except Exception as e:
+                    log.warning(f'获取 bot client 失败: {e}')
+                asyncio.ensure_future(ws_alias_server(bot_client))
+            else:
+                log.info('别名推送为「关闭」状态')
+            log.info('正在获取maimai所有曲目信息')
+            await mai.get_music()
+            log.info('正在获取maimai牌子数据')
+            await mai.get_plate_json()
+            log.info('正在获取maimai所有曲目别名信息')
+            await mai.get_music_alias()
+            mai.guess()
+            log.info('maimai数据获取完成')
+        except Exception as e:
+            log.error(f'插件初始化失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
         
         # 初始化机厅数据
         try:
@@ -106,6 +111,20 @@ class MaimaiDXPlugin(Star):
             misfire_grace_time=300
         )
         log.info('maimaiDX插件初始化完成')
+        # 输出调试信息：检查数据是否加载成功
+        try:
+            if hasattr(mai, 'total_list') and mai.total_list:
+                log.info(f'歌曲数据数量: {len(mai.total_list)}')
+            else:
+                log.error('歌曲数据未加载！')
+            if hasattr(mai, 'alias') and mai.alias:
+                log.info(f'别名数据数量: {len(mai.alias)}')
+            else:
+                log.warning('别名数据未加载')
+        except Exception as e:
+            log.warning(f'检查数据状态时出错: {e}')
+            import traceback
+            log.error(traceback.format_exc())
 
     async def _daily_update(self):
         """定时任务：每日更新数据"""
@@ -132,23 +151,41 @@ class MaimaiDXPlugin(Star):
     @filter.command(["帮助maimaiDX", "帮助maimaidx"])
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
-        from .command.mai_base import maimaidxhelp_handler
-        async for result in maimaidxhelp_handler(event):
-            yield result
+        try:
+            from .command.mai_base import maimaidxhelp_handler
+            async for result in maimaidxhelp_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'帮助命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["项目地址maimaiDX", "项目地址maimaidx"])
     async def maimaidxrepo(self, event: AstrMessageEvent):
         """项目地址"""
-        from .command.mai_base import maimaidxrepo_handler
-        async for result in maimaidxrepo_handler(event):
-            yield result
+        try:
+            from .command.mai_base import maimaidxrepo_handler
+            async for result in maimaidxrepo_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'项目地址命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["今日mai", "今日舞萌", "今日运势"])
     async def mai_today(self, event: AstrMessageEvent):
         """今日运势"""
-        from .command.mai_base import mai_today_handler
-        async for result in mai_today_handler(event):
-            yield result
+        try:
+            from .command.mai_base import mai_today_handler
+            async for result in mai_today_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'今日运势命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.regex(r'.*mai.*什么(.+)?')
     async def mai_what(self, event: AstrMessageEvent):
@@ -211,9 +248,15 @@ class MaimaiDXPlugin(Star):
     @filter.command(["查歌", "search"])
     async def search_music(self, event: AstrMessageEvent):
         """搜索歌曲"""
-        from .command.mai_search import search_music_handler
-        async for result in search_music_handler(event):
-            yield result
+        try:
+            from .command.mai_search import search_music_handler
+            async for result in search_music_handler(event):
+                yield result
+        except Exception as e:
+            log.error(f'查歌命令执行失败: {e}')
+            import traceback
+            log.error(traceback.format_exc())
+            yield event.plain_result(f'命令执行失败: {e}')
 
     @filter.command(["定数查歌", "search base"])
     async def search_base(self, event: AstrMessageEvent):

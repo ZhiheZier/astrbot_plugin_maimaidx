@@ -48,39 +48,51 @@ def _text_to_image_chain(text: str):
 
 async def search_music_handler(event: AstrMessageEvent):
     """查歌/search - 搜索歌曲"""
-    message_str = event.message_str.strip()
-    # 移除命令前缀
-    name = message_str.replace('查歌', '').replace('search', '').strip()
-    
-    if not name:
-        yield event.plain_result('请输入关键词')
-        return
-    
-    result = mai.total_list.filter(title_search=name)
-    if len(result) == 0:
-        yield event.plain_result('没有找到这样的乐曲。\n※ 如果是别名请使用「xxx是什么歌」指令来查询哦。')
-        return
-    
-    if len(result) == 1:
-        result_msg = await draw_music_info(result.random(), event.get_sender_id())
-        chain = convert_message_segment_to_chain(result_msg)
+    try:
+        message_str = event.message_str.strip()
+        # 移除命令前缀
+        name = message_str.replace('查歌', '').replace('search', '').strip()
+        
+        if not name:
+            yield event.plain_result('请输入关键词')
+            return
+        
+        # 检查数据是否加载
+        if not hasattr(mai, 'total_list') or not mai.total_list:
+            yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+            return
+        
+        result = mai.total_list.filter(title_search=name)
+        if len(result) == 0:
+            yield event.plain_result('没有找到这样的乐曲。\n※ 如果是别名请使用「xxx是什么歌」指令来查询哦。')
+            return
+        
+        if len(result) == 1:
+            result_msg = await draw_music_info(result.random(), event.get_sender_id())
+            chain = convert_message_segment_to_chain(result_msg)
+            yield event.chain_result(chain)
+            return
+        
+        page = 1
+        search_result = ''
+        result.sort(key=lambda i: int(i.id))
+        for i, music in enumerate(result):
+            if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
+                search_result += f'{f"「{music.id}」":<7} {music.title}\n'
+        search_result += (
+            f'第「{page}」页，'
+            f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
+            '请使用「id xxxxx」查询指定曲目。'
+        )
+        
+        chain = _text_to_image_chain(search_result)
         yield event.chain_result(chain)
-        return
-    
-    page = 1
-    search_result = ''
-    result.sort(key=lambda i: int(i.id))
-    for i, music in enumerate(result):
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            search_result += f'{f"「{music.id}」":<7} {music.title}\n'
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    
-    chain = _text_to_image_chain(search_result)
-    yield event.chain_result(chain)
+    except Exception as e:
+        from .. import log
+        import traceback
+        log.error(f'查歌命令执行失败: {e}')
+        log.error(traceback.format_exc())
+        yield event.plain_result(f'查歌失败: {e}')
 
 
 async def search_base_handler(event: AstrMessageEvent):
