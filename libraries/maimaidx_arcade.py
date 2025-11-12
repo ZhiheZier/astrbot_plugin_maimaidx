@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 import traceback
@@ -134,20 +135,27 @@ class ArcadeData:
     
     async def getArcade(self):
         self.total = await download_arcade_info()
-        self.idList = [int(c_a.id) for c_a in self.total]
+        # 确保 self.total 不为 None 且是有效的列表
+        if self.total is None or not isinstance(self.total, ArcadeList):
+            loga.warning('机厅数据获取失败，使用空列表')
+            self.total = ArcadeList()
+            self.idList = []
+        else:
+            self.idList = [int(c_a.id) for c_a in self.total]
 
 arcade = ArcadeData()
 
 
 async def download_arcade_info(save: bool = True) -> ArcadeList:
+    arcadelist = ArcadeList()
     try:
-        async with aiohttp.request('GET', 'http://wc.wahlap.net/maidx/rest/location', timeout=aiohttp.ClientTimeout(total=30)) as req:
+        async with aiohttp.request('GET', 'http://wc.wahlap.net/maidx/rest/location', timeout=aiohttp.ClientTimeout(total=60)) as req:
             if req.status == 200:
                 data = await req.json()
             else:
                 data = None
-                loga.error('获取机厅信息失败')
-        arcadelist = ArcadeList()
+                loga.warning(f'获取机厅信息失败，HTTP状态码: {req.status}')
+        
         if data is not None:
             if not arcade.arcades:
                 for num in range(len(data)):
@@ -197,14 +205,27 @@ async def download_arcade_info(save: bool = True) -> ArcadeList:
                 if int(n['id']) >= 10000:
                     arcadelist.append(Arcade.model_validate(n))
         else:
+            # 网络请求失败，使用本地数据
+            loga.warning('网络请求失败，使用本地机厅数据')
             for _a in arcade.arcades:
                 arcadelist.append(Arcade.model_validate(_a))
-        if save:
+        
+        if save and arcadelist:
             await writefile(arcades_json, [_.model_dump() for _ in arcadelist])
         return arcadelist
-    except Exception:
+    except asyncio.TimeoutError:
+        loga.error('获取机厅信息超时，使用本地数据')
+        # 超时时返回本地数据
+        for _a in arcade.arcades:
+            arcadelist.append(Arcade.model_validate(_a))
+        return arcadelist
+    except Exception as e:
+        loga.error(f'获取机厅信息失败: {e}')
         loga.error(f'Error: {traceback.format_exc()}')
-        loga.error('获取机厅信息失败')
+        # 异常时返回本地数据，确保不会返回 None
+        for _a in arcade.arcades:
+            arcadelist.append(Arcade.model_validate(_a))
+        return arcadelist
 
 
 async def updata_arcade(arcadeName: str, num: str):
