@@ -16,6 +16,42 @@ from ..libraries.maimaidx_player_score import rating_ranking_data
 from ..libraries.tool import qqhash
 
 
+def extract_at_qqid(event: AstrMessageEvent):
+    """
+    从消息中提取 @ 的 QQ ID
+    
+    Args:
+        event: AstrMessageEvent 对象
+    
+    Returns:
+        被 @ 的 QQ ID（字符串），如果没有 @ 消息则返回 None
+    """
+    if not event.message_obj or not event.message_obj.message:
+        return None
+    
+    # 遍历消息链，查找 At 组件
+    for component in event.message_obj.message:
+        # 检查是否是 At 组件
+        # Comp.At 组件可能有 qq 属性，或者通过 type 和 data 访问
+        if hasattr(component, 'qq'):
+            qq_id = component.qq
+            if qq_id:
+                return str(qq_id)
+        elif hasattr(component, 'type') and component.type == 'at':
+            # 通过 data 字典访问
+            if hasattr(component, 'data') and 'qq' in component.data:
+                qq_id = component.data['qq']
+                if qq_id:
+                    return str(qq_id)
+            # 或者直接有 qq 属性
+            elif hasattr(component, 'qq'):
+                qq_id = component.qq
+                if qq_id:
+                    return str(qq_id)
+    
+    return None
+
+
 def convert_message_segment_to_chain(msg):
     """将 MessageSegment 转换为 astrbot 的 MessageChain"""
     if isinstance(msg, str):
