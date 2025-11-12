@@ -1,33 +1,11 @@
 import math
 import traceback
 from io import BytesIO
-from typing import Optional, Tuple, Union, overload, Any
+from typing import Optional, Tuple, Union, overload
 
 from PIL import Image, ImageDraw
 
-# 兼容类：用于兼容 Hoshino 的 MessageSegment
-# 实际运行时，这些函数返回的对象会被 convert_message_segment_to_chain() 处理
-class MessageSegment:
-    """兼容 Hoshino MessageSegment 的类，用于类型注解和运行时调用"""
-    
-    def __init__(self, type: str, data: dict):
-        self.type = type
-        self.data = data
-    
-    @staticmethod
-    def image(base64_data: str):
-        """创建图片消息片段"""
-        # 确保 base64 数据有 base64:// 前缀
-        if not base64_data.startswith('base64://'):
-            base64_data = f'base64://{base64_data}'
-        return MessageSegment('image', {'file': base64_data})
-    
-    @staticmethod
-    def text(text: str):
-        """创建文本消息片段"""
-        return MessageSegment('text', {'text': text})
-
-from .. import *
+from .. import MessageSegment
 from .image import DrawText, image_to_base64, music_picture
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import *

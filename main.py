@@ -1,31 +1,62 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent, EventMessageType
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
-from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterType
-from astrbot.core.star.filter.event_message_type import EventMessageType
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from pathlib import Path
 import asyncio
 
-from .command.mai_alias import ws_alias_server
+from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
-from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn
+from .command.mai_alias import ws_alias_server
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX 查分插件", "1.0.0")
+
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.0.0")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         self.config = config or {}
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
-        # 从配置中获取超级管理员列表
-        self.superusers = self.config.get("superusers", [])
+        # 从 astrbot 配置文件中获取管理员ID列表
+        # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
+        # 使用 context.get_config() 获取配置，字段名为 admins_id
+        bot_config = context.get_config()
+        admins = bot_config.get("admins_id", [])
+        # 确保所有ID都是字符串格式
+        self.superusers = [str(admin) for admin in admins] if admins else []
+        
+        if self.superusers:
+            log.info(f'从 astrbot 配置中获取到管理员ID列表: {self.superusers}')
+        else:
+            log.warning('未找到任何管理员ID，某些需要管理员权限的命令可能无法使用')
 
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
+        # 尝试获取 bot 名称
+        try:
+            from astrbot.api.platform import AiocqhttpAdapter
+            from astrbot.api.event import filter
+            platform = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
+            if platform:
+                bot_client = platform.get_client()
+                if bot_client:
+                    try:
+                        self_info = await bot_client.get_self_info()
+                        if self_info and 'nickname' in self_info:
+                            # 更新 BOTNAME
+                            import sys
+                            # 直接更新 __init__.py 模块的 BOTNAME
+                            from . import __name__ as pkg_name
+                            if pkg_name in sys.modules:
+                                setattr(sys.modules[pkg_name], 'BOTNAME', self_info['nickname'])
+                                log.info(f'已获取 bot 名称: {self_info["nickname"]}')
+                    except Exception as e:
+                        log.warning(f'获取 bot 名称失败，使用默认值: {e}')
+        except Exception as e:
+            log.warning(f'获取 bot 平台失败，使用默认 bot 名称: {e}')
+        
         try:
             if maiApi.config.maimaidxproberproxy:
                 log.info('正在使用代理服务器访问查分器')
@@ -34,35 +65,34 @@ class MaimaiDXPlugin(Star):
             maiApi.load_token_proxy()
             if maiApi.config.maimaidxaliaspush:
                 log.info('别名推送为「开启」状态')
-                # 获取 bot client 用于别名推送
-                bot_client = None
-                try:
-                    # 从 platform_manager 获取适配器实例
-                    from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_platform_adapter import AiocqhttpAdapter
-                    for inst in self.context.platform_manager.platform_insts:
-                        if isinstance(inst, AiocqhttpAdapter):
-                            bot_client = inst.get_client()
-                            if bot_client:
-                                break
-                except Exception as e:
-                    log.warning(f'获取 bot client 失败: {e}')
-                    import traceback
-                    log.error(traceback.format_exc())
-                asyncio.ensure_future(ws_alias_server(bot_client))
+                # 启动别名推送 WebSocket 服务器
+                asyncio.ensure_future(ws_alias_server(self.context))
             else:
                 log.info('别名推送为「关闭」状态')
+            
             log.info('正在获取maimai所有曲目信息')
             await mai.get_music()
+            log.info(f'歌曲数据获取完成，数量: {len(mai.total_list) if hasattr(mai, "total_list") and mai.total_list else 0}')
+            
             log.info('正在获取maimai牌子数据')
             await mai.get_plate_json()
+            log.info('牌子数据获取完成')
+            
             log.info('正在获取maimai所有曲目别名信息')
             await mai.get_music_alias()
+            log.info(f'别名数据获取完成，数量: {len(mai.total_alias_list) if hasattr(mai, "total_alias_list") and mai.total_alias_list else 0}')
+            
+            log.info('正在初始化猜歌数据')
             mai.guess()
+            log.info('猜歌数据初始化完成')
+            
             log.info('maimai数据获取完成')
         except Exception as e:
             log.error(f'插件初始化失败: {e}')
             import traceback
             log.error(traceback.format_exc())
+            # 即使初始化失败，也继续执行，让命令可以注册
+            log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
         
         # 初始化机厅数据
         try:
@@ -142,21 +172,18 @@ class MaimaiDXPlugin(Star):
     
     async def _arcade_daily_update(self):
         """机厅数据每日更新 - 每天凌晨3点执行"""
-        from .command.mai_arcade import arcade_daily_update
-        await arcade_daily_update()
+        try:
+            from .libraries.maimaidx_arcade import arcade
+            await arcade.getArcade()
+            loga.info('maimai机厅数据更新完成')
+        except Exception as e:
+            loga.error(f'机厅数据更新失败: {e}')
 
     # 注册命令处理函数
-    # 测试命令 - 用于验证命令注册是否正常
-    @filter.command("测试maimai")
-    async def test_command(self, event: AstrMessageEvent):
-        """测试命令"""
-        log.info('测试命令被触发')
-        yield event.plain_result('测试命令正常工作！')
-    
+    # 基础命令
     @filter.command("更新maimai数据")
     async def update_data(self, event: AstrMessageEvent):
         """更新maimai数据"""
-        log.info(f'收到更新maimai数据命令')
         from .command.mai_base import update_data_handler
         async for result in update_data_handler(event, self.superusers):
             yield result
@@ -164,354 +191,220 @@ class MaimaiDXPlugin(Star):
     @filter.command(["帮助maimaiDX", "帮助maimaidx"])
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
-        log.info(f'收到帮助命令，来自: {event.get_sender_id()}')
-        try:
-            from .command.mai_base import maimaidxhelp_handler
-            log.info('开始执行帮助命令处理函数')
-            async for result in maimaidxhelp_handler(event):
-                log.info(f'帮助命令返回结果: {type(result)}')
-                yield result
-        except Exception as e:
-            log.error(f'帮助命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import maimaidxhelp_handler
+        async for result in maimaidxhelp_handler(event):
+            yield result
 
     @filter.command(["项目地址maimaiDX", "项目地址maimaidx"])
     async def maimaidxrepo(self, event: AstrMessageEvent):
         """项目地址"""
-        try:
-            from .command.mai_base import maimaidxrepo_handler
-            async for result in maimaidxrepo_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'项目地址命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import maimaidxrepo_handler
+        async for result in maimaidxrepo_handler(event):
+            yield result
 
     @filter.command(["今日mai", "今日舞萌", "今日运势"])
     async def mai_today(self, event: AstrMessageEvent):
         """今日运势"""
-        try:
-            from .command.mai_base import mai_today_handler
-            async for result in mai_today_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'今日运势命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import mai_today_handler
+        async for result in mai_today_handler(event):
+            yield result
 
     @filter.regex(r'.*mai.*什么(.+)?')
     async def mai_what(self, event: AstrMessageEvent):
         """mai什么"""
-        log.info(f'收到mai什么命令: {event.message_str}')
-        try:
-            from .command.mai_base import mai_what_handler
-            async for result in mai_what_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'mai什么命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import mai_what_handler
+        async for result in mai_what_handler(event):
+            yield result
 
     @filter.regex(r'^[来随给]个((?:dx|sd|标准))?([绿黄红紫白]?)([0-9]+\+?)$')
     async def random_song(self, event: AstrMessageEvent):
         """随机歌曲"""
-        log.info(f'收到随机歌曲命令: {event.message_str}')
-        try:
-            from .command.mai_base import random_song_handler
-            async for result in random_song_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'随机歌曲命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import random_song_handler
+        async for result in random_song_handler(event):
+            yield result
 
     @filter.command(["查看排名", "查看排行"])
     async def rating_ranking(self, event: AstrMessageEvent):
         """查看排名"""
-        log.info(f'收到查看排名命令: {event.message_str}')
-        try:
-            from .command.mai_base import rating_ranking_handler
-            async for result in rating_ranking_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'查看排名命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import rating_ranking_handler
+        async for result in rating_ranking_handler(event):
+            yield result
 
     @filter.command("我的排名")
     async def my_rating_ranking(self, event: AstrMessageEvent):
         """我的排名"""
-        log.info(f'收到我的排名命令: {event.message_str}')
-        try:
-            from .command.mai_base import my_rating_ranking_handler
-            async for result in my_rating_ranking_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'我的排名命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        from .command.mai_base import my_rating_ranking_handler
+        async for result in my_rating_ranking_handler(event):
+            yield result
 
-    # 成绩相关命令
-    @filter.command(["b50", "B50"])
+    # 成绩查询命令
+    @filter.regex(r'^(b50|B50)\s*(.*)$')
     async def best50(self, event: AstrMessageEvent):
-        """查询最佳50首"""
-        log.info(f'收到b50命令: {event.message_str}')
-        try:
-            from .command.mai_score import best50_handler
-            async for result in best50_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'b50命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """b50/B50 命令"""
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event):
+            yield result
 
-    @filter.command(["minfo", "Minfo", "MINFO", "info", "Info", "INFO"])
+    @filter.regex(r'^(minfo|Minfo|MINFO|info|Info|INFO)\s*(.*)$')
     async def minfo(self, event: AstrMessageEvent):
-        """查询谱面信息"""
-        log.info(f'收到minfo命令: {event.message_str}')
-        try:
-            from .command.mai_score import minfo_handler
-            async for result in minfo_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'minfo命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """minfo/info 命令"""
+        from .command.mai_score import minfo_handler
+        async for result in minfo_handler(event):
+            yield result
 
-    @filter.command(["ginfo", "Ginfo", "GINFO"])
+    @filter.regex(r'^(ginfo|Ginfo|GINFO)\s*(.*)$')
     async def ginfo(self, event: AstrMessageEvent):
-        """查询全局统计信息"""
-        log.info(f'收到ginfo命令: {event.message_str}')
-        try:
-            from .command.mai_score import ginfo_handler
-            async for result in ginfo_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'ginfo命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """ginfo 命令"""
+        from .command.mai_score import ginfo_handler
+        async for result in ginfo_handler(event):
+            yield result
 
-    @filter.command("分数线")
+    @filter.regex(r'^分数线\s*(.*)$')
     async def score(self, event: AstrMessageEvent):
-        """查询分数线"""
-        log.info(f'收到分数线命令: {event.message_str}')
-        try:
-            from .command.mai_score import score_handler
-            async for result in score_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'分数线命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """分数线命令"""
+        from .command.mai_score import score_handler
+        async for result in score_handler(event):
+            yield result
 
-    # 搜索相关命令
-    @filter.command(["查歌", "search"])
+    # 搜索命令
+    @filter.regex(r'^(查歌|search)\s*(.*)$')
     async def search_music(self, event: AstrMessageEvent):
-        """搜索歌曲"""
-        log.info(f'收到查歌命令，消息: {event.message_str}')
-        try:
-            from .command.mai_search import search_music_handler
-            log.info('开始执行查歌命令处理函数')
-            async for result in search_music_handler(event):
-                log.info(f'查歌命令返回结果: {type(result)}')
-                yield result
-        except Exception as e:
-            log.error(f'查歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """查歌/search 命令"""
+        from .command.mai_search import search_music_handler
+        async for result in search_music_handler(event):
+            yield result
 
-    @filter.command(["定数查歌", "search base"])
+    @filter.regex(r'^(定数查歌|search base)\s*(.*)$')
     async def search_base(self, event: AstrMessageEvent):
-        """按定数搜索"""
-        log.info(f'收到定数查歌命令: {event.message_str}')
-        try:
-            from .command.mai_search import search_base_handler
-            async for result in search_base_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'定数查歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """定数查歌命令"""
+        from .command.mai_search import search_base_handler
+        async for result in search_base_handler(event):
+            yield result
 
-    @filter.command(["bpm查歌", "search bpm"])
+    @filter.regex(r'^(bpm查歌|search bpm)\s*(.*)$')
     async def search_bpm(self, event: AstrMessageEvent):
-        """按BPM搜索"""
-        log.info(f'收到bpm查歌命令: {event.message_str}')
-        try:
-            from .command.mai_search import search_bpm_handler
-            async for result in search_bpm_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'bpm查歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """bpm查歌命令"""
+        from .command.mai_search import search_bpm_handler
+        async for result in search_bpm_handler(event):
+            yield result
 
-    @filter.command(["曲师查歌", "search artist"])
+    @filter.regex(r'^(曲师查歌|search artist)\s*(.*)$')
     async def search_artist(self, event: AstrMessageEvent):
-        """按曲师搜索"""
-        log.info(f'收到曲师查歌命令: {event.message_str}')
-        try:
-            from .command.mai_search import search_artist_handler
-            async for result in search_artist_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'曲师查歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """曲师查歌命令"""
+        from .command.mai_search import search_artist_handler
+        async for result in search_artist_handler(event):
+            yield result
 
-    @filter.command(["谱师查歌", "search charter"])
+    @filter.regex(r'^(谱师查歌|search charter)\s*(.*)$')
     async def search_charter(self, event: AstrMessageEvent):
-        """按谱师搜索"""
-        log.info(f'收到谱师查歌命令: {event.message_str}')
-        try:
-            from .command.mai_search import search_charter_handler
-            async for result in search_charter_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'谱师查歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """谱师查歌命令"""
+        from .command.mai_search import search_charter_handler
+        async for result in search_charter_handler(event):
+            yield result
 
-    @filter.command(["是什么歌", "是啥歌"])
+    @filter.regex(r'^(.+?)(是什么歌|是啥歌)$')
     async def search_alias_song(self, event: AstrMessageEvent):
-        """通过别名搜索"""
-        log.info(f'收到是什么歌命令: {event.message_str}')
-        try:
-            from .command.mai_search import search_alias_song_handler
-            async for result in search_alias_song_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'是什么歌命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """是什么歌/是啥歌命令"""
+        from .command.mai_search import search_alias_song_handler
+        async for result in search_alias_song_handler(event):
+            yield result
 
     @filter.regex(r'^id\s?([0-9]+)$')
     async def query_chart(self, event: AstrMessageEvent):
-        """通过ID查询"""
-        log.info(f'收到id查询命令: {event.message_str}')
-        try:
-            from .command.mai_search import query_chart_handler
-            async for result in query_chart_handler(event):
-                yield result
-        except Exception as e:
-            log.error(f'id查询命令执行失败: {e}')
-            import traceback
-            log.error(traceback.format_exc())
-            yield event.plain_result(f'命令执行失败: {e}')
+        """id 命令"""
+        from .command.mai_search import query_chart_handler
+        async for result in query_chart_handler(event):
+            yield result
 
-    # 猜歌相关命令
+    # 猜歌命令
     @filter.command("猜歌")
-    async def guess_music_start(self, event: AstrMessageEvent):
-        """开始猜歌"""
-        from .command.mai_guess import guess_music_start_handler
-        async for result in guess_music_start_handler(event):
+    async def guess_music(self, event: AstrMessageEvent):
+        """猜歌命令"""
+        from .command.mai_guess import guess_music_handler
+        async for result in guess_music_handler(event):
             yield result
 
     @filter.command("猜曲绘")
     async def guess_pic(self, event: AstrMessageEvent):
-        """开始猜曲绘"""
+        """猜曲绘命令"""
         from .command.mai_guess import guess_pic_handler
         async for result in guess_pic_handler(event):
             yield result
 
     @filter.command("重置猜歌")
     async def reset_guess(self, event: AstrMessageEvent):
-        """重置猜歌"""
+        """重置猜歌命令"""
         from .command.mai_guess import reset_guess_handler
         async for result in reset_guess_handler(event):
             yield result
 
-    @filter.command(["开启mai猜歌", "关闭mai猜歌"])
+    @filter.regex(r'^(开启|关闭)mai猜歌$')
     async def guess_on_off(self, event: AstrMessageEvent):
-        """开启/关闭猜歌功能"""
+        """开启/关闭mai猜歌命令"""
         from .command.mai_guess import guess_on_off_handler
         async for result in guess_on_off_handler(event):
             yield result
 
-    # 猜歌答案监听 - 只监听群消息，不阻塞其他命令
-    @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP)
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def guess_music_solve(self, event: AstrMessageEvent):
-        """处理猜歌答案"""
+        """猜歌答案监听（监听所有群消息）"""
         from .command.mai_guess import guess_music_solve_handler
         async for result in guess_music_solve_handler(event):
             yield result
 
-    # 表格相关命令
+    # 定数表/完成表命令
     @filter.command("更新定数表")
     async def update_table(self, event: AstrMessageEvent):
-        """更新定数表"""
-        log.info(f'收到更新定数表命令，来自: {event.get_sender_id()}')
+        """更新定数表命令"""
         from .command.mai_table import update_table_handler
         async for result in update_table_handler(event, self.superusers):
-            log.info(f'更新定数表返回结果: {type(result)}')
             yield result
 
     @filter.command("更新完成表")
     async def update_plate(self, event: AstrMessageEvent):
-        """更新完成表"""
-        log.info(f'收到更新完成表命令，来自: {event.get_sender_id()}')
+        """更新完成表命令"""
         from .command.mai_table import update_plate_handler
         async for result in update_plate_handler(event, self.superusers):
-            log.info(f'更新完成表返回结果: {type(result)}')
             yield result
 
-    @filter.command("定数表")
+    @filter.regex(r'^(.+?)定数表$')
     async def rating_table(self, event: AstrMessageEvent):
-        """查询定数表"""
+        """定数表命令"""
         from .command.mai_table import rating_table_handler
         async for result in rating_table_handler(event):
             yield result
 
-    @filter.command("完成表")
+    @filter.regex(r'^(.+?)完成表$')
     async def table_pfm(self, event: AstrMessageEvent):
-        """查询完成表"""
+        """完成表命令"""
         from .command.mai_table import table_pfm_handler
         async for result in table_pfm_handler(event):
             yield result
 
-    @filter.regex(r'^我要在?([0-9]+\+?)?[上加\+]([0-9]+)?分\s?(.+)?')
+    @filter.regex(r'^我要在?([0-9]+\+?)?[上加\+]([0-9]+)?分\s?(.+)?$')
     async def rise_score(self, event: AstrMessageEvent):
-        """查询上分数据"""
+        """我要在x+上x分命令"""
         from .command.mai_table import rise_score_handler
         async for result in rise_score_handler(event):
             yield result
 
-    @filter.regex(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜])([極极将舞神者]舞?)进度\s?(.+)?')
+    @filter.regex(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜])([極极将舞神者]舞?)进度\s?(.+)?$')
     async def plate_process(self, event: AstrMessageEvent):
-        """查询牌子进度"""
+        """牌子进度命令"""
         from .command.mai_table import plate_process_handler
         async for result in plate_process_handler(event):
             yield result
 
-    @filter.regex(r'^([0-9]+\+?)\s?([abcdsfxp\+]+)\s?([\u4e00-\u9fa5]+)?进度\s?([0-9]+)?\s?(.+)?')
+    @filter.regex(r'^([0-9]+\+?)\s?([abcdsfxp\+]+)\s?([\u4e00-\u9fa5]+)?进度\s?([0-9]+)?\s?(.+)?$')
     async def level_process(self, event: AstrMessageEvent):
-        """查询等级进度"""
+        """等级进度命令"""
         from .command.mai_table import level_process_handler
         async for result in level_process_handler(event):
             yield result
 
-    @filter.regex(r'^([0-9]+\.?[0-9]?\+?)分数列表\s?([0-9]+)?\s?(.+)?')
+    @filter.regex(r'^([0-9]+\.?[0-9]?\+?)分数列表\s?([0-9]+)?\s?(.+)?$')
     async def level_achievement_list(self, event: AstrMessageEvent):
-        """查询分数列表"""
+        """分数列表命令"""
         from .command.mai_table import level_achievement_list_handler
         async for result in level_achievement_list_handler(event):
             yield result
@@ -519,104 +412,97 @@ class MaimaiDXPlugin(Star):
     # 别名相关命令
     @filter.command("更新别名库")
     async def update_alias(self, event: AstrMessageEvent):
-        """更新别名库"""
+        """更新别名库命令"""
         from .command.mai_alias import update_alias_handler
         async for result in update_alias_handler(event, self.superusers):
             yield result
 
-    @filter.command("全局开启别名推送")
-    async def alias_switch_on(self, event: AstrMessageEvent):
-        """全局开启别名推送"""
-        from .command.mai_alias import alias_switch_on_handler
-        async for result in alias_switch_on_handler(event, self.superusers):
+    @filter.command(["全局开启别名推送", "全局关闭别名推送"])
+    async def alias_switch_on_off(self, event: AstrMessageEvent):
+        """全局开启/关闭别名推送命令"""
+        from .command.mai_alias import alias_switch_on_off_handler
+        async for result in alias_switch_on_off_handler(event, self.superusers):
             yield result
 
-    @filter.command("全局关闭别名推送")
-    async def alias_switch_off(self, event: AstrMessageEvent):
-        """全局关闭别名推送"""
-        from .command.mai_alias import alias_switch_off_handler
-        async for result in alias_switch_off_handler(event, self.superusers):
-            yield result
-
-    @filter.command(["添加本地别名", "添加本地别称"])
+    @filter.regex(r'^(添加本地别名|添加本地别称)\s+(.+)$')
     async def alias_local_apply(self, event: AstrMessageEvent):
-        """添加本地别名"""
+        """添加本地别名命令"""
         from .command.mai_alias import alias_local_apply_handler
         async for result in alias_local_apply_handler(event):
             yield result
 
-    @filter.command(["添加别名", "增加别名", "增添别名", "添加别称"])
+    @filter.regex(r'^(添加别名|增加别名|增添别名|添加别称)\s+(.+)$')
     async def alias_apply(self, event: AstrMessageEvent):
-        """添加别名"""
+        """添加别名命令"""
         from .command.mai_alias import alias_apply_handler
         async for result in alias_apply_handler(event):
             yield result
 
-    @filter.command(["同意别名", "同意别称"])
+    @filter.regex(r'^(同意别名|同意别称)\s+(.+)$')
     async def alias_agree(self, event: AstrMessageEvent):
-        """同意别名"""
+        """同意别名命令"""
         from .command.mai_alias import alias_agree_handler
         async for result in alias_agree_handler(event):
             yield result
 
-    @filter.command(["当前投票", "当前别名投票", "当前别称投票"])
+    @filter.regex(r'^(当前投票|当前别名投票|当前别称投票)\s*([0-9]+)?$')
     async def alias_status(self, event: AstrMessageEvent):
-        """查询当前投票"""
+        """当前投票命令"""
         from .command.mai_alias import alias_status_handler
         async for result in alias_status_handler(event):
             yield result
 
-    @filter.command(["开启别名推送", "关闭别名推送", "开启别称推送", "关闭别称推送"])
+    @filter.regex(r'^(开启|关闭)(别名推送|别称推送)$')
     async def alias_switch(self, event: AstrMessageEvent):
-        """开启/关闭别名推送"""
+        """别名推送开关命令"""
         from .command.mai_alias import alias_switch_handler
         async for result in alias_switch_handler(event):
             yield result
 
     @filter.regex(r'^(id)?\s?(.+)\s?有什么别[名称]$')
     async def alias_song(self, event: AstrMessageEvent):
-        """查询歌曲别名"""
+        """有什么别名命令"""
         from .command.mai_alias import alias_song_handler
         async for result in alias_song_handler(event):
             yield result
 
     # 机厅相关命令
     @filter.command(["帮助maimaiDX排卡", "帮助maimaidx排卡"])
-    async def arcade_help(self, event: AstrMessageEvent):
+    async def dx_arcade_help(self, event: AstrMessageEvent):
         """帮助maimaiDX排卡"""
-        from .command.mai_arcade import arcade_help_handler
-        async for result in arcade_help_handler(event):
+        from .command.mai_arcade import dx_arcade_help_handler
+        async for result in dx_arcade_help_handler(event):
             yield result
 
-    @filter.command(["添加机厅", "新增机厅"])
+    @filter.regex(r'^(添加机厅|新增机厅)\s+(.+)$')
     async def add_arcade(self, event: AstrMessageEvent):
         """添加机厅"""
         from .command.mai_arcade import add_arcade_handler
         async for result in add_arcade_handler(event, self.superusers):
             yield result
 
-    @filter.command(["删除机厅", "移除机厅"])
+    @filter.regex(r'^(删除机厅|移除机厅)\s+(.+)$')
     async def delete_arcade(self, event: AstrMessageEvent):
         """删除机厅"""
         from .command.mai_arcade import delete_arcade_handler
         async for result in delete_arcade_handler(event, self.superusers):
             yield result
 
-    @filter.command(["添加机厅别名", "删除机厅别名"])
+    @filter.regex(r'^(添加机厅别名|删除机厅别名)\s+(.+)$')
     async def arcade_alias(self, event: AstrMessageEvent):
         """添加/删除机厅别名"""
         from .command.mai_arcade import arcade_alias_handler
-        async for result in arcade_alias_handler(event, self.superusers):
+        async for result in arcade_alias_handler(event):
             yield result
 
-    @filter.command(["修改机厅", "编辑机厅"])
+    @filter.regex(r'^(修改机厅|编辑机厅)\s+(.+)$')
     async def modify_arcade(self, event: AstrMessageEvent):
         """修改机厅"""
         from .command.mai_arcade import modify_arcade_handler
         async for result in modify_arcade_handler(event):
             yield result
 
-    @filter.regex(r'^(订阅机厅|取消订阅机厅|取消订阅)\s(.+)')
+    @filter.regex(r'^(订阅机厅|取消订阅机厅|取消订阅)\s(.+)$')
     async def subscribe_arcade(self, event: AstrMessageEvent):
         """订阅/取消订阅机厅"""
         from .command.mai_arcade import subscribe_arcade_handler
@@ -630,7 +516,7 @@ class MaimaiDXPlugin(Star):
         async for result in check_subscribe_handler(event):
             yield result
 
-    @filter.command(["查找机厅", "查询机厅", "机厅查找", "机厅查询", "搜素机厅", "机厅搜素"])
+    @filter.regex(r'^(查找机厅|查询机厅|机厅查找|机厅查询|搜素机厅|机厅搜素)\s+(.+)$')
     async def search_arcade(self, event: AstrMessageEvent):
         """查找机厅"""
         from .command.mai_arcade import search_arcade_handler
@@ -646,20 +532,15 @@ class MaimaiDXPlugin(Star):
 
     @filter.command(["机厅几人", "jtj"])
     async def arcade_query_multiple(self, event: AstrMessageEvent):
-        """机厅几人 - 查看已订阅机厅排卡人数"""
+        """机厅几人"""
         from .command.mai_arcade import arcade_query_multiple_handler
         async for result in arcade_query_multiple_handler(event):
             yield result
 
-    @filter.regex(r'(.+)?(有多少人|有几人|有几卡|多少人|多少卡|几人|jr|几卡)$')
+    @filter.regex(r'^(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|jr|几卡)$')
     async def arcade_query_person(self, event: AstrMessageEvent):
-        """查询排卡人数"""
+        """有多少人/有几人/有几卡"""
         from .command.mai_arcade import arcade_query_person_handler
         async for result in arcade_query_person_handler(event):
             yield result
 
-    async def terminate(self):
-        """插件销毁时停止定时任务"""
-        if self.scheduler.running:
-            self.scheduler.shutdown()
-        log.info('maimaiDX插件已卸载')

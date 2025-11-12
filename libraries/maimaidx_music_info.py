@@ -1,5 +1,6 @@
 import copy
 
+from .. import MessageSegment
 from .image import rounded_corners
 from .maimai_best_50 import *
 from .maimaidx_music import Music, mai

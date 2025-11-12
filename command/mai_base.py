@@ -1,11 +1,10 @@
 import random
 import re
-import tempfile
-from pathlib import Path
+from re import Match
 from PIL import Image
 import astrbot.api.message_components as Comp
 
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import AstrMessageEvent
 
 from .. import BOTNAME, Root, log
 from ..libraries.image import image_to_base64, music_picture
@@ -17,73 +16,49 @@ from ..libraries.maimaidx_player_score import rating_ranking_data
 from ..libraries.tool import qqhash
 
 
-def extract_at_qqid(event: AstrMessageEvent) -> int:
-    """从消息链中提取 @ 的 QQ ID，如果没有则返回发送者 ID"""
-    # 使用 event.message_obj.message 获取消息链
-    for msg in event.message_obj.message:
-        # 检查是否是 At 消息组件
-        if isinstance(msg, Comp.At):
-            qq = msg.qq
-            if qq and str(qq) != event.get_self_id() and qq != 'all':
-                return int(qq)
-    return event.get_sender_id()
-
-
-def convert_message_segment_to_chain(msg_seg):
-    """
-    将 Hoshino/NoneBot 的 MessageSegment 转换为 astrbot 的 MessageChain
-    支持图片和文本类型
-    """
-    chain = []
+def convert_message_segment_to_chain(msg):
+    """将 MessageSegment 转换为 astrbot 的 MessageChain"""
+    if isinstance(msg, str):
+        return [Comp.Plain(msg)]
     
-    # 检查是否是 MessageSegment 类型（Hoshino/NoneBot）
-    if hasattr(msg_seg, 'type'):
-        if msg_seg.type == 'image':
-            # 提取图片数据
-            if hasattr(msg_seg.data, 'get'):
-                image_data = msg_seg.data.get('file') or msg_seg.data.get('url')
+    # 如果是 MessageSegment 对象
+    if hasattr(msg, 'type') and hasattr(msg, 'data'):
+        if msg.type == 'image':
+            # 处理图片
+            file_data = msg.data.get('file', '')
+            if file_data.startswith('base64://'):
+                # base64 图片，需要保存到临时文件
+                import base64
+                import tempfile
+                base64_data = file_data.replace('base64://', '')
+                img_data = base64.b64decode(base64_data)
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
+                temp_file.write(img_data)
+                temp_file.close()
+                return [Comp.Image.fromFileSystem(temp_file.name)]
+            elif file_data.startswith('http://') or file_data.startswith('https://'):
+                return [Comp.Image.fromURL(file_data)]
             else:
-                image_data = getattr(msg_seg.data, 'file', None) or getattr(msg_seg.data, 'url', None)
-            
-            if image_data:
-                # 如果是 base64 格式，需要保存为临时文件
-                if image_data.startswith('base64://'):
-                    # 提取 base64 数据
-                    base64_data = image_data.replace('base64://', '')
-                    import base64
-                    from io import BytesIO
-                    
-                    # 解码并保存为临时文件
-                    img_data = base64.b64decode(base64_data)
-                    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
-                    temp_file.write(img_data)
-                    temp_file.close()
-                    chain.append(Comp.Image.fromFileSystem(temp_file.name))
-                elif Path(image_data).exists():
-                    # 如果是文件路径
-                    chain.append(Comp.Image.fromFileSystem(image_data))
-                else:
-                    # 如果是 URL
-                    chain.append(Comp.Image.fromURL(image_data))
-        elif msg_seg.type == 'text':
-            text = msg_seg.data.get('text', '') if hasattr(msg_seg.data, 'get') else getattr(msg_seg.data, 'text', '')
-            if text:
-                chain.append(Comp.Plain(text))
-    elif isinstance(msg_seg, str):
-        # 如果是字符串，直接作为文本
-        chain.append(Comp.Plain(msg_seg))
+                # 文件路径
+                return [Comp.Image.fromFileSystem(file_data)]
+        elif msg.type == 'text':
+            return [Comp.Plain(msg.data.get('text', ''))]
     
-    return chain if chain else [Comp.Plain(str(msg_seg))]
+    # 如果是列表，递归处理
+    if isinstance(msg, list):
+        chain = []
+        for item in msg:
+            chain.extend(convert_message_segment_to_chain(item))
+        return chain
+    
+    # 默认返回文本
+    return [Comp.Plain(str(msg))]
 
-
-# 这些函数将在主插件类中注册为方法
-# 注意：权限检查需要根据 astrbot 的权限系统进行适配
 
 async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
     """更新maimai数据"""
-    from ..utils.permission import is_superuser
-    
-    if not await is_superuser(event, superusers):
+    sender_id = event.get_sender_id()
+    if superusers and str(sender_id) not in superusers:
         yield event.plain_result('仅允许超级管理员执行此操作')
         return
     
@@ -94,27 +69,28 @@ async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
 
 async def maimaidxhelp_handler(event: AstrMessageEvent):
     """帮助maimaiDX"""
-    log.info('maimaidxhelp_handler 被调用')
     help_image_path = Root / 'maimaidxhelp.png'
-    log.info(f'帮助图片路径: {help_image_path}, 存在: {help_image_path.exists()}')
     if help_image_path.exists():
         chain = [
             Comp.Image.fromFileSystem(str(help_image_path))
         ]
-        log.info('准备发送帮助图片')
         yield event.chain_result(chain)
     else:
-        log.warning('帮助图片未找到，发送文本')
         yield event.plain_result('帮助图片未找到')
 
 
 async def maimaidxrepo_handler(event: AstrMessageEvent):
     """项目地址maimaiDX"""
-    yield event.plain_result('项目地址：https://github.com/Yuri-YuzuChaN/maimaiDX\n求star，求宣传~')
+    yield event.plain_result('项目地址：https://github.com/ZhiheZier/astrbot_plugin_maimaidx\n求star，求宣传~')
 
 
 async def mai_today_handler(event: AstrMessageEvent):
     """今日mai/今日舞萌/今日运势"""
+    # 检查数据是否加载
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+    
     wm_list = [
         '拼机', 
         '推分', 
@@ -160,6 +136,11 @@ async def mai_today_handler(event: AstrMessageEvent):
 
 async def mai_what_handler(event: AstrMessageEvent):
     """mai什么"""
+    # 检查数据是否加载
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+    
     message_str = event.message_str
     match = re.search(r'.*mai.*什么(.+)?', message_str, re.IGNORECASE)
     
@@ -199,6 +180,11 @@ async def mai_what_handler(event: AstrMessageEvent):
 
 async def random_song_handler(event: AstrMessageEvent):
     """随机歌曲"""
+    # 检查数据是否加载
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+    
     message_str = event.message_str
     match = re.match(r'^[来随给]个((?:dx|sd|标准))?([绿黄红紫白]?)([0-9]+\+?)$', message_str)
     
@@ -261,6 +247,5 @@ async def my_rating_ranking_handler(event: AstrMessageEvent):
                 result = f'您的Rating为「{rank.ra}」，排名第「{num + 1}」名'
                 yield event.plain_result(result)
                 return
-        yield event.plain_result('未找到您的排名信息')
     except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
         yield event.plain_result(str(e))

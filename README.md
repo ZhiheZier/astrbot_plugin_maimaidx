@@ -27,7 +27,7 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 
 ### 2. 下载静态资源
 
-下载静态资源文件，解压后将 `static` 文件夹复制到插件根目录并覆盖。
+下载静态资源文件，解压后将 `static` 文件夹复制到插件根目录并覆盖（除了config.json）。
 
 - [私人云盘](https://cloud.yuzuchan.moe/f/1bUn/Resource.7z)
 - [onedrive](https://yuzuai-my.sharepoint.com/:u:/g/personal/yuzu_yuzuchan_moe/EdGUKRSo-VpHjT2noa_9EroBdFZci-tqWjVZzKZRTEeZkw?e=a1TM40)
@@ -80,13 +80,9 @@ apt install fonts-wqy-microhei
 
 ### 5. 配置超级管理员
 
-在 AstrBot 插件配置中设置超级管理员列表（用于执行更新数据等管理命令）：
+在 AstrBot 主配置文件中设置管理员ID列表（字段名为 `admins_id`），用于执行更新数据等管理命令。
 
-```json
-{
-    "superusers": ["123456789", "987654321"]
-}
-```
+**注意**：管理员ID配置在 AstrBot 的主配置文件中，不在插件配置中。
 
 ### 6. 启用插件
 
@@ -134,13 +130,15 @@ apt install fonts-wqy-microhei
 
 ## 迁移说明
 
-本插件从 HoshinoBot/NoneBot 框架迁移到 AstrBot 框架，主要变更：
+本插件从 HoshinoBot/NoneBot 框架迁移到 AstrBot 框架。
 
-- ✅ 使用 AstrBot 的 `Star` 类和 `@filter` 装饰器
-- ✅ 使用 `MessageChain` 和 `MessageComponent` 发送消息
-- ✅ 使用 `APScheduler` 替代 Hoshino 的定时任务
-- ✅ 实现权限检查系统（超级管理员、群主、管理员）
-- ✅ 适配 AstrBot 的事件处理机制
+### 主要变更
+
+- ✅ 所有命令已迁移到 astrbot 框架
+- ✅ 移除了对 `hoshino` 包的依赖
+- ✅ 使用 astrbot 的权限管理系统（`admins_id`）
+- ✅ 支持主动消息发送（猜歌提示、别名推送等）
+- ✅ 自动获取 bot 名称
 
 ## 注意事项
 

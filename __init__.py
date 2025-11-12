@@ -9,6 +9,46 @@ log = logger
 loga = logger
 BOTNAME = "Bot"  # 默认机器人名称，可以从配置中读取
 
+
+# 兼容 MessageSegment 类，避免依赖 hoshino 包
+class MessageSegment:
+    """兼容 hoshino.typing.MessageSegment 的类"""
+    def __init__(self, type: str, data: dict):
+        self.type = type
+        self.data = data
+    
+    @staticmethod
+    def image(file: str) -> 'MessageSegment':
+        """
+        创建图片消息段
+        
+        Args:
+            file: 图片文件路径、URL 或 base64 字符串
+        
+        Returns:
+            MessageSegment 对象
+        """
+        return MessageSegment('image', {'file': file})
+    
+    @staticmethod
+    def text(text: str) -> 'MessageSegment':
+        """
+        创建文本消息段
+        
+        Args:
+            text: 文本内容
+        
+        Returns:
+            MessageSegment 对象
+        """
+        return MessageSegment('text', {'text': text})
+    
+    def __str__(self):
+        return f"MessageSegment(type={self.type}, data={self.data})"
+    
+    def __repr__(self):
+        return self.__str__()
+
 public_addr = 'https://www.yuzuchan.moe/vote'
 
 
