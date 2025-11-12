@@ -1,2 +1,11 @@
-{}
+{
+  "type": "object",
+  "properties": {
+    "bot_name": {
+      "type": "string",
+      "description": "机器人名称，用于在消息中显示（如：今日运势功能）",
+      "default": "Bot"
+    }
+  }
+}
 

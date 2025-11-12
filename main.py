@@ -35,27 +35,15 @@ class MaimaiDXPlugin(Star):
 
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
-        # 尝试获取 bot 名称
-        try:
-            from astrbot.api.event import filter
-            platform = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
-            if platform:
-                bot_client = platform.get_client()
-                if bot_client:
-                    try:
-                        self_info = await bot_client.get_self_info()
-                        if self_info and 'nickname' in self_info:
-                            # 更新 BOTNAME
-                            import sys
-                            # 获取当前包的 __init__ 模块
-                            pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
-                            if pkg_name in sys.modules:
-                                setattr(sys.modules[pkg_name], 'BOTNAME', self_info['nickname'])
-                                log.info(f'已获取 bot 名称: {self_info["nickname"]}')
-                    except Exception as e:
-                        log.warning(f'获取 bot 名称失败，使用默认值: {e}')
-        except Exception as e:
-            log.warning(f'获取 bot 平台失败，使用默认 bot 名称: {e}')
+        # 从配置中读取 bot 名称
+        bot_name = self.config.get("bot_name", "Bot")
+        if bot_name:
+            import sys
+            # 获取当前包的 __init__ 模块
+            pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
+            if pkg_name in sys.modules:
+                setattr(sys.modules[pkg_name], 'BOTNAME', bot_name)
+                log.info(f'已设置 bot 名称: {bot_name}')
         
         try:
             if maiApi.config.maimaidxproberproxy:

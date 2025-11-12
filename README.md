@@ -59,6 +59,14 @@ apt install fonts-wqy-microhei
 
 ### 4. 配置插件
 
+#### 4.1 插件配置（通过 AstrBot 配置界面）
+
+在 AstrBot 的插件配置界面中，可以配置以下选项：
+
+- `bot_name`: 机器人名称，用于在消息中显示（如：今日运势功能），默认为 "Bot"
+
+#### 4.2 静态配置文件
+
 修改 `static/config.json` 文件：
 
 ```json
@@ -138,7 +146,7 @@ apt install fonts-wqy-microhei
 - ✅ 移除了对 `hoshino` 包的依赖
 - ✅ 使用 astrbot 的权限管理系统（`admins_id`）
 - ✅ 支持主动消息发送（猜歌提示、别名推送等）
-- ✅ 自动获取 bot 名称
+- ✅ 支持手动配置 bot 名称（通过插件配置界面）
 
 ## 注意事项
 
