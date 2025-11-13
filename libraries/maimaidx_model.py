@@ -130,8 +130,8 @@ class GuessPicData(GuessData): ...
 
 class Switch(BaseModel):
 
-    enable: List[int] = []
-    disable: List[int] = []
+    enable: List[str] = []  # 使用字符串类型，group_id 在 AstrBotMessage 中是字符串
+    disable: List[str] = []  # 使用字符串类型，group_id 在 AstrBotMessage 中是字符串
 
 
 class GuessSwitch(Switch): ...

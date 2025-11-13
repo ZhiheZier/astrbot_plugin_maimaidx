@@ -167,14 +167,10 @@ async def search_bpm_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id:
-        try:
-            group_id_int = int(group_id)
-            if group_id_int in guess.Group:
-                yield event.plain_result('本群正在猜歌，不要作弊哦~')
-                return
-        except (ValueError, TypeError):
-            pass
+    # group_id 在 AstrBotMessage 中已经是字符串，直接使用
+    if group_id and group_id in guess.Group:
+        yield event.plain_result('本群正在猜歌，不要作弊哦~')
+        return
     
     message_str = event.message_str.strip()
     # 移除命令前缀
@@ -240,14 +236,10 @@ async def search_artist_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id:
-        try:
-            group_id_int = int(group_id)
-            if group_id_int in guess.Group:
-                yield event.plain_result('本群正在猜歌，不要作弊哦~')
-                return
-        except (ValueError, TypeError):
-            pass
+    # group_id 在 AstrBotMessage 中已经是字符串，直接使用
+    if group_id and group_id in guess.Group:
+        yield event.plain_result('本群正在猜歌，不要作弊哦~')
+        return
     
     message_str = event.message_str.strip()
     # 移除命令前缀
@@ -310,14 +302,10 @@ async def search_charter_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id:
-        try:
-            group_id_int = int(group_id)
-            if group_id_int in guess.Group:
-                yield event.plain_result('本群正在猜歌，不要作弊哦~')
-                return
-        except (ValueError, TypeError):
-            pass
+    # group_id 在 AstrBotMessage 中已经是字符串，直接使用
+    if group_id and group_id in guess.Group:
+        yield event.plain_result('本群正在猜歌，不要作弊哦~')
+        return
     
     message_str = event.message_str.strip()
     # 移除命令前缀
