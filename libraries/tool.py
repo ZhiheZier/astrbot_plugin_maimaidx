@@ -10,7 +10,25 @@ from playwright.async_api import async_playwright
 from .. import SNAPSHOT_JS, pie_html_file
 
 
-def qqhash(qq: int):
+def qqhash(qq):
+    """
+    计算 QQ 号的哈希值
+    
+    Args:
+        qq: QQ 号，可以是整数或字符串
+    
+    Returns:
+        哈希值（整数）
+    """
+    # 确保 qq 是整数类型
+    try:
+        if isinstance(qq, str):
+            qq = int(qq)
+        elif not isinstance(qq, int):
+            qq = int(qq)
+    except (ValueError, TypeError):
+        qq = 0
+    
     days = int(time.strftime("%d", time.localtime(time.time()))) + 31 * int(
         time.strftime("%m", time.localtime(time.time()))) + 77
     return (days * qq) >> 8

@@ -141,7 +141,12 @@ async def mai_today_handler(event: AstrMessageEvent):
         '收歌'
     ]
     uid = event.get_sender_id()
-    h = qqhash(uid)
+    # 确保 uid 是整数类型
+    try:
+        uid_int = int(uid) if uid else 0
+    except (ValueError, TypeError):
+        uid_int = 0
+    h = qqhash(uid_int)
     rp = h % 100
     wm_value = []
     for i in range(11):

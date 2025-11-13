@@ -480,12 +480,17 @@ class Guess:
             options=guess_options
         )
 
-    def end(self, gid: str):
+    def end(self, gid):
         """结束猜歌"""
-        del self.Group[gid]
+        # 确保 gid 是整数类型
+        gid = int(gid) if not isinstance(gid, int) else gid
+        if gid in self.Group:
+            del self.Group[gid]
 
-    async def on(self, gid: str) -> str:
+    async def on(self, gid) -> str:
         """开启猜歌"""
+        # 确保 gid 是整数类型
+        gid = int(gid) if not isinstance(gid, int) else gid
         if gid not in self.switch.enable:
             self.switch.enable.append(gid)
         if gid in self.switch.disable:
@@ -493,8 +498,10 @@ class Guess:
         await writefile(guess_file, self.switch.model_dump())
         return '群猜歌功能已开启'
 
-    async def off(self, gid: str) -> str:
+    async def off(self, gid) -> str:
         """关闭猜歌"""
+        # 确保 gid 是整数类型
+        gid = int(gid) if not isinstance(gid, int) else gid
         if gid not in self.switch.disable:
             self.switch.disable.append(gid)
         if gid in self.switch.enable:
