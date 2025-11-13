@@ -391,7 +391,7 @@ class Guess:
             self.switch = GuessSwitch.model_validate(
                 json.load(open(guess_file, 'r', encoding='utf-8'))
             )
-            # 清理数据，确保 enable 和 disable 列表中的值都是字符串类型（兼容旧数据）
+            # 清理数据，确保 enable 和 disable 列表中的值都是字符串类型（兼容旧数据，自动转换）
             try:
                 self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
             except (ValueError, TypeError):
@@ -401,13 +401,13 @@ class Guess:
             except (ValueError, TypeError):
                 self.switch.disable = []
     
-    def start(self, gid: str):
+    def start(self, group_id: str):
         """开始猜歌"""
-        self.Group[gid] = self.guessData()
+        self.Group[group_id] = self.guessData()
 
-    def startpic(self, gid: str):
+    def startpic(self, group_id: str):
         """开始猜曲绘"""
-        self.Group[gid] = self.guesspicdata()
+        self.Group[group_id] = self.guesspicdata()
         
     def calculate_frequency_weights(self, image: Image.Image) -> np.ndarray:
         """
@@ -489,38 +489,38 @@ class Guess:
             options=guess_options
         )
 
-    def end(self, gid):
+    def end(self, group_id):
         """结束猜歌"""
-        # 确保 gid 是字符串类型
-        gid = str(gid) if not isinstance(gid, str) else gid
-        if gid in self.Group:
-            del self.Group[gid]
+        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
+        group_id = str(group_id)
+        if group_id in self.Group:
+            del self.Group[group_id]
 
-    async def on(self, gid) -> str:
+    async def on(self, group_id) -> str:
         """开启猜歌"""
-        # 确保 gid 是字符串类型
-        gid = str(gid) if not isinstance(gid, str) else gid
+        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
+        group_id = str(group_id)
         # 清理 enable 列表，确保所有值都是字符串类型（兼容旧数据）
         self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
-        if gid not in self.switch.enable:
-            self.switch.enable.append(gid)
+        if group_id not in self.switch.enable:
+            self.switch.enable.append(group_id)
         # 清理 disable 列表，确保所有值都是字符串类型
         self.switch.disable = [str(x) for x in self.switch.disable if x is not None]
-        if gid in self.switch.disable:
-            self.switch.disable.remove(gid)
+        if group_id in self.switch.disable:
+            self.switch.disable.remove(group_id)
         await writefile(guess_file, self.switch.model_dump())
         return '群猜歌功能已开启'
 
-    async def off(self, gid) -> str:
+    async def off(self, group_id) -> str:
         """关闭猜歌"""
-        # 确保 gid 是字符串类型
-        gid = str(gid) if not isinstance(gid, str) else gid
-        if gid not in self.switch.disable:
-            self.switch.disable.append(gid)
-        if gid in self.switch.enable:
-            self.switch.enable.remove(gid)
-        if gid in self.Group:
-            self.end(gid)
+        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
+        group_id = str(group_id)
+        if group_id not in self.switch.disable:
+            self.switch.disable.append(group_id)
+        if group_id in self.switch.enable:
+            self.switch.enable.remove(group_id)
+        if group_id in self.Group:
+            self.end(group_id)
         await writefile(guess_file, self.switch.model_dump())
         return '群猜歌功能已关闭'
 
