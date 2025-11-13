@@ -358,7 +358,8 @@ async def push_alias(push: PushAliasStatus, context=None):
         pic = await draw_music_info(music)
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, Comp.At(qq=push.Status.ApplyUID))
-        chain.insert(1, Comp.Plain('\n' + text_msg))
+        # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
+        chain.insert(1, '\n' + text_msg)
         try:
             await bot_client.send_group_msg(group_id=push.Status.GroupID, message=chain)
         except Exception as e:
@@ -376,7 +377,8 @@ async def push_alias(push: PushAliasStatus, context=None):
         pic = await draw_music_info(music)
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, Comp.At(qq=push.Status.ApplyUID))
-        chain.insert(1, Comp.Plain('\n' + text_msg))
+        # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
+        chain.insert(1, '\n' + text_msg)
         try:
             await bot_client.send_group_msg(group_id=push.Status.GroupID, message=chain)
         except Exception as e:
