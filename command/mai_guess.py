@@ -75,9 +75,14 @@ async def guess_music_handler(event: AstrMessageEvent):
                 break
             if cycle < 6:
                 # 发送提示信息
-                hint_text = guess.Group[group_id].hint[cycle]
+                hint_text = guess.Group[group_id].options[cycle]
                 try:
-                    await bot_client.send_group_msg(group_id=group_id, message=f'{cycle + 1}/7 {hint_text}')
+                    # group_id 是字符串，但 send_group_msg 可能需要整数，尝试转换
+                    group_id_int = int(group_id) if group_id else None
+                    if group_id_int:
+                        await bot_client.send_group_msg(group_id=group_id_int, message=f'{cycle + 1}/7 这首歌{hint_text}')
+                except (ValueError, TypeError) as e:
+                    log.error(f'发送猜歌提示失败（类型转换错误）: {e}')
                 except Exception as e:
                     log.error(f'发送猜歌提示失败: {e}')
                 await asyncio.sleep(8)
@@ -104,7 +109,12 @@ async def guess_music_handler(event: AstrMessageEvent):
                 
                 chain.append(Comp.Plain('\n答案将在30秒后揭晓'))
                 try:
-                    await bot_client.send_group_msg(group_id=group_id, message=chain)
+                    # group_id 是字符串，但 send_group_msg 可能需要整数，尝试转换
+                    group_id_int = int(group_id) if group_id else None
+                    if group_id_int:
+                        await bot_client.send_group_msg(group_id=group_id_int, message=chain)
+                except (ValueError, TypeError) as e:
+                    log.error(f'发送猜歌图片提示失败（类型转换错误）: {e}')
                 except Exception as e:
                     log.error(f'发送猜歌图片提示失败: {e}')
                 for _ in range(30):
@@ -119,7 +129,12 @@ async def guess_music_handler(event: AstrMessageEvent):
                 answer_chain = convert_message_segment_to_chain(pic)
                 answer_chain.insert(0, Comp.Plain('答案是：\n'))
                 try:
-                    await bot_client.send_group_msg(group_id=group_id, message=answer_chain)
+                    # group_id 是字符串，但 send_group_msg 可能需要整数，尝试转换
+                    group_id_int = int(group_id) if group_id else None
+                    if group_id_int:
+                        await bot_client.send_group_msg(group_id=group_id_int, message=answer_chain)
+                except (ValueError, TypeError) as e:
+                    log.error(f'发送猜歌答案失败（类型转换错误）: {e}')
                 except Exception as e:
                     log.error(f'发送猜歌答案失败: {e}')
                 guess.end(group_id)
@@ -194,7 +209,12 @@ async def guess_pic_handler(event: AstrMessageEvent):
         answer_chain = convert_message_segment_to_chain(pic)
         answer_chain.insert(0, Comp.Plain('答案是：\n'))
         try:
-            await bot_client.send_group_msg(group_id=group_id, message=answer_chain)
+            # group_id 是字符串，但 send_group_msg 可能需要整数，尝试转换
+            group_id_int = int(group_id) if group_id else None
+            if group_id_int:
+                await bot_client.send_group_msg(group_id=group_id_int, message=answer_chain)
+        except (ValueError, TypeError) as e:
+            log.error(f'发送猜曲绘答案失败（类型转换错误）: {e}')
         except Exception as e:
             log.error(f'发送猜曲绘答案失败: {e}')
         guess.end(group_id)
@@ -216,9 +236,11 @@ async def guess_music_solve_handler(event: AstrMessageEvent):
     if not ans:
         return
     
-    # 检查答案（支持多种匹配方式）
+    # 检查答案（原始代码逻辑：ans.lower() in guess.Group[gid].answer）
+    # 将答案列表中的所有答案转为小写，然后检查用户输入（已转为小写）是否在其中
     answer_list = guess.Group[group_id].answer
-    if ans in answer_list or any(ans in str(a).lower() for a in answer_list):
+    answer_list_lower = [str(a).lower() for a in answer_list]
+    if ans in answer_list_lower:
         guess.Group[group_id].end = True
         pic = await draw_music_info(guess.Group[group_id].music)
         answer_chain = convert_message_segment_to_chain(pic)
