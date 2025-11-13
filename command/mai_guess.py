@@ -39,7 +39,15 @@ async def guess_music_handler(event: AstrMessageEvent):
         return
     
     # 统一使用整数类型的 gid
-    gid = int(group_id)
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        log.error(f'无法转换 group_id 为整数: {group_id} (类型: {type(group_id)})')
+        yield event.plain_result('获取群组信息失败，请稍后重试')
+        return
+    
+    # 检查是否在启用列表中
+    # guess.switch.enable 是 List[int]，gid 是 int，直接比较即可
     if gid not in guess.switch.enable:
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return
@@ -136,7 +144,15 @@ async def guess_pic_handler(event: AstrMessageEvent):
         return
     
     # 统一使用整数类型的 gid
-    gid = int(group_id)
+    try:
+        gid = int(group_id)
+    except (ValueError, TypeError):
+        log.error(f'无法转换 group_id 为整数: {group_id} (类型: {type(group_id)})')
+        yield event.plain_result('获取群组信息失败，请稍后重试')
+        return
+    
+    # 检查是否在启用列表中
+    # guess.switch.enable 是 List[int]，gid 是 int，直接比较即可
     if gid not in guess.switch.enable:
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return

@@ -391,6 +391,15 @@ class Guess:
             self.switch = GuessSwitch.model_validate(
                 json.load(open(guess_file, 'r', encoding='utf-8'))
             )
+            # 清理数据，确保 enable 和 disable 列表中的值都是整数类型（兼容旧数据）
+            try:
+                self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
+            except (ValueError, TypeError):
+                self.switch.enable = []
+            try:
+                self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
+            except (ValueError, TypeError):
+                self.switch.disable = []
     
     def start(self, gid: int):
         """开始猜歌"""
@@ -491,8 +500,12 @@ class Guess:
         """开启猜歌"""
         # 确保 gid 是整数类型
         gid = int(gid) if not isinstance(gid, int) else gid
+        # 清理 enable 列表，确保所有值都是整数类型（兼容旧数据）
+        self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
         if gid not in self.switch.enable:
             self.switch.enable.append(gid)
+        # 清理 disable 列表，确保所有值都是整数类型
+        self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
         if gid in self.switch.disable:
             self.switch.disable.remove(gid)
         await writefile(guess_file, self.switch.model_dump())
