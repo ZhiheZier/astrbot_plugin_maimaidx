@@ -380,7 +380,7 @@ mai = MaiMusic()
 
 class Guess:
     
-    Group: Dict[int, Union[GuessDefaultData, GuessPicData]] = {}
+    Group: Dict[str, Union[GuessDefaultData, GuessPicData]] = {}  # 使用字符串类型作为键
     switch: GuessSwitch
 
     def __init__(self) -> None:
@@ -391,21 +391,21 @@ class Guess:
             self.switch = GuessSwitch.model_validate(
                 json.load(open(guess_file, 'r', encoding='utf-8'))
             )
-            # 清理数据，确保 enable 和 disable 列表中的值都是整数类型（兼容旧数据）
+            # 清理数据，确保 enable 和 disable 列表中的值都是字符串类型（兼容旧数据）
             try:
-                self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
+                self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
             except (ValueError, TypeError):
                 self.switch.enable = []
             try:
-                self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
+                self.switch.disable = [str(x) for x in self.switch.disable if x is not None]
             except (ValueError, TypeError):
                 self.switch.disable = []
     
-    def start(self, gid: int):
+    def start(self, gid: str):
         """开始猜歌"""
         self.Group[gid] = self.guessData()
 
-    def startpic(self, gid: int):
+    def startpic(self, gid: str):
         """开始猜曲绘"""
         self.Group[gid] = self.guesspicdata()
         
@@ -491,21 +491,21 @@ class Guess:
 
     def end(self, gid):
         """结束猜歌"""
-        # 确保 gid 是整数类型
-        gid = int(gid) if not isinstance(gid, int) else gid
+        # 确保 gid 是字符串类型
+        gid = str(gid) if not isinstance(gid, str) else gid
         if gid in self.Group:
             del self.Group[gid]
 
     async def on(self, gid) -> str:
         """开启猜歌"""
-        # 确保 gid 是整数类型
-        gid = int(gid) if not isinstance(gid, int) else gid
-        # 清理 enable 列表，确保所有值都是整数类型（兼容旧数据）
-        self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
+        # 确保 gid 是字符串类型
+        gid = str(gid) if not isinstance(gid, str) else gid
+        # 清理 enable 列表，确保所有值都是字符串类型（兼容旧数据）
+        self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
         if gid not in self.switch.enable:
             self.switch.enable.append(gid)
-        # 清理 disable 列表，确保所有值都是整数类型
-        self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
+        # 清理 disable 列表，确保所有值都是字符串类型
+        self.switch.disable = [str(x) for x in self.switch.disable if x is not None]
         if gid in self.switch.disable:
             self.switch.disable.remove(gid)
         await writefile(guess_file, self.switch.model_dump())
@@ -513,8 +513,8 @@ class Guess:
 
     async def off(self, gid) -> str:
         """关闭猜歌"""
-        # 确保 gid 是整数类型
-        gid = int(gid) if not isinstance(gid, int) else gid
+        # 确保 gid 是字符串类型
+        gid = str(gid) if not isinstance(gid, str) else gid
         if gid not in self.switch.disable:
             self.switch.disable.append(gid)
         if gid in self.switch.enable:

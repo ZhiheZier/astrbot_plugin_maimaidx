@@ -130,8 +130,8 @@ class GuessPicData(GuessData): ...
 
 class Switch(BaseModel):
 
-    enable: List[int] = []
-    disable: List[int] = []
+    enable: List[str] = []  # 使用字符串类型，避免长群号溢出问题
+    disable: List[str] = []  # 使用字符串类型，避免长群号溢出问题
 
 
 class GuessSwitch(Switch): ...

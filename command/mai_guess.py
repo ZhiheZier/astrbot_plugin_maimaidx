@@ -38,16 +38,11 @@ async def guess_music_handler(event: AstrMessageEvent):
         yield event.plain_result('猜歌功能仅在群聊中可用')
         return
     
-    # 统一使用整数类型的 gid
-    try:
-        gid = int(group_id)
-    except (ValueError, TypeError):
-        log.error(f'无法转换 group_id 为整数: {group_id} (类型: {type(group_id)})')
-        yield event.plain_result('获取群组信息失败，请稍后重试')
-        return
+    # 统一使用字符串类型的 gid（避免长群号溢出问题）
+    gid = str(group_id)
     
     # 检查是否在启用列表中
-    # guess.switch.enable 是 List[int]，gid 是 int，直接比较即可
+    # guess.switch.enable 是 List[str]，gid 是 str，直接比较即可
     if gid not in guess.switch.enable:
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return
@@ -143,16 +138,11 @@ async def guess_pic_handler(event: AstrMessageEvent):
         yield event.plain_result('猜曲绘功能仅在群聊中可用')
         return
     
-    # 统一使用整数类型的 gid
-    try:
-        gid = int(group_id)
-    except (ValueError, TypeError):
-        log.error(f'无法转换 group_id 为整数: {group_id} (类型: {type(group_id)})')
-        yield event.plain_result('获取群组信息失败，请稍后重试')
-        return
+    # 统一使用字符串类型的 gid（避免长群号溢出问题）
+    gid = str(group_id)
     
     # 检查是否在启用列表中
-    # guess.switch.enable 是 List[int]，gid 是 int，直接比较即可
+    # guess.switch.enable 是 List[str]，gid 是 str，直接比较即可
     if gid not in guess.switch.enable:
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return
@@ -224,8 +214,8 @@ async def guess_music_solve_handler(event: AstrMessageEvent):
     if not group_id:
         return  # 私聊不处理
     
-    # 统一使用整数类型的 gid
-    gid = int(group_id)
+    # 统一使用字符串类型的 gid
+    gid = str(group_id)
     if gid not in guess.Group:
         return  # 该群没有进行中的猜歌
     
@@ -256,8 +246,8 @@ async def reset_guess_handler(event: AstrMessageEvent):
         yield event.plain_result('仅允许管理员重置')
         return
     
-    # 统一使用整数类型的 gid
-    gid = int(group_id)
+    # 统一使用字符串类型的 gid
+    gid = str(group_id)
     if gid in guess.Group:
         guess.end(gid)
         yield event.plain_result('已重置该群猜歌')
@@ -276,8 +266,8 @@ async def guess_on_off_handler(event: AstrMessageEvent):
         yield event.plain_result('仅允许管理员开关')
         return
     
-    # 统一使用整数类型的 gid
-    gid = int(group_id)
+    # 统一使用字符串类型的 gid
+    gid = str(group_id)
     message_str = event.message_str.strip()
     # 移除后缀
     for suffix in ['开启mai猜歌', '关闭mai猜歌']:

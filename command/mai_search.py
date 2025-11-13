@@ -167,7 +167,7 @@ async def search_bpm_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id and int(group_id) in guess.Group:
+    if group_id and str(group_id) in guess.Group:
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
@@ -235,7 +235,7 @@ async def search_artist_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id and int(group_id) in guess.Group:
+    if group_id and str(group_id) in guess.Group:
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
@@ -300,7 +300,7 @@ async def search_charter_handler(event: AstrMessageEvent):
         return
     
     group_id = event.message_obj.group_id
-    if group_id and int(group_id) in guess.Group:
+    if group_id and str(group_id) in guess.Group:
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
