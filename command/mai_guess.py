@@ -48,7 +48,16 @@ async def guess_music_handler(event: AstrMessageEvent):
         yield event.plain_result('该群已有正在进行的猜歌或猜曲绘')
         return
     
-    guess.start(gid)
+    # 尝试开始猜歌，如果失败则返回错误信息
+    try:
+        guess.start(gid)
+    except Exception as e:
+        log.error(f'开始猜歌失败: {e}')
+        import traceback
+        log.error(traceback.format_exc())
+        yield event.plain_result(f'开始猜歌失败，请稍后重试或联系管理员。错误信息: {str(e)}')
+        return
+    
     yield event.plain_result(dedent(''' \
         我将从热门乐曲中选择一首歌，每隔8秒描述它的特征，
         请输入歌曲的 id 标题 或 别名（需bot支持，无需大小写） 进行猜歌（DX乐谱和标准乐谱视为两首歌）。
@@ -136,7 +145,16 @@ async def guess_pic_handler(event: AstrMessageEvent):
         yield event.plain_result('该群已有正在进行的猜歌或猜曲绘')
         return
     
-    guess.startpic(gid)
+    # 尝试开始猜曲绘，如果失败则返回错误信息
+    try:
+        guess.startpic(gid)
+    except Exception as e:
+        log.error(f'开始猜曲绘失败: {e}')
+        import traceback
+        log.error(traceback.format_exc())
+        yield event.plain_result(f'开始猜曲绘失败，请稍后重试或联系管理员。错误信息: {str(e)}')
+        return
+    
     img_data = guess.Group[gid].img
     # img_data 是 base64://... 格式的字符串
     chain = [Comp.Plain('以下裁切图片是哪首谱面的曲绘：\n')]
