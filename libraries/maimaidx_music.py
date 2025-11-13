@@ -380,7 +380,7 @@ mai = MaiMusic()
 
 class Guess:
     
-    Group: Dict[str, Union[GuessDefaultData, GuessPicData]] = {}  # 使用字符串类型作为键
+    Group: Dict[int, Union[GuessDefaultData, GuessPicData]] = {}  # 使用整数类型作为键
     switch: GuessSwitch
 
     def __init__(self) -> None:
@@ -391,21 +391,21 @@ class Guess:
             self.switch = GuessSwitch.model_validate(
                 json.load(open(guess_file, 'r', encoding='utf-8'))
             )
-            # 清理数据，确保 enable 和 disable 列表中的值都是字符串类型（兼容旧数据，自动转换）
+            # 清理数据，确保 enable 和 disable 列表中的值都是整数类型（兼容旧数据，自动转换）
             try:
-                self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
+                self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
             except (ValueError, TypeError):
                 self.switch.enable = []
             try:
-                self.switch.disable = [str(x) for x in self.switch.disable if x is not None]
+                self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
             except (ValueError, TypeError):
                 self.switch.disable = []
     
-    def start(self, group_id: str):
+    def start(self, group_id: int):
         """开始猜歌"""
         self.Group[group_id] = self.guessData()
 
-    def startpic(self, group_id: str):
+    def startpic(self, group_id: int):
         """开始猜曲绘"""
         self.Group[group_id] = self.guesspicdata()
         
@@ -491,21 +491,21 @@ class Guess:
 
     def end(self, group_id):
         """结束猜歌"""
-        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
-        group_id = str(group_id)
+        # 直接使用 group_id，自动转换为整数（兼容不同类型）
+        group_id = int(group_id)
         if group_id in self.Group:
             del self.Group[group_id]
 
     async def on(self, group_id) -> str:
         """开启猜歌"""
-        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
-        group_id = str(group_id)
-        # 清理 enable 列表，确保所有值都是字符串类型（兼容旧数据）
-        self.switch.enable = [str(x) for x in self.switch.enable if x is not None]
+        # 直接使用 group_id，自动转换为整数（兼容不同类型）
+        group_id = int(group_id)
+        # 清理 enable 列表，确保所有值都是整数类型（兼容旧数据）
+        self.switch.enable = [int(x) for x in self.switch.enable if x is not None]
         if group_id not in self.switch.enable:
             self.switch.enable.append(group_id)
-        # 清理 disable 列表，确保所有值都是字符串类型
-        self.switch.disable = [str(x) for x in self.switch.disable if x is not None]
+        # 清理 disable 列表，确保所有值都是整数类型
+        self.switch.disable = [int(x) for x in self.switch.disable if x is not None]
         if group_id in self.switch.disable:
             self.switch.disable.remove(group_id)
         await writefile(guess_file, self.switch.model_dump())
@@ -513,8 +513,8 @@ class Guess:
 
     async def off(self, group_id) -> str:
         """关闭猜歌"""
-        # 直接使用 group_id，自动转换为字符串（兼容不同类型）
-        group_id = str(group_id)
+        # 直接使用 group_id，自动转换为整数（兼容不同类型）
+        group_id = int(group_id)
         if group_id not in self.switch.disable:
             self.switch.disable.append(group_id)
         if group_id in self.switch.enable:
