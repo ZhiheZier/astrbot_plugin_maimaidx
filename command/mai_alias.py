@@ -407,7 +407,8 @@ async def push_alias(push: PushAliasStatus, context=None):
         ''').strip()
         pic = await draw_music_info(music)
         chain = convert_message_segment_to_chain(pic)
-        chain.insert(0, Comp.Plain(text_msg + '\n'))
+        # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
+        chain.insert(0, text_msg + '\n')
         message_chain = chain
     elif push.Type == 'End':
         text_msg = dedent(f'''\
@@ -419,7 +420,8 @@ async def push_alias(push: PushAliasStatus, context=None):
         ''').strip()
         pic = await draw_music_info(music)
         chain = convert_message_segment_to_chain(pic)
-        chain.insert(0, Comp.Plain(text_msg + '\n'))
+        # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
+        chain.insert(0, text_msg + '\n')
         message_chain = chain
     
     if not message_chain:
