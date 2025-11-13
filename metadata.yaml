@@ -1,6 +1,6 @@
 name: astrbot_plugin_maimaidx # 插件唯一识别名
 display_name: 国服舞萌插件 # 用于展示的名字
-desc: 国服舞萌查分插件，支持查询成绩、排名、曲目信息等功能 # 插件简短描述
+desc: 国服舞萌查分插件，支持查询成绩、排名、曲目信息等功能（一定要看文档！！！） # 插件简短描述
 version: v1.0.0 # 插件版本号
 author: ZhiheZier # 作者
 repo: https://github.com/ZhiheZier/astrbot_plugin_maimaidx # 插件的仓库地址
