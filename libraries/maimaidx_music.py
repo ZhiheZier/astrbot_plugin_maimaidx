@@ -459,14 +459,23 @@ class Guess:
 
     def guesspicdata(self) -> GuessPicData:
         """猜曲绘数据"""
+        if not mai.guess_data:
+            raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
         music = random.choice(mai.guess_data)
         pic = self.pic(music)
-        answer = mai.total_alias_list.by_id(music.id)[0].Alias
-        answer.append(music.id)
+        alias_list = mai.total_alias_list.by_id(music.id)
+        if not alias_list or len(alias_list) == 0:
+            # 如果没有别名数据，使用歌曲ID和标题作为答案
+            answer = [str(music.id), music.title]
+        else:
+            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.id), music.title]
+            answer.append(str(music.id))
         return GuessPicData(music=music, img=image_to_base64(pic), answer=answer, end=False)
 
     def guessData(self) -> GuessDefaultData:
         """猜歌数据"""
+        if not mai.guess_data:
+            raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
         music = random.choice(mai.guess_data)
         guess_options = random.sample([
             f'的 Expert 难度是 {music.level[2]}',
@@ -478,8 +487,13 @@ class Guess:
             f'{"没" if len(music.ds) == 4 else ""}有白谱',
             f'的 BPM 是 {music.basic_info.bpm}'
         ], 6)
-        answer = mai.total_alias_list.by_id(music.id)[0].Alias
-        answer.append(music.id)
+        alias_list = mai.total_alias_list.by_id(music.id)
+        if not alias_list or len(alias_list) == 0:
+            # 如果没有别名数据，使用歌曲ID和标题作为答案
+            answer = [str(music.id), music.title]
+        else:
+            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.id), music.title]
+            answer.append(str(music.id))
         pic = self.pic(music)
         return GuessDefaultData(
             music=music, 

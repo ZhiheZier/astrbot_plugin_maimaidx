@@ -222,7 +222,7 @@ class MaimaiDXPlugin(Star):
         async for result in rating_ranking_handler(event):
             yield result
 
-    @filter.command("我的排名")
+    @filter.regex(r'^(我的排名)$')
     async def my_rating_ranking(self, event: AstrMessageEvent):
         """我的排名"""
         from .command.mai_base import my_rating_ranking_handler
@@ -309,21 +309,21 @@ class MaimaiDXPlugin(Star):
             yield result
 
     # 猜歌命令
-    @filter.command("猜歌")
+    @filter.regex(r'^猜歌$')
     async def guess_music(self, event: AstrMessageEvent):
         """猜歌命令"""
         from .command.mai_guess import guess_music_handler
         async for result in guess_music_handler(event):
             yield result
 
-    @filter.command("猜曲绘")
+    @filter.regex(r'^猜曲绘$')
     async def guess_pic(self, event: AstrMessageEvent):
         """猜曲绘命令"""
         from .command.mai_guess import guess_pic_handler
         async for result in guess_pic_handler(event):
             yield result
 
-    @filter.command("重置猜歌")
+    @filter.regex(r'^重置猜歌$')
     async def reset_guess(self, event: AstrMessageEvent):
         """重置猜歌命令"""
         from .command.mai_guess import reset_guess_handler
