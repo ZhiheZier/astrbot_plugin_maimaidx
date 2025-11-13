@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import tempfile
 from textwrap import dedent
 
 import astrbot.api.message_components as Comp
@@ -72,12 +74,26 @@ async def guess_music_handler(event: AstrMessageEvent):
                 await asyncio.sleep(8)
             else:
                 # 发送图片和提示
-                img_path = guess.Group[gid].img
-                chain = [
-                    Comp.Plain('7/7 这首歌封面的一部分是：\n'),
-                    Comp.Image.fromFileSystem(img_path) if isinstance(img_path, str) else Comp.Plain(str(img_path)),
-                    Comp.Plain('\n答案将在30秒后揭晓')
-                ]
+                img_data = guess.Group[gid].img
+                # img_data 是 base64://... 格式的字符串
+                chain = [Comp.Plain('7/7 这首歌封面的一部分是：\n')]
+                
+                # 将 base64 字符串转换为临时文件
+                if isinstance(img_data, str) and img_data.startswith('base64://'):
+                    try:
+                        base64_data = img_data[9:]  # 移除 'base64://' 前缀
+                        img_bytes = base64.b64decode(base64_data)
+                        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                            temp_file.write(img_bytes)
+                            temp_file_path = temp_file.name
+                        chain.append(Comp.Image.fromFileSystem(temp_file_path))
+                    except Exception as e:
+                        log.error(f'处理猜歌图片失败: {e}')
+                        chain.append(Comp.Plain('[图片加载失败]'))
+                else:
+                    chain.append(Comp.Plain(str(img_data)))
+                
+                chain.append(Comp.Plain('\n答案将在30秒后揭晓'))
                 try:
                     await bot_client.send_group_msg(group_id=group_id, message=chain)
                 except Exception as e:
@@ -121,12 +137,26 @@ async def guess_pic_handler(event: AstrMessageEvent):
         return
     
     guess.startpic(gid)
-    img_path = guess.Group[gid].img
-    chain = [
-        Comp.Plain('以下裁切图片是哪首谱面的曲绘：\n'),
-        Comp.Image.fromFileSystem(img_path) if isinstance(img_path, str) else Comp.Plain(str(img_path)),
-        Comp.Plain('\n请在30s内输入答案')
-    ]
+    img_data = guess.Group[gid].img
+    # img_data 是 base64://... 格式的字符串
+    chain = [Comp.Plain('以下裁切图片是哪首谱面的曲绘：\n')]
+    
+    # 将 base64 字符串转换为临时文件
+    if isinstance(img_data, str) and img_data.startswith('base64://'):
+        try:
+            base64_data = img_data[9:]  # 移除 'base64://' 前缀
+            img_bytes = base64.b64decode(base64_data)
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
+                temp_file.write(img_bytes)
+                temp_file_path = temp_file.name
+            chain.append(Comp.Image.fromFileSystem(temp_file_path))
+        except Exception as e:
+            log.error(f'处理猜曲绘图片失败: {e}')
+            chain.append(Comp.Plain('[图片加载失败]'))
+    else:
+        chain.append(Comp.Plain(str(img_data)))
+    
+    chain.append(Comp.Plain('\n请在30s内输入答案'))
     yield event.chain_result(chain)
     
     # 获取 bot client 用于发送消息
