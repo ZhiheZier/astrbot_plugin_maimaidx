@@ -5,6 +5,7 @@ from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import asyncio
+import traceback
 
 from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn
 from .libraries.maimai_best_50 import ScoreBaseImage
@@ -48,20 +49,50 @@ class MaimaiDXPlugin(Star):
 
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
-        
         try:
-            if maiApi.config.maimaidxproberproxy:
-                log.info('正在使用代理服务器访问查分器')
-            if maiApi.config.maimaidxaliasproxy:
-                log.info('正在使用代理服务器访问别名服务器')
-            maiApi.load_token_proxy()
-            if maiApi.config.maimaidxaliaspush:
-                log.info('别名推送为「开启」状态')
-                # 启动别名推送 WebSocket 服务器
-                asyncio.ensure_future(ws_alias_server(self.context))
-            else:
-                log.info('别名推送为「关闭」状态')
+            # 设置配置
+            self._setup_configuration()
             
+            # 加载maimai数据
+            await self._load_maimai_data()
+            
+            # 加载机厅数据
+            await self._load_arcade_data()
+            
+            # 加载图片到内存（如果配置了）
+            self._load_images_to_memory()
+            
+            # 执行初始检查
+            self._perform_initial_checks()
+            
+            # 设置定时任务
+            self._setup_schedulers()
+            
+            log.info('maimaiDX插件初始化完成')
+            log.info('命令注册完成，等待用户输入...')
+        except Exception as e:
+            log.error(f'插件初始化失败: {e}')
+            log.error(traceback.format_exc())
+            log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
+
+    def _setup_configuration(self):
+        """处理配置相关的初始化"""
+        if maiApi.config.maimaidxproberproxy:
+            log.info('正在使用代理服务器访问查分器')
+        if maiApi.config.maimaidxaliasproxy:
+            log.info('正在使用代理服务器访问别名服务器')
+        maiApi.load_token_proxy()
+        
+        if maiApi.config.maimaidxaliaspush:
+            log.info('别名推送为「开启」状态')
+            # 启动别名推送 WebSocket 服务器
+            asyncio.ensure_future(ws_alias_server(self.context))
+        else:
+            log.info('别名推送为「关闭」状态')
+
+    async def _load_maimai_data(self):
+        """负责加载所有maimai相关数据（歌曲、别名等）"""
+        try:
             log.info('正在获取maimai所有曲目信息')
             await mai.get_music()
             log.info(f'歌曲数据获取完成，数量: {len(mai.total_list) if hasattr(mai, "total_list") and mai.total_list else 0}')
@@ -80,41 +111,39 @@ class MaimaiDXPlugin(Star):
             
             log.info('maimai数据获取完成')
         except Exception as e:
-            log.error(f'插件初始化失败: {e}')
-            import traceback
+            log.error(f'加载maimai数据失败: {e}')
             log.error(traceback.format_exc())
-            # 即使初始化失败，也继续执行，让命令可以注册
-            log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
-        
-        # 初始化机厅数据
+            raise
+
+    async def _load_arcade_data(self):
+        """加载机厅数据"""
         try:
             from .libraries.maimaidx_arcade import arcade
             loga.info('正在获取maimai所有机厅信息')
             await arcade.getArcade()
             loga.info('maimai机厅数据获取完成')
-            
-            # 添加机厅数据每日更新定时任务（每天凌晨3点）
-            self.scheduler.add_job(
-                self._arcade_daily_update,
-                trigger=CronTrigger(hour=3),
-                name="arcade_daily_update",
-                misfire_grace_time=300
-            )
         except ImportError:
             loga.warning('机厅功能未迁移，跳过机厅数据初始化')
         except Exception as e:
             loga.error(f'机厅数据初始化失败: {e}')
-        
+
+    def _load_images_to_memory(self):
+        """如果配置了，将图片加载到内存中"""
         if maiApi.config.saveinmem:
             ScoreBaseImage._load_image()
             log.info('已将图片保存在内存中')
-        
+
+    def _perform_initial_checks(self):
+        """执行对目录和数据的初始检查"""
+        # 检查定数表文件夹
         if not list(ratingdir.iterdir()):
             log.warning(
                 '注意！注意！检测到定数表文件夹为空！'
                 '可能导致「定数表」「完成表」指令无法使用，'
                 '请及时私聊BOT使用指令「更新定数表」进行生成。'
             )
+        
+        # 检查完成表文件夹
         plate_list = [name for name in list(plate_to_dx_version.keys())[1:]]
         platedir_list = [f.name.split('.')[0] for f in platedir.iterdir()]
         cn_list = [name for name in list(platecn.keys())]
@@ -127,15 +156,7 @@ class MaimaiDXPlugin(Star):
                 '请及时私聊BOT使用指令「更新完成表」进行生成。'
             )
         
-        # 设置定时任务：每天凌晨4点更新数据
-        self.scheduler.add_job(
-            self._daily_update,
-            trigger=CronTrigger(hour=4),
-            name="maimai_daily_update",
-            misfire_grace_time=300
-        )
-        log.info('maimaiDX插件初始化完成')
-        # 输出调试信息：检查数据是否加载成功
+        # 检查数据是否加载成功
         try:
             if hasattr(mai, 'total_list') and mai.total_list:
                 log.info(f'歌曲数据数量: {len(mai.total_list)}')
@@ -147,11 +168,30 @@ class MaimaiDXPlugin(Star):
                 log.warning('别名数据未加载')
         except Exception as e:
             log.warning(f'检查数据状态时出错: {e}')
-            import traceback
             log.error(traceback.format_exc())
+
+    def _setup_schedulers(self):
+        """专门用于设置所有 apscheduler 定时任务"""
+        # 设置定时任务：每天凌晨4点更新数据
+        self.scheduler.add_job(
+            self._daily_update,
+            trigger=CronTrigger(hour=4),
+            name="maimai_daily_update",
+            misfire_grace_time=300
+        )
         
-        # 输出命令注册信息
-        log.info('命令注册完成，等待用户输入...')
+        # 添加机厅数据每日更新定时任务（每天凌晨3点）
+        try:
+            from .libraries.maimaidx_arcade import arcade
+            self.scheduler.add_job(
+                self._arcade_daily_update,
+                trigger=CronTrigger(hour=3),
+                name="arcade_daily_update",
+                misfire_grace_time=300
+            )
+        except ImportError:
+            # 机厅功能未迁移，跳过定时任务设置
+            pass
 
     async def _daily_update(self):
         """定时任务：每日更新数据"""

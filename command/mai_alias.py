@@ -34,7 +34,6 @@ async def update_alias_handler(event: AstrMessageEvent, superusers: list = None)
         yield event.plain_result('手动更新别名库成功')
     except Exception as e:
         log.error(f'手动更新别名库失败: {e}')
-        import traceback
         log.error(traceback.format_exc())
         yield event.plain_result('手动更新别名库失败')
         
@@ -62,7 +61,6 @@ async def alias_switch_on_off_handler(event: AstrMessageEvent, superusers: list 
             yield event.plain_result('命令格式错误')
     except Exception as e:
         log.error(f'全局开关别名推送失败: {e}')
-        import traceback
         log.error(traceback.format_exc())
         yield event.plain_result('操作失败')
 
@@ -332,7 +330,6 @@ async def push_alias(push: PushAliasStatus, context=None):
             bot_client = platform.get_client()
     except Exception as e:
         log.error(f'获取 bot client 失败: {e}')
-        import traceback
         log.error(traceback.format_exc())
         return
     
@@ -479,7 +476,6 @@ async def ws_alias_server(context=None):
                                 continue
                             except Exception as e:
                                 log.warning(f'处理别名推送数据失败: {e}')
-                                import traceback
                                 log.debug(traceback.format_exc())
                                 continue
                     except aiohttp.WSServerHandshakeError:

@@ -1,5 +1,6 @@
 import re
 from textwrap import dedent
+from typing import Any, List
 
 import astrbot.api.message_components as Comp
 
@@ -32,7 +33,9 @@ async def best50_handler(event: AstrMessageEvent):
         qqid = at_qqid
     
     result = await generate(qqid, username)
-    chain = convert_message_segment_to_chain(result)
+    chain: List[Any] = convert_message_segment_to_chain(result)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
     
