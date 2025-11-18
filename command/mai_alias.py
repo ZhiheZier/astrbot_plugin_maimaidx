@@ -389,6 +389,8 @@ async def push_alias(push: PushAliasStatus, context=None):
     # 获取群组列表
     try:
         group_list = await bot_client.get_group_list()
+        # 去重，避免重复推送别名
+        group_ids = list({g['group_id'] for g in group_list})
     except Exception as e:
         log.error(f'获取群组列表失败: {e}')
         return
@@ -426,8 +428,7 @@ async def push_alias(push: PushAliasStatus, context=None):
     if not message_chain:
         return
     
-    for group in group_list:
-        gid: int = group['group_id']
+    for gid in group_ids:
         if str(gid) in alias.push.disable:
             continue
         try:
