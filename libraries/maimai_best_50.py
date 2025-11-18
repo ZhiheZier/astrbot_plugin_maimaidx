@@ -99,6 +99,10 @@ class ScoreBaseImage:
             `dx`: 是否为新版本成绩
             `height`: 起始高度
         """
+        # 确保图片资源已加载
+        if not self._diff:
+            self._load_image()
+        
         # y为第一排纵向坐标，dy为各行间距
         dy = 114
         if data and type(data[0]) == ChartInfo:
@@ -111,6 +115,11 @@ class ScoreBaseImage:
                 y += dy if num != 0 else 0
             else:
                 x += 276
+
+            # 检查 level_index 是否在有效范围内 (0-4)
+            if not hasattr(info, 'level_index') or info.level_index < 0 or info.level_index >= len(self._diff):
+                log.warning(f'无效的 level_index: {getattr(info, "level_index", None)} for song {getattr(info, "song_id", "unknown")}')
+                continue
 
             cover = Image.open(music_picture(info.song_id)).resize((75, 75))
             version = Image.open(maimaidir / f'{info.type.upper()}.png').resize((37, 14))
@@ -130,8 +139,17 @@ class ScoreBaseImage:
                 fs = Image.open(maimaidir / f'UI_MSS_MBase_Icon_{fsl[info.fs]}.png').resize((34, 34))
                 self._im.alpha_composite(fs, (x + 185, y + 77))
             
-            dxscore = sum(mai.total_list.by_id(str(info.song_id)).charts[info.level_index].notes) * 3
-            dxnum = dxScore(info.dxScore / dxscore * 100)
+            # 安全获取歌曲信息和谱面数据，防止 IndexError
+            music = mai.total_list.by_id(str(info.song_id))
+            if music and music.charts and len(music.charts) > info.level_index:
+                chart = music.charts[info.level_index]
+                dxscore = sum(chart.notes) * 3
+            else:
+                # 如果无法获取谱面数据，使用默认值或跳过 DX 分数显示
+                dxscore = 0
+                log.warning(f'无法获取歌曲 {info.song_id} 的谱面数据 (level_index: {info.level_index})')
+            
+            dxnum = dxScore(int(info.dxScore / dxscore * 100)) if dxscore > 0 else 0
             if dxnum:
                 self._im.alpha_composite(
                     Image.open(maimaidir / f'UI_GAM_Gauge_DXScoreIcon_0{dxnum}.png').resize((47, 26)), (x + 217, y + 80)
