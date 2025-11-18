@@ -446,47 +446,43 @@ async def ws_alias_server(context=None):
     """
     log.info('正在连接别名推送服务器')
     if maiApi.config.maimaidxaliasproxy:
-        wsapi = 'proxy.yuzuchan.xyz/maimaidxaliases'
+        wsapi = 'proxy.yuzuchan.site/maimaidxaliases'
     else:
         wsapi = 'www.yuzuchan.moe/api/maimaidx'
     while True:
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(f'wss://{wsapi}/ws/{UUID}') as ws:
-                    try:
-                        log.info('别名推送服务器连接成功')
-                        while True:
-                            data = await ws.receive_str()
-                            # 处理 WebSocket 心跳消息
-                            if data == 'Hello':
-                                log.info('别名推送服务器正常运行')
-                                continue
-                            if data == 'ping' or data == 'pong':
-                                # WebSocket 心跳消息，忽略
-                                continue
-                            if not data or not data.strip():
-                                continue
-                            try:
-                                newdata = json.loads(data)
-                                status = PushAliasStatus.model_validate(newdata)
-                                await asyncio.create_task(push_alias(status, context))
-                            except json.JSONDecodeError as e:
-                                # 如果不是已知的控制消息，才记录警告
-                                if data not in ['ping', 'pong', 'Hello']:
-                                    log.warning(f'别名推送数据 JSON 解析失败: {e}, 数据: {data[:100] if len(data) > 100 else data}')
-                                continue
-                            except Exception as e:
-                                log.warning(f'处理别名推送数据失败: {e}')
-                                log.debug(traceback.format_exc())
-                                continue
-                    except aiohttp.WSServerHandshakeError:
-                        log.warning('别名推送服务器已断开连接，将在1分钟后重新尝试连接')
-                        await asyncio.sleep(60)
-                    except aiohttp.WebSocketError:
-                        log.error('别名推送服务器连接失败，将在1分钟后重试')
-                        await asyncio.sleep(60)
-                        log.info('正在尝试重新连接别名推送服务器')
-        except Exception as e:
-            log.error(f'别名推送服务器连接失败: {e}')
+                    log.info('别名推送服务器连接成功')
+                    while True:
+                        data = await ws.receive_str()
+                        # 处理 WebSocket 心跳消息
+                        if data == 'Hello':
+                            log.info('别名推送服务器正常运行')
+                            continue
+                        if data == 'ping' or data == 'pong':
+                            # WebSocket 心跳消息，忽略
+                            continue
+                        if not data or not data.strip():
+                            continue
+                        try:
+                            newdata = json.loads(data)
+                            status = PushAliasStatus.model_validate(newdata)
+                            await push_alias(status, context)
+                        except json.JSONDecodeError as e:
+                            # 如果不是已知的控制消息，才记录警告
+                            if data not in ['ping', 'pong', 'Hello']:
+                                log.warning(f'别名推送数据 JSON 解析失败: {e}, 数据: {data[:100] if len(data) > 100 else data}')
+                            continue
+                        except Exception as e:
+                            log.warning(f'处理别名推送数据失败: {e}')
+                            log.debug(traceback.format_exc())
+                            continue
+        except (aiohttp.WSServerHandshakeError, aiohttp.WebSocketError) as e:
+            log.warning(f'连接断开或异常: {e}，将在 60 秒后重连')
             await asyncio.sleep(60)
-            log.info('正在尝试重新连接别名推送服务器')
+            continue
+        except Exception as e:
+            log.error(f'别名推送服务器连接失败: {e}，将在 60 秒后重试')
+            await asyncio.sleep(60)
+            continue
