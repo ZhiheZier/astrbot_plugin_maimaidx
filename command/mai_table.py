@@ -60,6 +60,8 @@ async def rating_table_handler(event: AstrMessageEvent):
         path = ratingdir / f'{args}.png'
         pic = draw_rating(args, path)
         chain = convert_message_segment_to_chain(pic)
+        # 添加引用回复
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
     else:
         yield event.plain_result('无法识别的定数')
@@ -89,6 +91,8 @@ async def table_pfm_handler(event: AstrMessageEvent):
         elif ra in levelList[5:]:
             pic = await draw_rating_table(qqid, ra, True if plan and plan.lower() in combo_rank else False)
             chain = convert_message_segment_to_chain(pic)
+            # 添加引用回复
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
             yield event.chain_result(chain)
             return
         else:
@@ -107,6 +111,8 @@ async def table_pfm_handler(event: AstrMessageEvent):
             return
         pic = await draw_plate_table(qqid, ver, plan)
         chain = convert_message_segment_to_chain(pic)
+        # 添加引用回复
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
     else:
@@ -147,6 +153,8 @@ async def rise_score_handler(event: AstrMessageEvent):
         
     data = await rise_score_data(qqid, username, rating, score)
     chain = convert_message_segment_to_chain(data)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
 
@@ -180,6 +188,8 @@ async def plate_process_handler(event: AstrMessageEvent):
 
     data = await player_plate_data(qqid, username, ver, plan)
     chain = convert_message_segment_to_chain(data)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
 
 
@@ -238,6 +248,8 @@ async def level_process_handler(event: AstrMessageEvent):
 
     data = await level_process_data(qqid, username, level, plan, category, int(page) if page else 1)
     chain = convert_message_segment_to_chain(data)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
     
@@ -278,4 +290,6 @@ async def level_achievement_list_handler(event: AstrMessageEvent):
 
     data = await level_achievement_list_data(qqid, username, rating, int(page) if page else 1)
     chain = convert_message_segment_to_chain(data)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)

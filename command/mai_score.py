@@ -87,6 +87,8 @@ async def minfo_handler(event: AstrMessageEvent):
             songs = str(alias[0].SongID)
     pic = await draw_music_play_data(qqid, songs)
     chain = convert_message_segment_to_chain(pic)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
 
 
@@ -159,6 +161,8 @@ async def ginfo_handler(event: AstrMessageEvent):
         谱面成绩标准差：{stats.std_dev:.2f}''')
     pic = await music_global_data(music, level_index)
     chain = convert_message_segment_to_chain(pic)
+    # 添加引用回复
+    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     chain.append(Comp.Plain(info))
     yield event.chain_result(chain)
     
