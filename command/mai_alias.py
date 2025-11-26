@@ -4,7 +4,7 @@ import re
 import traceback
 from re import Match
 from textwrap import dedent
-from typing import List
+from typing import Any, List
 
 import aiohttp
 import astrbot.api.message_components as Comp
@@ -19,6 +19,33 @@ from ..libraries.maimaidx_error import ServerError
 from ..libraries.maimaidx_model import Alias, PushAliasStatus
 from ..libraries.maimaidx_music import alias, mai, update_local_alias
 from ..libraries.maimaidx_music_info import draw_music_info
+
+
+async def convert_chain_to_onebot_format(chain: List[Any]):
+    """将消息链转换为 OneBot 协议格式（字典列表）"""
+    result = []
+    for item in chain:
+        if isinstance(item, str):
+            # 字符串直接转换为文本消息
+            if item.strip():
+                result.append({"type": "text", "data": {"text": item}})
+        elif isinstance(item, Comp.Plain):
+            # Plain 组件转换为文本消息
+            text = item.text if hasattr(item, 'text') else str(item)
+            if text.strip():
+                result.append({"type": "text", "data": {"text": text}})
+        elif isinstance(item, Comp.Image):
+            # Image 组件转换为图片消息
+            try:
+                # 使用 convert_to_base64 方法获取 base64 字符串
+                base64_str = await item.convert_to_base64()
+                result.append({"type": "image", "data": {"file": f"base64://{base64_str}"}})
+            except Exception as e:
+                log.error(f'转换图片失败: {e}')
+        elif isinstance(item, Comp.At):
+            # At 组件转换为 at 消息
+            result.append({"type": "at", "data": {"qq": str(item.qq)}})
+    return result
 
 
 async def update_alias_handler(event: AstrMessageEvent, superusers: list = None):
@@ -358,7 +385,9 @@ async def push_alias(push: PushAliasStatus, context=None):
         # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
         chain.insert(1, '\n' + text_msg)
         try:
-            await bot_client.send_group_msg(group_id=push.Status.GroupID, message=chain)
+            # 将消息链转换为 OneBot 格式
+            onebot_chain = await convert_chain_to_onebot_format(chain)
+            await bot_client.send_group_msg(group_id=push.Status.GroupID, message=onebot_chain)
         except Exception as e:
             log.error(f'发送别名审核通过消息失败: {e}')
         return
@@ -377,7 +406,9 @@ async def push_alias(push: PushAliasStatus, context=None):
         # 直接使用字符串而不是 Comp.Plain，避免 JSON 序列化问题
         chain.insert(1, '\n' + text_msg)
         try:
-            await bot_client.send_group_msg(group_id=push.Status.GroupID, message=chain)
+            # 将消息链转换为 OneBot 格式
+            onebot_chain = await convert_chain_to_onebot_format(chain)
+            await bot_client.send_group_msg(group_id=push.Status.GroupID, message=onebot_chain)
         except Exception as e:
             log.error(f'发送别名拒绝消息失败: {e}')
         return
@@ -432,7 +463,9 @@ async def push_alias(push: PushAliasStatus, context=None):
         if str(gid) in alias.push.disable:
             continue
         try:
-            await bot_client.send_group_msg(group_id=gid, message=message_chain)
+            # 将消息链转换为 OneBot 格式
+            onebot_message = await convert_chain_to_onebot_format(message_chain)
+            await bot_client.send_group_msg(group_id=gid, message=onebot_message)
             await asyncio.sleep(5)
         except Exception as e:
             log.warning(f'发送别名推送消息到群 {gid} 失败: {e}')

@@ -381,7 +381,7 @@ async def arcade_query_person_handler(event: AstrMessageEvent):
     
     message_str = event.message_str.strip()
     # 移除后缀
-    for suffix in ['有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', 'jr', '几卡']:
+    for suffix in ['有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', 'jr', '几卡', 'j']:
         if message_str.endswith(suffix):
             name = message_str[:-len(suffix)].strip().lower()
             break
