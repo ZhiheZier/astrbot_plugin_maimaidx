@@ -405,6 +405,16 @@ class MaimaiDXPlugin(Star):
         async for result in score_handler(event):
             yield result
 
+    @filter.regex(r'^([0-9]*\.?[0-9]+)的([0-9]*\.?[0-9]+)是多少分$')
+    async def calculate_score(self, event: AstrMessageEvent):
+        """计算分数命令"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import mai_score_calculate_handler
+        async for result in mai_score_calculate_handler(event):
+            yield result
+
     # 搜索命令
     @filter.regex(r'^(查歌|search)\s*(.*)$')
     async def search_music(self, event: AstrMessageEvent):

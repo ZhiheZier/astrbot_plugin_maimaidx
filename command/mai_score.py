@@ -1,6 +1,7 @@
 import re
 from textwrap import dedent
 from typing import Any, List
+import math
 
 import astrbot.api.message_components as Comp
 
@@ -25,12 +26,14 @@ async def best50_handler(event: AstrMessageEvent):
     qqid = event.get_sender_id()
     message_str = event.message_str.strip()
     # 移除命令前缀
-    username = message_str.replace('b50', '').replace('B50', '').strip()
-    
     # 检查是否有 @ 消息
-    at_qqid = extract_at_qqid(event)
-    if at_qqid:
-        qqid = at_qqid
+    if '@' not in message_str:
+        username = message_str.replace('b50', '').replace('B50', '').strip()
+    else:
+        username = ''   
+        at_qqid = extract_at_qqid(event)
+        if at_qqid:
+            qqid = at_qqid
     
     result = await generate(qqid, username)
     chain: List[Any] = convert_message_segment_to_chain(result)
@@ -242,3 +245,51 @@ async def score_handler(event: AstrMessageEvent):
         except (AttributeError, ValueError) as e:
             log.exception(e)
             yield event.plain_result('格式错误，输入"分数线 帮助"以查看帮助信息')
+
+async def mai_score_calculate_handler(event: AstrMessageEvent):
+    """计算指定定数和达成率的分数"""
+    message_str = event.message_str.strip()
+    # 1. 匹配字符串提取 a (定数) 和 b (达成率)
+    pattern = r'^([0-9]*\.?[0-9]+)的([0-9]*\.?[0-9]+)是多少分$'
+    match = re.match(pattern, message_str)
+    
+    if not match:
+        return
+
+    a = float(match.group(1))
+    b_raw = float(match.group(2))
+    
+    # 2. 达成率限制：100.5以上的都记为100.5
+    b = min(b_raw, 100.5)
+
+    # 3. 定义评级系数查找逻辑 (左闭右开)
+    def get_coefficient(val):
+        # 处理最高点的特殊情况
+        if val >= 100.5 and val <= 101: return 0.224
+        
+        # 定义区间配置 (下限, 上限, 系数)
+        thresholds = [
+            (10, 20, 0.016), (20, 30, 0.032), (30, 40, 0.048),
+            (40, 50, 0.064), (50, 60, 0.08), (60, 70, 0.096),
+            (70, 75, 0.112), (75, 80, 0.128), (80, 90, 0.136),
+            (90, 94, 0.152), (94, 97, 0.168), (97, 98, 0.2),
+            (98, 99, 0.203), (99, 99.5, 0.208), (99.5, 100, 0.211),
+            (100, 100.5, 0.216)
+        ]
+        
+        for low, high, coef in thresholds:
+            if low <= val < high:
+                return coef
+        return 0 # 不在区间内返回0
+
+    coef = get_coefficient(b)
+
+    # 4. 计算分数：定数 * 达成率 * 系数，然后向下取整
+    # 注意：计算时达成率通常作为数值直接相乘（如 13.2 * 100.5 * 0.224）
+    score = math.floor(a * b * coef)
+    if score:
+        yield event.plain_result(f"{a}的{b_raw}是{score}分")
+        return
+    else:
+        yield event.plain_result("输入错误，可能是格式不正确或达成率或定数输入不正确。正确格式：{定数}的{达成率}是多少分")
+        return
