@@ -78,12 +78,36 @@ class ScoreBaseImage:
     
     def __init__(self, image: Image.Image = None) -> None:
         if not maiApi.config.saveinmem:
-            self._load_image()
-        
+            self.load_image()
         self._im = image
-        dr = ImageDraw.Draw(self._im)
-        self._sy = DrawText(dr, SIYUAN)
-        self._tb = DrawText(dr, TBFONT)
+        if image is not None:
+            dr = ImageDraw.Draw(self._im)
+            self._sy = DrawText(dr, SIYUAN)
+            self._tb = DrawText(dr, TBFONT)
+    
+    def load_image(self):
+        self._diff = [
+            Image.open(maimaidir / 'b50_score_basic.png'), 
+            Image.open(maimaidir / 'b50_score_advanced.png'), 
+            Image.open(maimaidir / 'b50_score_expert.png'), 
+            Image.open(maimaidir / 'b50_score_master.png'), 
+            Image.open(maimaidir / 'b50_score_remaster.png')
+        ]
+        self._rise = [
+            Image.open(maimaidir / 'rise_score_basic.png'),
+            Image.open(maimaidir / 'rise_score_advanced.png'),
+            Image.open(maimaidir / 'rise_score_expert.png'),
+            Image.open(maimaidir / 'rise_score_master.png'),
+            Image.open(maimaidir / 'rise_score_remaster.png')
+        ]
+        self.title_bg = Image.open(maimaidir / 'title.png')
+        self.title_lengthen_bg = Image.open(maimaidir / 'title-lengthen.png')
+        self.design_bg = Image.open(maimaidir / 'design.png')
+        self.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA').resize((1400, 220))
+        self.shines_bg = Image.open(maimaidir / 'bg_shines.png').convert('RGBA')
+        self.pattern_bg = Image.open(maimaidir / 'pattern.png')
+        self.rainbow_bg = Image.open(maimaidir / 'rainbow.png').convert('RGBA')
+        self.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA').resize((1200, 200))
     
     def whiledraw(
         self, 

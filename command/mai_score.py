@@ -7,7 +7,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import log
+from .. import log, is_reply_enabled
 from ..command.mai_base import extract_at_qqid, convert_message_segment_to_chain
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimai_best_50 import generate
@@ -28,7 +28,7 @@ async def best50_handler(event: AstrMessageEvent):
     # 移除命令前缀
     # 检查是否有 @ 消息
     if '@' not in message_str:
-        username = message_str.replace('b50', '').replace('B50', '').strip()
+        username = re.sub(r"[MSG_ID:[^\]]*]", "", message_str.replace("b50", "").replace("B50", "")).strip()
     else:
         username = ''   
         at_qqid = extract_at_qqid(event)
@@ -37,8 +37,8 @@ async def best50_handler(event: AstrMessageEvent):
     
     result = await generate(qqid, username)
     chain: List[Any] = convert_message_segment_to_chain(result)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
     
@@ -90,8 +90,8 @@ async def minfo_handler(event: AstrMessageEvent):
             songs = str(alias[0].SongID)
     pic = await draw_music_play_data(qqid, songs)
     chain = convert_message_segment_to_chain(pic)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
 
 
@@ -165,7 +165,8 @@ async def ginfo_handler(event: AstrMessageEvent):
     pic = await music_global_data(music, level_index)
     chain = convert_message_segment_to_chain(pic)
     # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if not chain or not isinstance(chain[0], Comp.Reply):
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     chain.append(Comp.Plain(info))
     yield event.chain_result(chain)
     

@@ -4,6 +4,12 @@
     "hint": "用于在消息中显示（如：今日运势功能）",
     "type": "string",
     "default": "Bot"
+  },
+  "enable_reply": {
+    "description": "引用回复",
+    "hint": "是否在多数指令回复中添加“引用消息”（Reply）。关闭可减少引用/提及效果。",
+    "type": "boolean",
+    "default": true
   }
 }
 

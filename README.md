@@ -29,8 +29,8 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 
 下载静态资源文件，解压后将 `static` 文件夹复制到插件根目录并覆盖（除了config.json）。
 
-- [私人云盘](https://cloud.yuzuchan.moe/f/1bUn/Resource.7z)
-- [onedrive](https://yuzuai-my.sharepoint.com/:u:/g/personal/yuzu_yuzuchan_moe/EdGUKRSo-VpHjT2noa_9EroBdFZci-tqWjVZzKZRTEeZkw?e=a1TM40)
+- [Cloudreve私人云盘](https://cloud.yuzuchan.moe/f/nXt6/Resource.7z)
+- [onedrive](https://yuzuai-my.sharepoint.com/:u:/g/personal/yuzu_yuzuchan_moe/IQDRlCkUqPlaR409p6Gv_RK6AZ-dJaBtbgZoJMvFI4IJiYw?e=eu5f2h)
 
 ### 3. 安装依赖
 

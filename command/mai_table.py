@@ -5,7 +5,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import comboRank, combo_rank, levelList, log, platecn, scoreRank, syncRank
+from .. import comboRank, combo_rank, levelList, log, platecn, scoreRank, syncRank, is_reply_enabled
 from ..command.mai_base import convert_message_segment_to_chain, extract_at_qqid
 from ..libraries.maimaidx_music_info import (
     draw_plate_table,
@@ -60,8 +60,8 @@ async def rating_table_handler(event: AstrMessageEvent):
         path = ratingdir / f'{args}.png'
         pic = draw_rating(args, path)
         chain = convert_message_segment_to_chain(pic)
-        # 添加引用回复
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
     else:
         yield event.plain_result('无法识别的定数')
@@ -80,7 +80,7 @@ async def table_pfm_handler(event: AstrMessageEvent):
         qqid = at_qqid
     
     rating = re.search(r'^([0-9]+\+?)(app|fcp|ap|fc)?', args, re.IGNORECASE)
-    plate = re.search(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜])([極极将舞神者]舞?)$', args)
+    plate = re.search(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜彩])([極极将舞神者]舞?)$', args)
     
     if rating:
         ra = rating.group(1)
@@ -91,8 +91,8 @@ async def table_pfm_handler(event: AstrMessageEvent):
         elif ra in levelList[5:]:
             pic = await draw_rating_table(qqid, ra, True if plan and plan.lower() in combo_rank else False)
             chain = convert_message_segment_to_chain(pic)
-            # 添加引用回复
-            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+            if is_reply_enabled():
+                chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
             yield event.chain_result(chain)
             return
         else:
@@ -111,8 +111,8 @@ async def table_pfm_handler(event: AstrMessageEvent):
             return
         pic = await draw_plate_table(qqid, ver, plan)
         chain = convert_message_segment_to_chain(pic)
-        # 添加引用回复
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
     else:
@@ -153,8 +153,8 @@ async def rise_score_handler(event: AstrMessageEvent):
         
     data = await rise_score_data(qqid, username, rating, score)
     chain = convert_message_segment_to_chain(data)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
 
@@ -169,7 +169,7 @@ async def plate_process_handler(event: AstrMessageEvent):
         qqid = at_qqid
     
     # 匹配正则表达式
-    match = re.match(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜])([極极将舞神者]舞?)进度\s?(.+)?', message_str)
+    match = re.match(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])([極极将舞神者]舞?)进度\s?(.+)?', message_str)
     if not match:
         return  # 不匹配则不处理
     
@@ -188,8 +188,8 @@ async def plate_process_handler(event: AstrMessageEvent):
 
     data = await player_plate_data(qqid, username, ver, plan)
     chain = convert_message_segment_to_chain(data)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
 
 
@@ -248,8 +248,8 @@ async def level_process_handler(event: AstrMessageEvent):
 
     data = await level_process_data(qqid, username, level, plan, category, int(page) if page else 1)
     chain = convert_message_segment_to_chain(data)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
     
     
@@ -290,6 +290,6 @@ async def level_achievement_list_handler(event: AstrMessageEvent):
 
     data = await level_achievement_list_data(qqid, username, rating, int(page) if page else 1)
     chain = convert_message_segment_to_chain(data)
-    # 添加引用回复
-    chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)

@@ -11,9 +11,18 @@ loga = logger
 # BOTNAME 变量，会在插件初始化时从配置中读取并更新
 _BOTNAME = "Bot"
 
+# 是否使用“引用回复”（Reply）组件。默认开启，让多数指令更好用；
+# 如不需要，可在 AstrBot 插件配置里关闭。
+_ENABLE_REPLY = True
+
 def get_botname():
     """获取机器人名称"""
     return _BOTNAME
+
+
+def is_reply_enabled() -> bool:
+    """是否启用引用回复（Reply）"""
+    return bool(_ENABLE_REPLY)
 
 # 为了向后兼容，保留 BOTNAME 作为属性访问
 # 其他模块应该使用 get_botname() 函数或通过模块访问 BOTNAME
@@ -187,7 +196,8 @@ plate_to_dx_version: Dict[str, str] = {
     '祝': 'maimai でらっくす FESTiVAL PLUS',
     '双': 'maimai でらっくす BUDDiES',
     '宴': 'maimai でらっくす BUDDiES PLUS',
-    '镜': 'maimai でらっくす PRiSM'
+    '镜': 'maimai でらっくす PRiSM',
+    '彩': 'maimai でらっくす PRiSM PLUS'
 }
 version_map = {
     '真': ([plate_to_dx_version['真'], plate_to_dx_version['初']], '真'),
@@ -215,7 +225,8 @@ version_map = {
     '祝': ([plate_to_dx_version['祭']], '祭&祝'),
     '双': ([plate_to_dx_version['双']], '双&宴'),
     '宴': ([plate_to_dx_version['双']], '双&宴'),
-    '镜': ([plate_to_dx_version['镜']], '镜')
+    '镜': ([plate_to_dx_version['镜']], '镜&彩'),
+    '彩': ([plate_to_dx_version['镜']], '镜&彩')
 }
 platecn = {
     '晓': '暁',

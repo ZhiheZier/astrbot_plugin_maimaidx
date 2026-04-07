@@ -149,7 +149,7 @@ arcade = ArcadeData()
 async def download_arcade_info(save: bool = True) -> ArcadeList:
     arcadelist = ArcadeList()
     try:
-        async with aiohttp.request('GET', 'http://wc.wahlap.net/maidx/rest/location', timeout=aiohttp.ClientTimeout(total=60)) as req:
+        async with aiohttp.request('GET', 'https://wc.wahlap.net/maidx/rest/location', timeout=aiohttp.ClientTimeout(total=60)) as req:
             if req.status == 200:
                 data = await req.json()
             else:

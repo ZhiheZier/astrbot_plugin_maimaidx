@@ -55,7 +55,9 @@ def extract_at_qqid(event: AstrMessageEvent):
 def convert_message_segment_to_chain(msg):
     """将 MessageSegment 转换为 astrbot 的 MessageChain"""
     if isinstance(msg, str):
-        return [Comp.Plain(msg)]
+        # 避免出现“只回复了引用/At，但正文为空”的情况
+        text = msg if msg.strip() else '发生错误：返回内容为空'
+        return [Comp.Plain(text)]
     
     # 如果是 MessageSegment 对象
     if hasattr(msg, 'type') and hasattr(msg, 'data'):
