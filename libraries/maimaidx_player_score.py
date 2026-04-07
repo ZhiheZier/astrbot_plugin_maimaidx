@@ -424,7 +424,14 @@ async def rise_score_data(
         im = ds.draw_rise(sd, sd_low_score, dx, dx_low_score).crop((200, 0, 1200, height))
         
         msg = MessageSegment.image(image_to_base64(im))
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
+    except (
+        UserNotFoundError,
+        UserNotExistsError,
+        UserDisabledQueryError,
+        TokenError,
+        TokenDisableError,
+        TokenNotFoundError,
+    ) as e:
         msg = str(e)
     except Exception as e:
         log.error(traceback.format_exc())
@@ -486,7 +493,14 @@ async def player_plate_data(
     
     try:
         verlist = await maiApi.query_user_plate(qqid=qqid, username=username, version=ver)
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
+    except (
+        UserNotFoundError,
+        UserNotExistsError,
+        UserDisabledQueryError,
+        TokenError,
+        TokenDisableError,
+        TokenNotFoundError,
+    ) as e:
         return str(e)
     
     if plan in ['将', '者']:
@@ -712,7 +726,14 @@ async def level_process_data(
             im = dp.draw_category(category, notplayed)
         
         msg = MessageSegment.image(image_to_base64(im))
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
+    except (
+        UserNotFoundError,
+        UserNotExistsError,
+        UserDisabledQueryError,
+        TokenError,
+        TokenDisableError,
+        TokenNotFoundError,
+    ) as e:
         msg = str(e)
     except Exception as e:
         log.error(traceback.format_exc())
@@ -780,7 +801,14 @@ async def level_achievement_list_data(
         sc = DrawScore(image)
         im = sc.draw_scorelist(rating, newdata, page, end_page_num)
         msg = MessageSegment.image(image_to_base64(im))
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
+    except (
+        UserNotFoundError,
+        UserNotExistsError,
+        UserDisabledQueryError,
+        TokenError,
+        TokenDisableError,
+        TokenNotFoundError,
+    ) as e:
         msg = str(e)
     except Exception as e:
         log.error(traceback.format_exc())

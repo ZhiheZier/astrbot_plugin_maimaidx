@@ -8,8 +8,14 @@
   "enable_reply": {
     "description": "引用回复",
     "hint": "是否在多数指令回复中添加“引用消息”（Reply）。关闭可减少引用/提及效果。",
-    "type": "boolean",
+    "type": "bool",
     "default": true
+  },
+  "maimaidxtoken": {
+    "description": "查分器开发者 Token",
+    "hint": "用于访问查分器接口",
+    "type": "string",
+    "default": ""
   }
 }
 

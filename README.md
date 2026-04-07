@@ -64,6 +64,8 @@ apt install fonts-wqy-microhei
 在 AstrBot 的插件配置界面中，可以配置以下选项：
 
 - `bot_name`: 机器人名称，用于在消息中显示（如：今日运势功能），默认为 "Bot"
+- `enable_reply`: 是否在多数指令回复中添加“引用消息”（Reply），默认为开启
+- `maimaidxtoken`: 查分器开发者 token（建议配置；目前牌子进度等功能需要 token）
 
 #### 4.2 静态配置文件
 
@@ -80,7 +82,7 @@ apt install fonts-wqy-microhei
 ```
 
 配置说明：
-- `maimaidxtoken`: 查分器开发者 token（可选）
+- `maimaidxtoken`: 查分器开发者 token（建议填写；否则牌子进度等功能会提示需要 token）
 - `maimaidxproberproxy`: 是否使用代理访问查分器 API
 - `maimaidxaliasproxy`: 是否使用代理访问别名库 API
 - `maimaidxaliaspush`: 是否开启别名推送

@@ -31,6 +31,8 @@ class MaimaiDXPlugin(Star):
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
         enable_reply = bool(self.config.get("enable_reply", True))
+        # 从插件配置中读取开发者 token（优先于 static/config.json），避免将 token 写入仓库文件
+        plugin_token = str(self.config.get("maimaidxtoken", "") or "").strip()
         pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
         if pkg_name in sys.modules:
             module = sys.modules[pkg_name]
@@ -40,6 +42,10 @@ class MaimaiDXPlugin(Star):
             setattr(module, '_ENABLE_REPLY', enable_reply)
             log.info(f'已设置 bot 名称: {bot_name}')
             log.info(f'引用回复（Reply）: {"开启" if enable_reply else "关闭"}')
+
+        # 注入 token 并立即生效（不落盘）
+        if plugin_token:
+            maiApi.config.maimaidxtoken = plugin_token
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
