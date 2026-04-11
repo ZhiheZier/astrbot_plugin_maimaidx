@@ -66,6 +66,7 @@ apt install fonts-wqy-microhei
 - `bot_name`: 机器人名称，用于在消息中显示（如：今日运势功能），默认为 "Bot"
 - `enable_reply`: 是否在多数指令回复中添加“引用消息”（Reply），默认为开启
 - `maimaidxtoken`: 查分器开发者 token（建议配置；目前牌子进度等功能需要 token）
+- `maimaidxaliaswhitelist`: 别名推送是否采用白名单（默认关闭）。开启后仅向已执行「开启别名推送」的群广播，可避免多群刷屏；关闭时为「全群推送 + disable 黑名单」
 
 #### 4.2 静态配置文件
 

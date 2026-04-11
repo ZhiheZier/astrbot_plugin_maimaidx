@@ -16,6 +16,12 @@
     "hint": "用于访问查分器接口",
     "type": "string",
     "default": ""
+  },
+  "maimaidxaliaswhitelist": {
+    "description": "别名推送白名单",
+    "hint": "开启后仅向已执行「开启别名推送」的群发送别名广播；关闭则保持原逻辑（全群推送，排除黑名单）。",
+    "type": "bool",
+    "default": false
   }
 }
 

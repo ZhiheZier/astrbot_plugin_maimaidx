@@ -75,7 +75,7 @@ async def alias_switch_on_off_handler(event: AstrMessageEvent, superusers: list 
     try:
         # 获取所有群组列表
         group_list = await event.bot.get_group_list()
-        group_id = [g['group_id'] for g in group_list]
+        group_id = [str(g['group_id']) for g in group_list]
         
         message_str = event.message_str.strip()
         if message_str == '全局关闭别名推送':
@@ -460,7 +460,11 @@ async def push_alias(push: PushAliasStatus, context=None):
         return
     
     for gid in group_ids:
-        if str(gid) in alias.push.disable:
+        gid_str = str(gid)
+        if maiApi.config.maimaidxaliaswhitelist:
+            if gid_str not in alias.push.enable:
+                continue
+        elif gid_str in alias.push.disable:
             continue
         try:
             # 将消息链转换为 OneBot 格式

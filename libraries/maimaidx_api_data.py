@@ -14,6 +14,8 @@ class MaiConfig(BaseModel):
     maimaidxproberproxy: bool = False
     maimaidxaliasproxy: bool = False
     maimaidxaliaspush: bool = True
+    # True：仅向「开启别名推送」的群广播；False：向所有群广播，但排除 disable 列表（默认，兼容旧行为）
+    maimaidxaliaswhitelist: bool = False
     saveinmem: Optional[bool] = True
 
 

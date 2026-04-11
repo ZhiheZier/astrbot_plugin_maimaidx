@@ -4,7 +4,7 @@ import random
 import traceback
 from collections import Counter, defaultdict
 from copy import deepcopy
-from typing import Tuple
+from typing import List, Tuple
 
 import numpy as np
 from PIL import Image
@@ -543,6 +543,11 @@ class GroupAlias:
 
     push: AliasesPush
 
+    @staticmethod
+    def _normalize_group_ids(ids) -> List[str]:
+        """群号统一为字符串，避免 int/str 混用导致 in 判断失效（见 GitHub issue #5）"""
+        return [str(x) for x in ids if x is not None]
+
     def __init__(self) -> None:
         """别名推送类"""
         if not group_alias_file.exists():
@@ -551,9 +556,15 @@ class GroupAlias:
             self.push = AliasesPush.model_validate(
                 json.load(open(group_alias_file, 'r', encoding='utf-8'))
             )
+        # 兼容旧数据：JSON 中可能存成数字，与推送处 str(gid) 比较会永远不匹配
+        self.push.enable = self._normalize_group_ids(self.push.enable)
+        self.push.disable = self._normalize_group_ids(self.push.disable)
 
-    async def on(self, gid: int) -> str:
+    async def on(self, gid: str) -> str:
         """开启推送"""
+        gid = str(gid)
+        self.push.enable = self._normalize_group_ids(self.push.enable)
+        self.push.disable = self._normalize_group_ids(self.push.disable)
         if gid not in self.push.enable:
             self.push.enable.append(gid)
         if gid in self.push.disable:
@@ -561,8 +572,11 @@ class GroupAlias:
         await writefile(group_alias_file, self.push.model_dump())
         return '群别名推送功能已开启'
 
-    async def off(self, gid: int) -> str:
+    async def off(self, gid: str) -> str:
         """关闭推送"""
+        gid = str(gid)
+        self.push.enable = self._normalize_group_ids(self.push.enable)
+        self.push.disable = self._normalize_group_ids(self.push.disable)
         if gid not in self.push.disable:
             self.push.disable.append(gid)
         if gid in self.push.enable:
@@ -570,8 +584,9 @@ class GroupAlias:
         await writefile(group_alias_file, self.push.model_dump())
         return '群别名推送功能已关闭'
 
-    async def alias_global_change(self, switch: bool, group_list: List[int]):
+    async def alias_global_change(self, switch: bool, group_list: List[str]):
         """修改全局开关"""
+        group_list = self._normalize_group_ids(group_list)
         if switch:
             self.push.disable.clear()
             self.push.enable.clear()

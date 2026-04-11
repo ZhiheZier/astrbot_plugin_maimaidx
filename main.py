@@ -16,7 +16,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.1.0")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.1.1")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -46,6 +46,9 @@ class MaimaiDXPlugin(Star):
         # 注入 token 并立即生效（不落盘）
         if plugin_token:
             maiApi.config.maimaidxtoken = plugin_token
+
+        if 'maimaidxaliaswhitelist' in self.config:
+            maiApi.config.maimaidxaliaswhitelist = bool(self.config.get('maimaidxaliaswhitelist'))
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
