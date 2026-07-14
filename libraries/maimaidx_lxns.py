@@ -15,10 +15,19 @@ from typing import List, Optional
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import BaseModel
 
-from .. import diffs
 from .maimaidx_api_data import maiApi
-from .maimaidx_model import ChartInfo, Data, PlayInfoDefault, PlayInfoDev, UserInfo
-from .maimaidx_music import mai
+from .maimaidx_merge import LXSongs
+from .maimaidx_model import ChartInfo, PlayInfoDefault, PlayInfoDev, UserInfo
+from .maimaidx_play_result import (
+    Best50,
+    Player,
+    best50_to_userinfo,
+    lxns_score_to_played,
+    played_list_to_plate,
+    played_list_to_records,
+    played_to_chartinfo,
+    played_to_playinfodefault,
+)
 
 LXNS_BASE = 'https://maimai.lxns.net'
 DEV_BASE = f'{LXNS_BASE}/api/v0/maimai'
@@ -235,9 +244,32 @@ class LxnsAPI:
         )
         return [LxnsScore.model_validate(s) for s in data.get('data', [])]
 
+    # ---- 曲库（开发者 Token）----
+    async def music_data(self) -> LXSongs:
+        """获取落雪全曲列表（含 note 计数），用于与水鱼曲库合并。"""
+        data = await self._request(
+            'GET',
+            f'{DEV_BASE}/song/list',
+            headers=self._dev_headers(),
+            params={'notes': 'true'},
+        )
+        # 落雪 /song/list 可能直接返回对象，或包在 data 下
+        payload = data.get('data', data) if isinstance(data, dict) else data
+        return LXSongs.model_validate(payload)
+
+    async def music_alias_data(self):
+        """获取落雪曲目别名列表。"""
+        from .maimaidx_merge import LXAliases
+
+        data = await self._request(
+            'GET', f'{DEV_BASE}/alias/list', headers=self._dev_headers()
+        )
+        payload = data.get('data', data) if isinstance(data, dict) else data
+        return LXAliases.model_validate(payload)
+
 
 # ---------------------------------------------------------------------------
-# 适配层：lxns -> 水鱼模型
+# 适配层：lxns → PlayedResult → 水鱼模型
 # ---------------------------------------------------------------------------
 def _df_song_id(lxns_id: int, song_type: str) -> int:
     """落雪曲目 ID（标准/DX 共用）转换为水鱼曲目 ID（DX 谱面 +10000）"""
@@ -246,101 +278,48 @@ def _df_song_id(lxns_id: int, song_type: str) -> int:
     return lxns_id
 
 
-def _type_str(song_type: str) -> str:
-    return 'SD' if song_type == 'standard' else 'DX'
-
-
-def _lookup(song_id: int, level_index: int):
-    """返回 (ds, level, title)，从本地曲库获取"""
-    music = mai.total_list.by_id(str(song_id))
-    if music and music.ds and len(music.ds) > level_index:
-        return music.ds[level_index], music.level[level_index], music.title
-    return 0.0, '', ''
-
-
-def _achievements(score: LxnsScore) -> float:
-    if score.achievements is not None:
-        return score.achievements
-    if score.rate:
-        return RATE_TO_ACHIEVEMENTS.get(score.rate.lower(), 0.0)
-    return 0.0
-
-
 def lxns_score_to_chartinfo(score: LxnsScore) -> ChartInfo:
-    from .maimai_best_50 import computeRa
-
-    song_id = _df_song_id(score.id, score.type)
-    ds, level, title = _lookup(song_id, score.level_index)
-    if not title:
-        title = score.song_name or ''
-    if not level:
-        level = score.level or ''
-    ach = _achievements(score)
-    ra, rate = computeRa(ds, ach, israte=True) if ds else (0, (score.rate or 'd').upper())
-    if score.rate:
-        rate = score.rate
-    return ChartInfo(
-        achievements=ach,
-        fc=score.fc or '',
-        fs=score.fs or '',
-        level=level,
-        level_index=score.level_index,
-        title=title,
-        type=_type_str(score.type),
-        ds=ds,
-        dxScore=score.dx_score or 0,
-        ra=ra,
-        rate=rate.lower() if isinstance(rate, str) else rate,
-        level_label=diffs[score.level_index] if score.level_index < len(diffs) else '',
-        song_id=song_id,
-    )
+    return played_to_chartinfo(lxns_score_to_played(score))
 
 
 def lxns_score_to_playinfodefault(score: LxnsScore) -> PlayInfoDefault:
-    from .maimai_best_50 import computeRa
+    return played_to_playinfodefault(lxns_score_to_played(score))
 
-    song_id = _df_song_id(score.id, score.type)
-    ds, level, title = _lookup(song_id, score.level_index)
-    if not title:
-        title = score.song_name or ''
-    if not level:
-        level = score.level or ''
-    ach = _achievements(score)
-    ra, rate = computeRa(ds, ach, israte=True) if ds else (0, (score.rate or 'd').upper())
-    if score.rate:
-        rate = score.rate
-    return PlayInfoDefault(
-        id=song_id,
-        achievements=ach,
-        fc=score.fc or '',
-        fs=score.fs or '',
-        level=level,
-        level_index=score.level_index,
-        title=title,
-        type=_type_str(score.type),
-        ds=ds,
-        dxScore=score.dx_score or 0,
-        ra=ra,
-        rate=rate.lower() if isinstance(rate, str) else rate,
+
+def lxns_best50_to_best50(player: LxnsPlayer, best50: LxnsBest50) -> tuple[Player, Best50]:
+    """落雪 b50 → 统一 Player + Best50。"""
+    sd = [lxns_score_to_played(s) for s in best50.standard]
+    dx = [lxns_score_to_played(s) for s in best50.dx]
+    return (
+        Player(
+            name=player.name,
+            rating=player.rating,
+            course_rank=player.course_rank,
+            friend_code=player.friend_code,
+            class_rank=player.class_rank,
+            star=player.star,
+        ),
+        Best50(
+            sd_total=best50.standard_total or sum(p.rating for p in sd),
+            dx_total=best50.dx_total or sum(p.rating for p in dx),
+            sd=sd,
+            dx=dx,
+        ),
     )
 
 
 def lxns_best50_to_userinfo(player: LxnsPlayer, best50: LxnsBest50) -> UserInfo:
-    sd = [lxns_score_to_chartinfo(s) for s in best50.standard]
-    dx = [lxns_score_to_chartinfo(s) for s in best50.dx]
-    return UserInfo(
-        additional_rating=player.course_rank,
-        nickname=player.name,
-        plate=None,
-        rating=player.rating,
-        username=None,
-        charts=Data(sd=sd, dx=dx),
-    )
+    p, b50 = lxns_best50_to_best50(player, best50)
+    return best50_to_userinfo(p, b50)
+
+
+def lxns_scores_to_played(scores: List[LxnsScore]):
+    return [lxns_score_to_played(s) for s in scores]
 
 
 def lxns_scores_to_records(scores: List[LxnsScore]) -> List[PlayInfoDev]:
-    result: List[PlayInfoDev] = []
-    for s in scores:
-        ci = lxns_score_to_chartinfo(s)
-        result.append(PlayInfoDev.model_validate(ci.model_dump()))
-    return result
+    return played_list_to_records(lxns_scores_to_played(scores))
+
+
+def lxns_scores_to_plate(scores: List[LxnsScore]) -> List[PlayInfoDefault]:
+    return played_list_to_plate(lxns_scores_to_played(scores))

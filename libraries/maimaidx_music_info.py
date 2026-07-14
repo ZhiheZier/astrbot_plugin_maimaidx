@@ -41,11 +41,9 @@ async def draw_music_info(
     try:
         if qqid:
             if user is None:
-                from .maimaidx_source import is_lxns, lxns_b50
-                if is_lxns(qqid):
-                    player = await lxns_b50(qqid)
-                else:
-                    player = await maiApi.query_user_b50(qqid=qqid)
+                from .maimaidx_source import get_player_b50_userinfo
+
+                player = await get_player_b50_userinfo(qqid=qqid)
             else:
                 player = user
             if music.basic_info.version == list(plate_to_dx_version.values())[-1]:
@@ -142,49 +140,26 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
     Returns:
         `Union[str, MessageSegment]`
     """
-    from .maimaidx_source import is_lxns, lxns_music_record
+    from .maimaidx_source import get_music_record
     from .maimaidx_user import userstore
 
     theme = userstore.get(int(qqid)).theme
     try:
-        diff: List[Union[None, PlayInfoDev, PlayInfoDefault]]
-        if is_lxns(qqid):
-            data = await lxns_music_record(qqid, music_id)
-            if not data:
-                raise MusicNotPlayError
+        data = await get_music_record(qqid, music_id)
+        if not data:
+            raise MusicNotPlayError
 
-            music = mai.total_list.by_id(music_id)
-            diff = [None for _ in music.ds]
-            for _d in data:
-                if _d.level_index < len(diff):
-                    diff[_d.level_index] = _d
-            if all(d is None for d in diff):
-                raise MusicNotPlayError
-            dev = True
-        elif maiApi.token:
-            data = await maiApi.query_user_post_dev(qqid=qqid, music_id=music_id)
-            if not data:
-                raise MusicNotPlayError
-
-            music = mai.total_list.by_id(music_id)
-            diff = [None for _ in music.ds]
-            for _d in data:
+        music = mai.total_list.by_id(music_id)
+        diff: List[Union[None, PlayInfoDev, PlayInfoDefault]] = [None for _ in music.ds]
+        for _d in data:
+            if _d.level_index < len(diff):
                 diff[_d.level_index] = _d
-            dev = True
-        else:
-            version = list(set(_v for _v in plate_to_dx_version.values()))
-            data = await maiApi.query_user_plate(qqid=qqid, version=version)
+        if all(d is None for d in diff):
+            raise MusicNotPlayError
+        # OAuth/落雪/开发者接口均带精确字段，按 dev 路径绘制
+        from .maimaidx_source import is_lxns
 
-            music = mai.total_list.by_id(music_id)
-            _temp = [None for _ in music.ds]
-            diff = copy.deepcopy(_temp)
-
-            for _d in data:
-                if _d.song_id == int(music_id):
-                    diff[_d.level_index] = _d
-            if diff == _temp:
-                raise MusicNotPlayError
-            dev = False
+        dev = bool(maiApi.token or is_lxns(qqid))
 
         im = Image.open(themed_path(theme, 'play_info.png')).convert('RGBA')
     
@@ -306,13 +281,9 @@ def draw_rating(rating: str, path: Path) -> MessageSegment:
 
 async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union[MessageSegment, str]:
     """绘制定数表"""
-    from .maimaidx_source import is_lxns, lxns_plate
+    from .maimaidx_source import get_plate
     try:
-        if is_lxns(qqid):
-            obj = await lxns_plate(qqid)
-        else:
-            version = list(set(_v for _v in plate_to_dx_version.values()))
-            obj = await maiApi.query_user_plate(qqid=qqid, version=version)
+        obj = await get_plate(qqid=qqid)
         
         statistics = {
             'clear': 0,
@@ -469,11 +440,8 @@ async def draw_plate_table(qqid: int, version: str, plan: str) -> Union[MessageS
         plate_total_num = len(music_id_list)
         playerdata: List[PlayInfoDefault] = []
         
-        from .maimaidx_source import is_lxns, lxns_plate
-        if is_lxns(qqid):
-            obj = await lxns_plate(qqid)
-        else:
-            obj = await maiApi.query_user_plate(qqid=qqid, version=ver)
+        from .maimaidx_source import get_plate
+        obj = await get_plate(qqid=qqid, version=ver)
         for _d in obj:
             if _d.song_id not in music_id_list:
                 continue

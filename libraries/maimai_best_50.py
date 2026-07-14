@@ -241,6 +241,19 @@ class DrawBest(ScoreBaseImage):
         self.dxBest = UserInfo.charts.dx
         self.qqid = qqid
 
+    @classmethod
+    def from_best50(
+        cls,
+        player,
+        best50,
+        qqid: Optional[Union[int, str]] = None,
+        theme: Theme = Theme.PRISM_PLUS,
+    ) -> 'DrawBest':
+        """从统一 Player + Best50 构建绘图对象。"""
+        from .maimaidx_play_result import best50_to_userinfo
+
+        return cls(best50_to_userinfo(player, best50), qqid=qqid, theme=theme)
+
     def _findRaPic(self) -> str:
         """
         寻找指定的Rating图片
@@ -552,7 +565,7 @@ async def generate(
         `Union[MessageSegment, str]`
     """
     from .maimaidx_lxns import LxnsError
-    from .maimaidx_source import is_lxns, lxns_b50
+    from .maimaidx_source import get_best50, is_lxns
     try:
         from .maimaidx_user import Theme, userstore
 
@@ -561,13 +574,12 @@ async def generate(
             theme = Theme.PRISM_PLUS
         else:
             theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
-        if is_lxns(qqid, username):
-            userinfo = await lxns_b50(qqid, all_perfect=all_perfect)
-        elif all_perfect:
+        if all_perfect and not is_lxns(qqid, username):
             return 'ap50 仅支持「落雪」数据源，请使用「数据源」指令切换后再试'
-        else:
-            userinfo = await maiApi.query_user_b50(qqid=qqid, username=username)
-        draw_best = DrawBest(userinfo, qqid, theme=theme)
+        player, best50 = await get_best50(
+            qqid=qqid, username=username, all_perfect=all_perfect
+        )
+        draw_best = DrawBest.from_best50(player, best50, qqid=qqid, theme=theme)
 
         msg = MessageSegment.image(image_to_base64(await draw_best.draw()))
     except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError, LxnsError) as e:

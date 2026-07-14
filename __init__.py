@@ -108,6 +108,10 @@ alias_file: Path = data_dir / "music_alias.json"  # 柚子别名暂存文件
 local_alias_file: Path = data_dir / "local_music_alias.json"  # 本地别名文件
 music_file: Path = data_dir / "music_data.json"  # 曲目暂存文件
 chart_file: Path = data_dir / "music_chart.json"  # 谱面数据暂存文件
+lxns_music_file: Path = data_dir / "lxns_music_data.json"  # 落雪曲目暂存
+lxns_alias_file: Path = data_dir / "lxns_music_alias.json"  # 落雪别名暂存
+merge_music_file: Path = data_dir / "merge_music_data.json"  # 合并后曲目暂存
+merge_alias_file: Path = data_dir / "merge_music_alias.json"  # 合并后别名暂存
 arcades_json: Path = data_dir / "arcades.json"  # 机厅
 
 # 旧命名兼容（本插件其它模块仍在使用）

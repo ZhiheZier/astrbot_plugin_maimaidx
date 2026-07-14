@@ -1,7 +1,7 @@
 from collections import namedtuple
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 ##### Music
@@ -26,6 +26,18 @@ class Chart(BaseModel):
     notes: Union[Notes1, Notes2]
     charter: str = None
 
+    @field_validator('notes', mode='before')
+    @classmethod
+    def _coerce_notes(cls, v: Any):
+        if isinstance(v, (Notes1, Notes2)):
+            return v
+        if isinstance(v, (list, tuple)):
+            if len(v) == 4:
+                return Notes1(*v)
+            if len(v) >= 5:
+                return Notes2(*v[:5])
+        return v
+
 
 class BasicInfo(BaseModel):
     
@@ -45,11 +57,16 @@ class Music(BaseModel):
     type: str
     ds: List[float]
     level: List[str]
-    cids: List[int]
+    cids: List[int] = []
     charts: List[Chart]
     basic_info: BasicInfo
     stats: Optional[List[Optional[Stats]]] = []
     diff: Optional[List[int]] = []
+    # 合并曲库扩展字段（来自落雪 / Song）
+    version_int: int = 0
+    kanji: Optional[str] = None
+    description: Optional[str] = None
+    is_buddy: Optional[bool] = None
 
 
 class RaMusic(BaseModel):

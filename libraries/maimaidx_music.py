@@ -4,7 +4,7 @@ import random
 import traceback
 from collections import Counter, defaultdict
 from copy import deepcopy
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from PIL import Image
@@ -13,6 +13,7 @@ from .. import *
 from .image import image_to_base64, music_picture
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
+from .maimaidx_merge import LXSongs, merge_alias_data, merge_music_data, song_to_music
 from .maimaidx_model import *
 from .tool import openfile, writefile
 
@@ -237,11 +238,27 @@ aliaserror = dedent('''
 ''').strip()
 
 
-async def get_music_list() -> MusicList:
-    """获取所有数据"""
-    # MusicData
+def _parse_stats_map(chart_stats: dict) -> Dict[str, List[Optional[Stats]]]:
+    """水鱼 chart_stats → sid -> Stats 列表。"""
+    result: Dict[str, List[Optional[Stats]]] = {}
+    for sid, items in (chart_stats.get('charts') or {}).items():
+        parsed: List[Optional[Stats]] = []
+        for item in items:
+            if not item:
+                parsed.append(None)
+            else:
+                try:
+                    parsed.append(Stats.model_validate(item))
+                except Exception:
+                    parsed.append(None)
+        result[str(sid)] = parsed
+    return result
+
+
+async def _load_diving_fish() -> Tuple[List[Music], Dict[str, List[Optional[Stats]]]]:
+    """拉取水鱼曲库与谱面统计（失败则回退本地缓存）。"""
     try:
-        try: 
+        try:
             music_data = await maiApi.music_data()
             await writefile(music_file, music_data)
         except asyncio.exceptions.TimeoutError:
@@ -250,8 +267,7 @@ async def get_music_list() -> MusicList:
     except FileNotFoundError:
         log.error(dataerror)
         raise FileNotFoundError
-    
-    # ChartStats
+
     try:
         try:
             chart_stats = await maiApi.chart_stats()
@@ -263,27 +279,84 @@ async def get_music_list() -> MusicList:
         log.error(charterror)
         raise FileNotFoundError
 
-    total_list = MusicList()
+    df_list: List[Music] = []
     for music in music_data:
-        if music['id'] in chart_stats['charts']:
-            _stats = [
-                _data if _data else None
-                for _data in chart_stats['charts'][music['id']]
-            ] if {} in chart_stats['charts'][music['id']] else \
-            chart_stats['charts'][music['id']]
-        else:
-            _stats = None
-        total_list.append(Music(stats=_stats, **music))
+        try:
+            df_list.append(Music.model_validate(music))
+        except Exception as e:
+            log.error(f'解析水鱼曲目失败 id={music.get("id")}: {e}')
+    return df_list, _parse_stats_map(chart_stats)
 
-    return total_list
+
+async def _load_lxns_songs() -> Optional[LXSongs]:
+    """有开发者 Token 时拉取落雪曲库；失败则尝试本地缓存。"""
+    if not maiApi.config.lxns_dev_token:
+        log.warning('未配置落雪开发者 Token，跳过落雪曲库合并')
+        return None
+    try:
+        from .maimaidx_lxns import LxnsAPI
+
+        songs = await LxnsAPI().music_data()
+        await writefile(lxns_music_file, songs.model_dump(by_alias=True))
+        log.info(f'成功获取落雪曲库：{len(songs.songs)} 首')
+        return songs
+    except Exception as e:
+        log.warning(f'落雪曲库获取失败，尝试本地缓存：{e}')
+        if lxns_music_file.exists():
+            try:
+                return LXSongs.model_validate(await openfile(lxns_music_file))
+            except Exception as e2:
+                log.warning(f'落雪曲库本地缓存无效：{e2}')
+        return None
+
+
+async def get_music_list() -> Tuple[MusicList, Dict[str, float]]:
+    """获取并合并曲库，返回 MusicList（兼容原字段）与定数字典。"""
+    df_list, stats_map = await _load_diving_fish()
+    lxns_list = await _load_lxns_songs()
+
+    songs, level_value_map = await merge_music_data(
+        diving_fish_list=df_list,
+        lxns_list=lxns_list,
+        stats_map=stats_map,
+    )
+    total_list = MusicList()
+    for song in songs:
+        total_list.append(song_to_music(song))
+    log.info(f'曲库合并完成：{len(total_list)} 首')
+    return total_list, level_value_map
+
+
+async def _load_lxns_aliases():
+    """有开发者 Token 时拉取落雪别名；失败则尝试本地缓存。"""
+    from .maimaidx_merge import LXAliases
+
+    if not maiApi.config.lxns_dev_token:
+        return None
+    try:
+        from .maimaidx_lxns import LxnsAPI
+
+        aliases = await LxnsAPI().music_alias_data()
+        await writefile(lxns_alias_file, aliases.model_dump())
+        log.info(f'成功获取落雪别名：{len(aliases.aliases)} 条')
+        return aliases
+    except Exception as e:
+        log.warning(f'落雪别名获取失败，尝试本地缓存：{e}')
+        if lxns_alias_file.exists():
+            try:
+                return LXAliases.model_validate(await openfile(lxns_alias_file))
+            except Exception as e2:
+                log.warning(f'落雪别名本地缓存无效：{e2}')
+        return None
 
 
 async def get_music_alias_list() -> AliasList:
-    """获取所有别名"""
+    """获取并合并柚子 / 落雪 / 本地别名。"""
     if local_alias_file.exists():
         local_alias_data = await openfile(local_alias_file)
     else:
         local_alias_data = {}
+
     alias_data: List[Dict[str, Union[int, str, List[str]]]] = []
     try:
         alias_data = await maiApi.get_alias()
@@ -304,12 +377,21 @@ async def get_music_alias_list() -> AliasList:
             log.error(aliaserror)
             raise ValueError
 
+    lxns_aliases = await _load_lxns_aliases()
+    merged = await merge_alias_data(alias_data, lxns_aliases, local_alias_data)
+
     total_alias_list = AliasList()
-    for _a in filter(lambda x: mai.total_list.by_id(x['SongID']), alias_data):
-        if (song_id := str(_a['SongID'])) in local_alias_data:
-            _a['Alias'].extend(local_alias_data[song_id])
+    for _a in merged:
+        if not mai.total_list.by_id(_a['SongID']):
+            continue
+        # 曲名缺失时用曲库补全
+        if not _a.get('Name'):
+            music = mai.total_list.by_id(_a['SongID'])
+            if music:
+                _a['Name'] = music.title
         total_alias_list.append(Alias.model_validate(_a))
 
+    log.info(f'别名合并完成：{len(total_alias_list)} 首')
     return total_alias_list
 
 
@@ -341,6 +423,8 @@ class MaiMusic:
     """牌子ID列表数据"""
     total_level_data: Dict[str, Dict[str, List[RaMusic]]]
     """等级列表数据"""
+    total_level_value_map: Dict[str, float]
+    """定数字典，key 为 `song_id-level_index`，例如 `11451-3`"""
     hot_music_ids: List = []
     """游玩次数超过1w次的曲目数据"""
     guess_data: List[Music]
@@ -348,10 +432,11 @@ class MaiMusic:
 
     def __init__(self) -> None:
         """封装所有曲目信息以及猜歌数据，便于更新"""
+        self.total_level_value_map = {}
 
     async def get_music(self) -> None:
-        """获取所有曲目数据"""
-        self.total_list = await get_music_list()
+        """获取所有曲目数据（水鱼 + 落雪合并）"""
+        self.total_list, self.total_level_value_map = await get_music_list()
         self.total_level_data = self.total_list.by_level_list()
 
     async def get_music_alias(self) -> None:
