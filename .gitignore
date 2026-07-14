@@ -206,7 +206,5 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Static resources (download separately; do not upload assets / config)
-static/*
-!static/echarts.min.js
-!static/temp_pie.html
+# Static resources (keep local only; do not upload)
+static/
