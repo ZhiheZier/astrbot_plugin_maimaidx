@@ -1,6 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.core.star.filter.event_message_type import EventMessageType
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -16,7 +16,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.1.1")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.2.0")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -26,12 +26,14 @@ class MaimaiDXPlugin(Star):
         
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合
-        self.data_file = static / "disabled_groups.json"  # 数据文件路径
+        # 使用 AstrBot 官方数据持久化目录（data/plugin_data/<plugin>），不再写入插件 static 目录
+        self.data_file = StarTools.get_data_dir("astrbot_plugin_maimaidx") / "disabled_groups.json"
+        self._migrate_disabled_groups()  # 从旧位置（static/data）迁移
         
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
         enable_reply = bool(self.config.get("enable_reply", True))
-        # 从插件配置中读取开发者 token（优先于 static/config.json），避免将 token 写入仓库文件
+        # 从插件配置中读取开发者 token，避免将 token 写入仓库文件
         plugin_token = str(self.config.get("maimaidxtoken", "") or "").strip()
         pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
         if pkg_name in sys.modules:
@@ -47,8 +49,23 @@ class MaimaiDXPlugin(Star):
         if plugin_token:
             maiApi.config.maimaidxtoken = plugin_token
 
-        if 'maimaidxaliaswhitelist' in self.config:
-            maiApi.config.maimaidxaliaswhitelist = bool(self.config.get('maimaidxaliaswhitelist'))
+        # 注入布尔类配置（全部来自 AstrBot 插件配置，不再使用 static 的 config.json）
+        maiApi.config.maimaidxproberproxy = bool(self.config.get('maimaidxproberproxy', False))
+        maiApi.config.maimaidxaliasproxy = bool(self.config.get('maimaidxaliasproxy', False))
+        maiApi.config.maimaidxaliaspush = bool(self.config.get('maimaidxaliaspush', True))
+        maiApi.config.maimaidxaliaswhitelist = bool(self.config.get('maimaidxaliaswhitelist', False))
+        maiApi.config.saveinmem = bool(self.config.get('saveinmem', True))
+        maiApi.config.assets_online = bool(self.config.get('assets_online', True))
+
+        # 注入落雪（lxns）相关配置
+        for _key in ('lxns_dev_token', 'lx_client_id', 'lx_client_secret', 'lx_redirect_uri'):
+            _val = str(self.config.get(_key, '') or '').strip()
+            if _val:
+                setattr(maiApi.config, _key, _val)
+        if maiApi.config.lxns_dev_token:
+            log.info('已配置落雪开发者 Token')
+        if maiApi.config.lx_client_id and maiApi.config.lx_redirect_uri:
+            log.info('已配置落雪 OAuth 应用')
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
@@ -94,6 +111,17 @@ class MaimaiDXPlugin(Star):
             log.error(traceback.format_exc())
             log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
 
+    def _migrate_disabled_groups(self):
+        """将旧版存放于 static/data 的禁用群组文件迁移到 AstrBot 数据目录"""
+        try:
+            old_file = static / "data" / "disabled_groups.json"
+            if old_file.exists() and not self.data_file.exists():
+                self.data_file.write_bytes(old_file.read_bytes())
+                old_file.unlink()
+                log.info(f'已将禁用群组列表迁移至 {self.data_file}')
+        except Exception as e:
+            log.error(f'迁移禁用群组列表失败: {e}')
+
     def _load_disabled_groups(self):
         """加载禁用群组列表"""
         try:
@@ -126,7 +154,7 @@ class MaimaiDXPlugin(Star):
     def _setup_configuration(self):
         """处理配置相关的初始化"""
         if maiApi.config.maimaidxproberproxy:
-            log.info('正在使用代理服务器访问查分器')
+            log.info('正在使用代理服务器访问水鱼查分器')
         if maiApi.config.maimaidxaliasproxy:
             log.info('正在使用代理服务器访问别名服务器')
         maiApi.load_token_proxy()
@@ -184,7 +212,7 @@ class MaimaiDXPlugin(Star):
     def _perform_initial_checks(self):
         """执行对目录和数据的初始检查"""
         # 检查定数表文件夹
-        if not list(ratingdir.iterdir()):
+        if not ratingdir.exists() or not any(ratingdir.iterdir()):
             log.warning(
                 '注意！注意！检测到定数表文件夹为空！'
                 '可能导致「定数表」「完成表」指令无法使用，'
@@ -192,17 +220,23 @@ class MaimaiDXPlugin(Star):
             )
         
         # 检查完成表文件夹
-        plate_list = [name for name in list(plate_to_dx_version.keys())[1:]]
-        platedir_list = [f.name.split('.')[0] for f in platedir.iterdir()]
-        cn_list = [name for name in list(platecn.keys())]
-        notin = set(plate_list) - set(platedir_list) - set(cn_list)
-        if notin:
-            anyname = '，'.join(notin)
+        if not platedir.exists():
             log.warning(
-                f'注意！注意！未检测到牌子文件夹中的牌子：{anyname}，'
-                '可能导致这些牌子的「完成表」指令无法使用，'
+                '注意！注意！未检测到完成表文件夹 plate_table，'
                 '请及时私聊BOT使用指令「更新完成表」进行生成。'
             )
+        else:
+            plate_list = [name for name in list(plate_to_dx_version.keys())[1:]]
+            platedir_list = [f.name.split('.')[0] for f in platedir.iterdir()]
+            cn_list = [name for name in list(platecn.keys())]
+            notin = set(plate_list) - set(platedir_list) - set(cn_list)
+            if notin:
+                anyname = '，'.join(notin)
+                log.warning(
+                    f'注意！注意！未检测到牌子文件夹中的牌子：{anyname}，'
+                    '可能导致这些牌子的「完成表」指令无法使用，'
+                    '请及时私聊BOT使用指令「更新完成表」进行生成。'
+                )
         
         # 检查数据是否加载成功
         try:
@@ -374,6 +408,47 @@ class MaimaiDXPlugin(Star):
         async for result in my_rating_ranking_handler(event):
             yield result
 
+    # 数据源 / 主题 / 落雪绑定命令
+    @filter.regex(r'^数据源(\s+.*)?$')
+    async def data_source(self, event: AstrMessageEvent):
+        """数据源 切换查分器"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_base import source_handler
+        async for result in source_handler(event):
+            yield result
+
+    @filter.regex(r'^(?i:主题|theme)(\s+.*)?$')
+    async def theme(self, event: AstrMessageEvent):
+        """主题 切换成绩图主题"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_base import theme_handler
+        async for result in theme_handler(event):
+            yield result
+
+    @filter.regex(r'^(绑定落雪|绑定lx|绑定lxns|lxbind)$')
+    async def bind_lxns(self, event: AstrMessageEvent):
+        """绑定落雪 引导 OAuth 授权"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_base import bind_lxns_handler
+        async for result in bind_lxns_handler(event):
+            yield result
+
+    @filter.regex(r'^(?i:授权码|code)\s+.+$')
+    async def auth_code(self, event: AstrMessageEvent):
+        """授权码 完成落雪 OAuth 绑定"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_base import authcode_handler
+        async for result in authcode_handler(event):
+            yield result
+
     # 成绩查询命令
     @filter.regex(r'^(b50|B50)\s*(.*)$')
     async def best50(self, event: AstrMessageEvent):
@@ -385,6 +460,16 @@ class MaimaiDXPlugin(Star):
         
         from .command.mai_score import best50_handler
         async for result in best50_handler(event):
+            yield result
+
+    @filter.regex(r'^(?i:ap50)\s*(.*)$')
+    async def ap50(self, event: AstrMessageEvent):
+        """ap50 命令（全 AP 成绩，仅落雪数据源）"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, all_perfect=True):
             yield result
 
     @filter.regex(r'^(minfo|Minfo|MINFO|info|Info|INFO)\s*(.*)$')
@@ -588,6 +673,16 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_table import table_pfm_handler
         async for result in table_pfm_handler(event):
+            yield result
+
+    @filter.regex(r'^牌子条件$')
+    async def plate_condition(self, event: AstrMessageEvent):
+        """牌子条件 说明图"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_table import plate_condition_handler
+        async for result in plate_condition_handler(event):
             yield result
 
     @filter.regex(r'^我要在?([0-9]+\+?)?[上加\+]([0-9]+)?分\s?(.+)?$')

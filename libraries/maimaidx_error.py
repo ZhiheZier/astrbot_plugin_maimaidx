@@ -5,8 +5,8 @@ class UserNotFoundError(Exception):
     
     def __str__(self) -> str:
         return dedent('''
-            未找到此玩家，请确保此玩家的用户名和查分器中的用户名相同。
-            如未绑定，请前往查分器官网进行绑定
+            未找到此玩家，请确保此玩家的用户名和水鱼查分器中的用户名相同。
+            如未绑定，请前往水鱼查分器官网进行绑定
             https://www.diving-fish.com/maimaidx/prober/
         ''').strip()
 

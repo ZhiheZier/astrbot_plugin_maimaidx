@@ -64,7 +64,7 @@ async def update_rating_table() -> str:
             dr = ImageDraw.Draw(im)
             sy = DrawText(dr, SIYUAN)
             ts = DrawText(dr, TBFONT)
-            im.alpha_composite(Image.open(maimaidir / 'design.png'), (200, height - 113))
+            im.alpha_composite(sbi.design_bg, (200, height - 113))
             sy.draw(
                 700, 
                 height - 70, 
@@ -77,10 +77,8 @@ async def update_rating_table() -> str:
             for _lv in lvlist: 
                 x = 160
                 y += 20
-                im.alpha_composite(
-                    Image.open(maimaidir / 'UI_CMN_Chara_Level_S_01.png').resize((80, 80)), (50, y + 80)
-                )
-                ts.draw(88, y + 120, 35, _lv, anchor='mm')
+                # 新素材包已移除 UI_CMN_Chara_Level_S_01.png，改为描边文字标注等级
+                ts.draw(70, y + 120, 35, _lv, sbi.text_color, 'mm', 4, (255, 255, 255, 255))
                 for num, music in enumerate(lvlist[_lv]):
                     if num % 14 == 0:
                         x = 160
@@ -128,7 +126,10 @@ async def update_plate_table() -> str:
                 _v = platecn[_v]
             ver, _ver = version_map.get(_v, ([plate_to_dx_version.get(_v)], _v))
             
-            music_id_list = mai.total_plate_id_list[_ver]
+            music_id_list = mai.total_plate_id_list.get(_ver)
+            if not music_id_list:
+                log.warning(f'牌子「{_v}」的完成表数据（{_ver}）暂未在服务器提供，已跳过')
+                continue
             music = mai.total_list.by_id_list(music_id_list)
             ralv = copy.deepcopy(rlv)
 
@@ -173,7 +174,7 @@ async def update_plate_table() -> str:
             dr = ImageDraw.Draw(im)
             ts = DrawText(dr, TBFONT)
             sy = DrawText(dr, SIYUAN)
-            im.alpha_composite(Image.open(maimaidir / 'design.png'), (200, height - 113))
+            im.alpha_composite(sbi.design_bg, (200, height - 113))
             sy.draw(
                 700, 
                 height - 70, 
@@ -190,10 +191,8 @@ async def update_plate_table() -> str:
                     ralv[r].sort(key=lambda x: x.ds[3], reverse=True)
                 if ralv[r]:
                     y += 15
-                    im.alpha_composite(
-                        Image.open(maimaidir / 'UI_CMN_Chara_Level_S_01.png'), (65, y + 115)
-                    )
-                    ts.draw(113, y + 164, 35, r, anchor='mm')
+                    # 新素材包已移除 UI_CMN_Chara_Level_S_01.png，改为描边文字标注等级
+                    ts.draw(72, y + 155, 40, r, sbi.text_color, 'lm', 4, (255, 255, 255, 255))
                 x = 200
                 for num, music in enumerate(ralv[r]):
                     if num % 10 == 0:

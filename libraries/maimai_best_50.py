@@ -1,7 +1,7 @@
 import math
 import traceback
 from io import BytesIO
-from typing import Optional, Tuple, Union, overload
+from typing import Dict, List, Optional, Tuple, Union, overload
 
 from PIL import Image, ImageDraw
 
@@ -11,6 +11,15 @@ from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
 from .maimaidx_model import ChartInfo, PlayInfoDefault, PlayInfoDev, UserInfo
 from .maimaidx_music import mai
+from .maimaidx_user import Theme
+
+
+def themed_path(theme: Theme, name: str) -> Path:
+    """按主题返回素材路径，主题目录不存在时回退到 mai/pic 根目录。"""
+    path = maimaidir / theme.value / name
+    if path.exists():
+        return path
+    return maimaidir / name
 
 
 class ScoreBaseImage:
@@ -49,6 +58,19 @@ class ScoreBaseImage:
     pattern_bg = None
     rainbow_bg = None
     rainbow_bottom_bg = None
+    # 主题相关素材的内存缓存：{(theme, name): Image}
+    _themed_images: Dict[Tuple[str, str], Image.Image] = {}
+
+    @classmethod
+    def _open_themed(cls, theme: Theme, name: str) -> Image.Image:
+        key = (theme.value, name)
+        if maiApi.config.saveinmem:
+            img = cls._themed_images.get(key)
+            if img is None:
+                img = Image.open(themed_path(theme, name))
+                cls._themed_images[key] = img
+            return img
+        return Image.open(themed_path(theme, name))
 
     @classmethod
     def _load_image(cls):
@@ -66,9 +88,11 @@ class ScoreBaseImage:
             Image.open(maimaidir / 'rise_score_master.png'),
             Image.open(maimaidir / 'rise_score_remaster.png')
         ]
-        cls.title_bg = Image.open(maimaidir / 'title.png')
-        cls.title_lengthen_bg = Image.open(maimaidir / 'title-lengthen.png')
-        cls.design_bg = Image.open(maimaidir / 'design.png')
+        # 默认主题素材（供完成表/上分推荐等非个性化绘图使用）
+        default = Theme.PRISM_PLUS
+        cls.title_bg = cls._open_themed(default, 'title.png')
+        cls.title_lengthen_bg = cls._open_themed(default, 'title_lengthen.png')
+        cls.design_bg = cls._open_themed(default, 'design.png')
         cls.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA').resize((1400, 220))
         cls.shines_bg = Image.open(maimaidir / 'bg_shines.png').convert('RGBA')
         cls.pattern_bg = Image.open(maimaidir / 'pattern.png')
@@ -76,9 +100,21 @@ class ScoreBaseImage:
         cls.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA').resize((1200, 200))
     
     
-    def __init__(self, image: Image.Image = None) -> None:
+    def __init__(
+        self,
+        image: Image.Image = None,
+        theme: Theme = Theme.PRISM_PLUS,
+    ) -> None:
+        self.theme = theme
+        self.text_color = theme.color
         if not maiApi.config.saveinmem:
             self.load_image()
+        elif not self._diff:
+            self._load_image()
+        # 按当前主题加载个性化素材
+        self.title_bg = self._open_themed(theme, 'title.png')
+        self.title_lengthen_bg = self._open_themed(theme, 'title_lengthen.png')
+        self.design_bg = self._open_themed(theme, 'design.png')
         self._im = image
         if image is not None:
             dr = ImageDraw.Draw(self._im)
@@ -100,9 +136,6 @@ class ScoreBaseImage:
             Image.open(maimaidir / 'rise_score_master.png'),
             Image.open(maimaidir / 'rise_score_remaster.png')
         ]
-        self.title_bg = Image.open(maimaidir / 'title.png')
-        self.title_lengthen_bg = Image.open(maimaidir / 'title-lengthen.png')
-        self.design_bg = Image.open(maimaidir / 'design.png')
         self.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA').resize((1400, 220))
         self.shines_bg = Image.open(maimaidir / 'bg_shines.png').convert('RGBA')
         self.pattern_bg = Image.open(maimaidir / 'pattern.png')
@@ -148,9 +181,10 @@ class ScoreBaseImage:
             cover = Image.open(music_picture(info.song_id)).resize((75, 75))
             version = Image.open(maimaidir / f'{info.type.upper()}.png').resize((37, 14))
             if info.rate.islower():
-                rate = Image.open(maimaidir / f'UI_TTR_Rank_{score_Rank_l[info.rate]}.png').resize((63, 28))
+                rank_name = f'UI_TTR_Rank_{score_Rank_l[info.rate]}.png'
             else:
-                rate = Image.open(maimaidir / f'UI_TTR_Rank_{info.rate}.png').resize((63, 28))
+                rank_name = f'UI_TTR_Rank_{info.rate}.png'
+            rate = Image.open(themed_path(self.theme, rank_name)).resize((63, 28))
 
             self._im.alpha_composite(self._diff[info.level_index], (x, y))
             self._im.alpha_composite(cover, (x + 12, y + 12))
@@ -191,8 +225,14 @@ class ScoreBaseImage:
 
 class DrawBest(ScoreBaseImage):
 
-    def __init__(self, UserInfo: UserInfo, qqid: Optional[Union[int, str]] = None) -> None:
-        super().__init__(Image.open(maimaidir / 'b50_bg.png').convert('RGBA'))
+    def __init__(
+        self,
+        UserInfo: UserInfo,
+        qqid: Optional[Union[int, str]] = None,
+        theme: Theme = Theme.PRISM_PLUS,
+    ) -> None:
+        bg = themed_path(theme, 'b50.png')
+        super().__init__(Image.open(bg).convert('RGBA'), theme)
         self.userName = UserInfo.nickname
         self.plate = UserInfo.plate
         self.addRating = UserInfo.additional_rating
@@ -229,8 +269,30 @@ class DrawBest(ScoreBaseImage):
         elif self.Rating < 15000:
             num = '10'
         else:
-            num = '11'
+            if self.theme == Theme.CIRCLE:
+                if self.Rating < 16000:
+                    num = '11'
+                elif self.Rating < 17000:
+                    num = '12'
+                else:
+                    num = '11'
+            else:
+                num = '11'
         return f'UI_CMN_DXRating_{num}.png'
+
+    def _raPicStar(self) -> str:
+        """CIRCLE 主题高分段星标"""
+        from bisect import bisect_right
+
+        thresholds = [
+            14000, 14250, 14500, 14750, 15000, 15250,
+            15500, 15750, 16000, 16250, 16500, 16750,
+        ]
+        num_map = [1, 2, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4]
+        idx = bisect_right(thresholds, self.Rating) - 1
+        if idx < 0:
+            idx = 0
+        return f'UI_CMN_DXRating_Star_0{num_map[idx]}.png'
 
     def _findMatchLevel(self) -> str:
         """
@@ -247,20 +309,22 @@ class DrawBest(ScoreBaseImage):
 
     async def draw(self) -> Image.Image:
         
-        logo = Image.open(maimaidir / 'logo.png').resize((249, 120))
-        dx_rating = Image.open(maimaidir / self._findRaPic()).resize((186, 35))
+        logo = Image.open(themed_path(self.theme, 'logo.png')).resize((249, 120))
         Name = Image.open(maimaidir / 'Name.png')
         MatchLevel = Image.open(maimaidir / self._findMatchLevel()).resize((80, 32))
         ClassLevel = Image.open(maimaidir / 'UI_FBR_Class_00.png').resize((90, 54))
         rating = Image.open(maimaidir / 'UI_CMN_Shougou_Rainbow.png').resize((270, 27))
 
         self._im.alpha_composite(logo, (14, 60))
-        if self.plate:
-            plate = Image.open(platedir / f'{self.plate}.png').resize((800, 130))
-        else:
-            plate = Image.open(maimaidir / 'UI_Plate_300501.png').resize((800, 130))
+        plate_path = resolve_plate_asset(self.plate)
+        if self.plate and plate_path.name == 'UI_Plate_550101.png':
+            log.warning(
+                f'未找到姓名框素材「{self.plate}」'
+                f'→「{normalize_plate_filename(self.plate)}」，使用默认姓名框'
+            )
+        plate = Image.open(plate_path).resize((800, 130))
         self._im.alpha_composite(plate, (300, 60))
-        icon = Image.open(maimaidir / 'UI_Icon_309503.png').resize((120, 120))
+        icon = Image.open(maimaidir / 'UI_Icon_509506.png').resize((120, 120))
         self._im.alpha_composite(icon, (305, 65))
         if self.qqid:
             try:
@@ -268,11 +332,33 @@ class DrawBest(ScoreBaseImage):
                 self._im.alpha_composite(qqLogo.convert('RGBA').resize((120, 120)), (305, 65))
             except Exception:
                 pass
+
+        dx_rating_size = (186, 35)
+        dx_rating_star = None
+        rating_num_x = 520
+        rating_num_y = 80
+        rating_num_gap = 15
+        rating_num_size = (17, 20)
+        if self.theme == Theme.CIRCLE and self.Rating >= 14000:
+            dx_rating_size = (170, 35)
+            dx_rating_star = Image.open(
+                themed_path(self.theme, self._raPicStar())
+            ).resize((21, 35))
+            rating_num_x = 515
+            rating_num_y = 82
+            rating_num_gap = 13
+            rating_num_size = (14, 17)
+
+        dx_rating = Image.open(themed_path(self.theme, self._findRaPic())).resize(dx_rating_size)
         self._im.alpha_composite(dx_rating, (435, 72))
+        if dx_rating_star is not None:
+            self._im.alpha_composite(dx_rating_star, (590, 72))
+
         Rating = f'{self.Rating:05d}'
         for n, i in enumerate(Rating):
             self._im.alpha_composite(
-                Image.open(maimaidir / f'UI_NUM_Drating_{i}.png').resize((17, 20)), (520 + 15 * n, 80)
+                Image.open(maimaidir / f'UI_NUM_Drating_{i}.png').resize(rating_num_size),
+                (rating_num_x + rating_num_gap * n, rating_num_y),
             )
         self._im.alpha_composite(Name, (435, 115))
         self._im.alpha_composite(MatchLevel, (625, 120))
@@ -450,25 +536,41 @@ def computeRa(
     return data
 
 
-async def generate(qqid: Optional[int] = None, username: Optional[str] = None) -> Union[MessageSegment, str]:
+async def generate(
+    qqid: Optional[int] = None,
+    username: Optional[str] = None,
+    all_perfect: bool = False
+) -> Union[MessageSegment, str]:
     """
     生成b50
     
     Params:
         `qqid`: QQ号
         `username`: 用户名
-        `icon`: 头像
+        `all_perfect`: 是否为 ap50（仅落雪支持）
     Returns:
         `Union[MessageSegment, str]`
     """
+    from .maimaidx_lxns import LxnsError
+    from .maimaidx_source import is_lxns, lxns_b50
     try:
+        from .maimaidx_user import Theme, userstore
+
         if username:
             qqid = None
-        userinfo = await maiApi.query_user_b50(qqid=qqid, username=username)
-        draw_best = DrawBest(userinfo, qqid)
+            theme = Theme.PRISM_PLUS
+        else:
+            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+        if is_lxns(qqid, username):
+            userinfo = await lxns_b50(qqid, all_perfect=all_perfect)
+        elif all_perfect:
+            return 'ap50 仅支持「落雪」数据源，请使用「数据源」指令切换后再试'
+        else:
+            userinfo = await maiApi.query_user_b50(qqid=qqid, username=username)
+        draw_best = DrawBest(userinfo, qqid, theme=theme)
 
         msg = MessageSegment.image(image_to_base64(await draw_best.draw()))
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
+    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError, LxnsError) as e:
         msg = str(e)
     except Exception as e:
         log.error(traceback.format_exc())

@@ -16,8 +16,8 @@ from ..libraries.maimaidx_music_info import draw_music_play_data
 from ..libraries.maimaidx_player_score import music_global_data
 
 
-async def best50_handler(event: AstrMessageEvent):
-    """b50/B50 命令处理"""
+async def best50_handler(event: AstrMessageEvent, all_perfect: bool = False):
+    """b50/B50/ap50 命令处理"""
     # 检查数据是否加载
     if not hasattr(mai, 'total_list') or not mai.total_list:
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
@@ -28,14 +28,15 @@ async def best50_handler(event: AstrMessageEvent):
     # 移除命令前缀
     # 检查是否有 @ 消息
     if '@' not in message_str:
-        username = re.sub(r"[MSG_ID:[^\]]*]", "", message_str.replace("b50", "").replace("B50", "")).strip()
+        cleaned = re.sub(r'(?i)^(ap50|b50)', '', message_str.strip())
+        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
     else:
         username = ''   
         at_qqid = extract_at_qqid(event)
         if at_qqid:
             qqid = at_qqid
     
-    result = await generate(qqid, username)
+    result = await generate(qqid, username, all_perfect=all_perfect)
     chain: List[Any] = convert_message_segment_to_chain(result)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))

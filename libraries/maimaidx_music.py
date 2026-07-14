@@ -545,7 +545,7 @@ class GroupAlias:
 
     @staticmethod
     def _normalize_group_ids(ids) -> List[str]:
-        """群号统一为字符串，避免 int/str 混用导致 in 判断失效（见 GitHub issue #5）"""
+        """群号统一为字符串，避免 int/str 混用导致 in 判断失效"""
         return [str(x) for x in ids if x is not None]
 
     def __init__(self) -> None:

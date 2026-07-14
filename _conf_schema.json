@@ -12,16 +12,69 @@
     "default": true
   },
   "maimaidxtoken": {
-    "description": "查分器开发者 Token",
-    "hint": "用于访问查分器接口",
+    "description": "水鱼查分器开发者 Token",
+    "hint": "水鱼查分器开发者 token。由于水鱼修改了请求鉴权，未填写时仅可使用 b50 指令。",
     "type": "string",
     "default": ""
+  },
+  "maimaidxproberproxy": {
+    "description": "水鱼查分器中转",
+    "hint": "是否使用中转访问水鱼查分器，适用于境外服务器。",
+    "type": "bool",
+    "default": false
+  },
+  "maimaidxaliaspush": {
+    "description": "别名推送",
+    "hint": "是否开启别名推送。",
+    "type": "bool",
+    "default": true
+  },
+  "maimaidxaliasproxy": {
+    "description": "柚子别名服务器中转",
+    "hint": "是否使用中转访问柚子别名服务器，适用于境内服务器。",
+    "type": "bool",
+    "default": false
   },
   "maimaidxaliaswhitelist": {
     "description": "别名推送白名单",
     "hint": "开启后仅向已执行「开启别名推送」的群发送别名广播；关闭则保持原逻辑（全群推送，排除黑名单）。",
     "type": "bool",
     "default": false
+  },
+  "saveinmem": {
+    "description": "图片保存在内存",
+    "hint": "是否将部分图片保存在内存中。关闭（false）可节省内存，但部分图片生成会稍慢。",
+    "type": "bool",
+    "default": true
+  },
+  "assets_online": {
+    "description": "在线获取素材",
+    "hint": "对于有 icon / plate 本地资源的可设为 false 使用本地素材；若没有请保持 true，否则使用落雪查分器时无法正常显示。",
+    "type": "bool",
+    "default": true
+  },
+  "lxns_dev_token": {
+    "description": "落雪查分器 开发者 Token",
+    "hint": "填写后用户可用「数据源 落雪」按 QQ 号查询（需用户在落雪绑定 QQ 并允许第三方读取）。支持 b50/ap50/单曲/完成表/进度等。",
+    "type": "string",
+    "default": ""
+  },
+  "lx_client_id": {
+    "description": "落雪 OAuth 应用 client_id",
+    "hint": "可选。OAuth 权限范围请选择前三项，不包括「读取个人 API 秘钥」。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
+    "type": "string",
+    "default": ""
+  },
+  "lx_client_secret": {
+    "description": "落雪 OAuth 应用 client_secret",
+    "hint": "可选。与 client_id 配套使用。",
+    "type": "string",
+    "default": ""
+  },
+  "lx_redirect_uri": {
+    "description": "落雪 OAuth 回调地址",
+    "hint": "可选。需与落雪 OAuth 应用登记的回调地址一致，回调页面应能展示授权码。",
+    "type": "string",
+    "default": ""
   }
 }
-

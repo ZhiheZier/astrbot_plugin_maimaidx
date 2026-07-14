@@ -3,6 +3,7 @@ import copy
 from .. import MessageSegment, get_botname
 from .image import rounded_corners
 from .maimai_best_50 import *
+from .maimaidx_lxns import LxnsError
 from .maimaidx_music import Music, mai
 
 
@@ -31,13 +32,20 @@ async def draw_music_info(
     Returns:
         `MessageSegment`
     """
+    from .maimaidx_user import Theme, userstore
+
     calc = True
     isfull = True
     bestlist: List[ChartInfo] = []
+    theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
     try:
         if qqid:
             if user is None:
-                player = await maiApi.query_user_b50(qqid=qqid)
+                from .maimaidx_source import is_lxns, lxns_b50
+                if is_lxns(qqid):
+                    player = await lxns_b50(qqid)
+                else:
+                    player = await maiApi.query_user_b50(qqid=qqid)
             else:
                 player = user
             if music.basic_info.version == list(plate_to_dx_version.values())[-1]:
@@ -53,14 +61,14 @@ async def draw_music_info(
     except Exception:
         calc = False
 
-    im = Image.open(maimaidir / 'song_bg.png').convert('RGBA')
+    im = Image.open(themed_path(theme, 'chart_info.png')).convert('RGBA')
     dr = ImageDraw.Draw(im)
     mr = DrawText(dr, SIYUAN)
     tb = DrawText(dr, TBFONT)
 
-    default_color = (124, 130, 255, 255)
+    default_color = theme.color
 
-    im.alpha_composite(Image.open(maimaidir / 'logo.png').resize((249, 120)), (65, 25))
+    im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (65, 25))
     if music.basic_info.is_new:
         im.alpha_composite(Image.open(maimaidir / 'UI_CMN_TabTitle_NewSong.png').resize((249, 120)), (940, 100))
     songbg = Image.open(music_picture(music.id)).resize((280, 280))
@@ -134,9 +142,26 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
     Returns:
         `Union[str, MessageSegment]`
     """
+    from .maimaidx_source import is_lxns, lxns_music_record
+    from .maimaidx_user import userstore
+
+    theme = userstore.get(int(qqid)).theme
     try:
         diff: List[Union[None, PlayInfoDev, PlayInfoDefault]]
-        if maiApi.token:
+        if is_lxns(qqid):
+            data = await lxns_music_record(qqid, music_id)
+            if not data:
+                raise MusicNotPlayError
+
+            music = mai.total_list.by_id(music_id)
+            diff = [None for _ in music.ds]
+            for _d in data:
+                if _d.level_index < len(diff):
+                    diff[_d.level_index] = _d
+            if all(d is None for d in diff):
+                raise MusicNotPlayError
+            dev = True
+        elif maiApi.token:
             data = await maiApi.query_user_post_dev(qqid=qqid, music_id=music_id)
             if not data:
                 raise MusicNotPlayError
@@ -161,20 +186,20 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
                 raise MusicNotPlayError
             dev = False
 
-        im = Image.open(maimaidir / 'info_bg.png').convert('RGBA')
+        im = Image.open(themed_path(theme, 'play_info.png')).convert('RGBA')
     
         dr = ImageDraw.Draw(im)
         tb = DrawText(dr, TBFONT)
         mr = DrawText(dr, SIYUAN)
 
-        im.alpha_composite(Image.open(maimaidir / 'logo.png').resize((249, 120)), (0, 34))
+        im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (0, 34))
         cover = Image.open(music_picture(music_id))
         im.alpha_composite(cover.resize((300, 300)), (100, 260))
-        im.alpha_composite(Image.open(maimaidir / f'info-{category[music.basic_info.genre]}.png'), (100, 260))
+        im.alpha_composite(Image.open(maimaidir / f'info_{category[music.basic_info.genre]}.png'), (100, 260))
         im.alpha_composite(Image.open(maimaidir / f'{music.basic_info.version}.png').resize((183, 90)), (295, 205))
         im.alpha_composite(Image.open(maimaidir / f'{music.type}.png').resize((55, 20)), (350, 560))
         
-        color = (124, 129, 255, 255)
+        color = theme.color
         artist = music.basic_info.artist
         if coloumWidth(artist) > 58:
             artist = changeColumnWidth(artist, 57) + '...'
@@ -188,9 +213,9 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
 
         y = 100
         for num, info in enumerate(diff):
-            im.alpha_composite(Image.open(maimaidir / f'd-{num}.png'), (650, 235 + y * num))
+            im.alpha_composite(Image.open(maimaidir / f'd_{num}.png'), (650, 235 + y * num))
             if info:
-                im.alpha_composite(Image.open(maimaidir / 'ra-dx.png'), (850, 272 + y * num))
+                im.alpha_composite(Image.open(themed_path(theme, 'ra_dx.png')), (850, 272 + y * num))
                 if dev:
                     dxscore = info.dxScore
                     _dxscore = sum(music.charts[num].notes) * 3
@@ -216,9 +241,9 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
                         Image.open(maimaidir / f'UI_CHR_PlayBonus_{fsl[info.fs]}.png').resize((65, 65)), 
                         (1025, 261 + y * num)
                     )
-                im.alpha_composite(Image.open(maimaidir / 'ra.png'), (1350, 405 + y * num))
+                im.alpha_composite(Image.open(themed_path(theme, 'ra.png')), (1350, 405 + y * num))
                 im.alpha_composite(
-                    Image.open(maimaidir / f'UI_TTR_Rank_{rate}.png').resize((100, 45)), 
+                    Image.open(themed_path(theme, f'UI_TTR_Rank_{rate}.png')).resize((100, 45)), 
                     (737, 272 + y * num)
                 )
 
@@ -242,6 +267,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:
@@ -280,9 +306,13 @@ def draw_rating(rating: str, path: Path) -> MessageSegment:
 
 async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union[MessageSegment, str]:
     """绘制定数表"""
+    from .maimaidx_source import is_lxns, lxns_plate
     try:
-        version = list(set(_v for _v in plate_to_dx_version.values()))
-        obj = await maiApi.query_user_plate(qqid=qqid, version=version)
+        if is_lxns(qqid):
+            obj = await lxns_plate(qqid)
+        else:
+            version = list(set(_v for _v in plate_to_dx_version.values()))
+            obj = await maiApi.query_user_plate(qqid=qqid, version=version)
         
         statistics = {
             'clear': 0,
@@ -338,9 +368,8 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
         lvlist = mai.total_level_data[rating]
         lvnum = sum([len(v) for v in lvlist.values()])
         
-        rating_bg = Image.open(maimaidir / 'rating_bg.png')
-        unfinished_bg = Image.open(maimaidir / 'unfinished_bg.png')
-        complete_bg = Image.open(maimaidir / 'complete_bg.png')
+        unfinished_bg = Image.open(maimaidir / 'unfinished_1.png')
+        complete_bg = Image.open(maimaidir / 'complete_1.png')
         
         bg = ratingdir / f'{rating}.png'
         
@@ -349,7 +378,10 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
         sy = DrawText(dr, SIYUAN)
         tb = DrawText(dr, TBFONT)
         
-        im.alpha_composite(rating_bg, (600, 25))
+        # 旧素材 rating_bg.png 已移除；有装饰图时再贴
+        rating_bg_path = maimaidir / 'rating_bg.png'
+        if rating_bg_path.exists():
+            im.alpha_composite(Image.open(rating_bg_path), (600, 25))
         sy.draw(305, 60, 65, f'Level.{rating}', (124, 129, 255, 255), 'mm', 5, (255, 255, 255, 255))
         sy.draw(305, 130, 65, '定数表', (124, 129, 255, 255), 'mm', 5, (255, 255, 255, 255))
         tb.draw(700, 127, 45, lvnum, (124, 129, 255, 255), 'mm', 5, (255, 255, 255, 255))
@@ -378,7 +410,7 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
                         score = fromid[music.id][music.lv]['achievements']
                         achievements_fc_list.append(score)
                         rate = computeRa(music.ds, score, onlyrate=True)
-                        rank = Image.open(maimaidir / f'UI_TTR_Rank_{rate}.png').resize((78, 35))
+                        rank = Image.open(themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')).resize((78, 35))
                         if score >= 100:
                             im.alpha_composite(complete_bg, (x + 2, y - 18))
                         else:
@@ -405,6 +437,7 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:
@@ -428,13 +461,19 @@ async def draw_plate_table(qqid: int, version: str, plan: str) -> Union[MessageS
         if version in platecn:
             version = platecn[version]
         ver, _ver = version_map.get(version, ([plate_to_dx_version[version]], version))
-  
+
+        if _ver not in mai.total_plate_id_list:
+            return f'「{version}」牌子数据尚未更新，暂时无法查询该牌子完成表'
         music_id_list = mai.total_plate_id_list[_ver]
         music = mai.total_list.by_id_list(music_id_list)
         plate_total_num = len(music_id_list)
         playerdata: List[PlayInfoDefault] = []
         
-        obj = await maiApi.query_user_plate(qqid=qqid, version=ver)
+        from .maimaidx_source import is_lxns, lxns_plate
+        if is_lxns(qqid):
+            obj = await lxns_plate(qqid)
+        else:
+            obj = await maiApi.query_user_plate(qqid=qqid, version=ver)
         for _d in obj:
             if _d.song_id not in music_id_list:
                 continue
@@ -466,20 +505,33 @@ async def draw_plate_table(qqid: int, version: str, plan: str) -> Union[MessageS
                 continue
             ra[_d.table_level[3]][str(_d.song_id)][_d.level_index] = _d
         
-        finished_bg = [Image.open(maimaidir / f't-{_}.png') for _ in range(4)]
-        unfinished_bg = Image.open(maimaidir / 'unfinished_bg_2.png')
-        complete_bg = Image.open(maimaidir / 'complete_bg_2.png')
+        finished_bg = [Image.open(maimaidir / f't_{_}.png') for _ in range(4)]
+        unfinished_bg = Image.open(maimaidir / 'unfinished_2.png')
+        complete_bg = Image.open(maimaidir / 'complete_2.png')
 
         im = Image.open(platedir / f'{version}.png')
         draw = ImageDraw.Draw(im)
         tr = DrawText(draw, TBFONT)
         mr = DrawText(draw, SIYUAN)
         
-        im.alpha_composite(Image.open(maimaidir / 'plate_num.png'), (185, 20))
-        im.alpha_composite(
-            Image.open(platedir / f'{version}{"極" if plan == "极" else plan}.png').resize((1000, 161)), 
-            (200, 35)
+        # 旧素材 plate_num.png 已移除；存在时再贴
+        plate_num_path = maimaidir / 'plate_num.png'
+        if plate_num_path.exists():
+            im.alpha_composite(Image.open(plate_num_path), (185, 20))
+        plate_title = normalize_plate_filename(
+            f'{version}{"極" if plan == "极" else plan}'
         )
+        plate_title_path = plate_version_dir / f'{plate_title}.png'
+        if not plate_title_path.exists():
+            # 再试未规范化原名
+            plate_title_path = plate_version_dir / f'{version}{"極" if plan == "极" else plan}.png'
+        if plate_title_path.exists():
+            im.alpha_composite(
+                Image.open(plate_title_path).resize((1000, 161)),
+                (200, 35),
+            )
+        else:
+            log.warning(f'未找到牌子标题素材：{plate_title}')
         lv: List[set[int]] = [set() for _ in range(number)]
         y = 245
         # if plan == '者':
@@ -537,7 +589,7 @@ async def draw_plate_table(qqid: int, version: str, plan: str) -> Union[MessageS
                         if n == 3:
                             im.alpha_composite(complete_bg if play.achievements >= 100 else unfinished_bg, (x, y))
                             rate = computeRa(play.ds, play.achievements, onlyrate=True)
-                            rank = Image.open(maimaidir / f'UI_TTR_Rank_{rate}.png').resize((102, 46))
+                            rank = Image.open(themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')).resize((102, 46))
                             im.alpha_composite(rank, (x - 1, y + 15))
                         lv[n].add(play.song_id)
                         f.append(n)
@@ -610,6 +662,7 @@ async def draw_plate_table(qqid: int, version: str, plan: str) -> Union[MessageS
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:

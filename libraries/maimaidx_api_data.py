@@ -1,9 +1,8 @@
-import json
 from typing import Any, Dict
 
 from aiohttp import ClientSession, ClientTimeout
 
-from .. import UUID, config_json
+from .. import UUID
 from .maimaidx_error import *
 from .maimaidx_model import *
 
@@ -17,6 +16,13 @@ class MaiConfig(BaseModel):
     # True：仅向「开启别名推送」的群广播；False：向所有群广播，但排除 disable 列表（默认，兼容旧行为）
     maimaidxaliaswhitelist: bool = False
     saveinmem: Optional[bool] = True
+    # 对于有 icon / plate 资源可设为 False 使用本地素材，否则默认在线获取（落雪查分器需要）
+    assets_online: bool = True
+    # 落雪查分器（lxns）相关配置
+    lxns_dev_token: Optional[str] = None      # 开发者 Token（模式A：按 QQ 号查询）
+    lx_client_id: Optional[str] = None        # OAuth 应用 client_id（模式B）
+    lx_client_secret: Optional[str] = None    # OAuth 应用 client_secret（模式B）
+    lx_redirect_uri: Optional[str] = None     # OAuth 回调地址（模式B）
 
 
 class MaimaiAPI:
@@ -37,7 +43,9 @@ class MaimaiAPI:
         self.MaiAliasProxyAPI = None
     
     def load_config(self) -> MaiConfig:
-        return MaiConfig.model_validate(json.load(open(config_json, 'r', encoding='utf-8')))
+        # 配置改由 AstrBot 插件配置（_conf_schema.json）在插件初始化时注入，
+        # 不再从 static/data/config.json 读取，此处仅提供默认值。
+        return MaiConfig()
     
     def load_token_proxy(self) -> None:
         self.MaiProberProxyAPI = self.MaiProberAPI if not self.config.maimaidxproberproxy else self.MaiProxyAPI + '/maimaidxprober'

@@ -9,10 +9,19 @@ from pyecharts.charts import Pie
 
 from .. import *
 from .image import *
-from .maimai_best_50 import ScoreBaseImage, changeColumnWidth, coloumWidth, computeRa
+from .maimai_best_50 import (
+    ScoreBaseImage,
+    changeColumnWidth,
+    coloumWidth,
+    computeRa,
+    themed_path,
+)
+from .maimaidx_user import Theme, userstore
 from .maimaidx_api_data import *
+from .maimaidx_lxns import LxnsError
 from .maimaidx_model import PlanInfo, PlayInfoDefault, PlayInfoDev, RaMusic
 from .maimaidx_music import Music, mai
+from .maimaidx_source import is_lxns, lxns_b50, lxns_plate, lxns_records
 from .tool import run_chrome_to_base64
 
 Filter = Tuple[
@@ -92,8 +101,12 @@ async def music_global_data(music: Music, level_index: int) -> MessageSegment:
 
 class DrawScore(ScoreBaseImage):
     
-    def __init__(self, image: Image.Image = None) -> None:
-        super().__init__(image)
+    def __init__(
+        self,
+        image: Image.Image = None,
+        theme: Theme = Theme.PRISM_PLUS,
+    ) -> None:
+        super().__init__(image, theme)
         self._im.alpha_composite(self.aurora_bg)
         self._im.alpha_composite(self.shines_bg, (34, 0))
         self._im.alpha_composite(self.rainbow_bg, (319, self._im.size[1] - 643))
@@ -136,13 +149,13 @@ class DrawScore(ScoreBaseImage):
             x = 200 if isdx else 700
             y += 140 if index != 0 else 0
             
-            rate = Image.open(maimaidir / f'UI_TTR_Rank_{_d.rate}.png').resize((63, 28))
+            rate = Image.open(themed_path(self.theme, f'UI_TTR_Rank_{_d.rate}.png')).resize((63, 28))
             
             self._im.alpha_composite(self._rise[_d.level_index], (x + 30, y))
             self._im.alpha_composite(Image.open(music_picture(_d.song_id)).resize((80, 80)), (x + 55, y + 40))
             self._im.alpha_composite(Image.open(maimaidir / f'{_d.type.upper()}.png').resize((60, 22)), (x + 240, y + 114))
             if _d.oldrate:
-                oldrate = Image.open(maimaidir / f'UI_TTR_Rank_{_d.oldrate}.png').resize((63, 28))
+                oldrate = Image.open(themed_path(self.theme, f'UI_TTR_Rank_{_d.oldrate}.png')).resize((63, 28))
                 self._im.alpha_composite(oldrate, (x + 145, y + 82))
             self._im.alpha_composite(rate, (x + 305, y + 82))
             
@@ -402,8 +415,12 @@ async def rise_score_data(
         `Union[Image.Image, str]`
     """
     try:
-        user = await maiApi.query_user_b50(qqid=qqid, username=username)
-        records = await maiApi.query_user_plate(qqid=qqid, username=username, version=list(plate_to_dx_version.values()))
+        if is_lxns(qqid, username):
+            user = await lxns_b50(qqid)
+            records = await lxns_plate(qqid, exact=True)
+        else:
+            user = await maiApi.query_user_b50(qqid=qqid, username=username)
+            records = await maiApi.query_user_plate(qqid=qqid, username=username, version=list(plate_to_dx_version.values()))
         old_records: DefaultDict[int, Dict[int, float]] = defaultdict(dict)
         for m in records:
             old_records[m.song_id][m.level_index] = m.achievements
@@ -420,7 +437,8 @@ async def rise_score_data(
         height = h * 140 + 110 + 150
         image = tricolor_gradient(1400, height)
         
-        ds = DrawScore(image)
+        theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+        ds = DrawScore(image, theme)
         im = ds.draw_rise(sd, sd_low_score, dx, dx_low_score).crop((200, 0, 1200, height))
         
         msg = MessageSegment.image(image_to_base64(im))
@@ -431,6 +449,7 @@ async def rise_score_data(
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:
@@ -492,7 +511,10 @@ async def player_plate_data(
     ver, _ver = version_map.get(version, ([plate_to_dx_version.get(version)], version))
     
     try:
-        verlist = await maiApi.query_user_plate(qqid=qqid, username=username, version=ver)
+        if is_lxns(qqid, username):
+            verlist = await lxns_plate(qqid)
+        else:
+            verlist = await maiApi.query_user_plate(qqid=qqid, username=username, version=ver)
     except (
         UserNotFoundError,
         UserNotExistsError,
@@ -500,6 +522,7 @@ async def player_plate_data(
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         return str(e)
     
@@ -521,6 +544,8 @@ async def player_plate_data(
     remaster: List[int] = []
     
     # 已游玩未完成曲目
+    if _ver not in mai.total_plate_id_list:
+        return f'「{version}」牌子数据尚未更新，暂时无法查询该牌子进度'
     plate_id_list = mai.total_plate_id_list[_ver]
     if version in ['舞', '霸']:
         remaster = mai.total_plate_id_list['舞ReMASTER']
@@ -615,7 +640,9 @@ async def level_process_data(
         `Union[MessageSegment, str]`
     """
     try:
-        if maiApi.token:
+        if is_lxns(qqid, username):
+            obj = await lxns_records(qqid)
+        elif maiApi.token:
             devobj = await maiApi.query_user_get_dev(qqid=qqid, username=username)
             obj = devobj.records
         else:
@@ -705,7 +732,8 @@ async def level_process_data(
             nlen = len(notplayed[:100])
             notstarted_y = (nlen // 20 + (0 if nlen % 20 == 0 else 1)) * 65 + 140
             image = tricolor_gradient(1400, 150 + completed_y + unfinished_y + notstarted_y)
-            dp = DrawScore(image)
+            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            dp = DrawScore(image, theme)
             im = dp.draw_plan(completed, completed_y, unfinished, unfinished_y, notplayed, plan, completed_len)
         elif category == 'completed' or category == 'unfinished':
             data = completed if category == 'completed' else unfinished
@@ -716,13 +744,15 @@ async def level_process_data(
             topage = len(data[(page - 1) * 80: page * 80])
             plc = (topage // 5 + (0 if topage % 5 == 0 else 1)) * 109
             image = tricolor_gradient(1400, 240 + plc + 120)
-            dp = DrawScore(image)
+            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            dp = DrawScore(image, theme)
             im = dp.draw_category(category, data, page, end_page_num)
         else:
             lennotstarted = len(notplayed)
             pln = (lennotstarted // 20 + (0 if lennotstarted % 20 == 0 else 1)) * 65
             image = tricolor_gradient(1400, 240 + pln + 120)
-            dp = DrawScore(image)
+            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            dp = DrawScore(image, theme)
             im = dp.draw_category(category, notplayed)
         
         msg = MessageSegment.image(image_to_base64(im))
@@ -733,6 +763,7 @@ async def level_process_data(
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:
@@ -761,7 +792,9 @@ async def level_achievement_list_data(
     """
     try:
         data: Union[List[PlayInfoDefault], List[PlayInfoDev]] = []
-        if maiApi.token:
+        if is_lxns(qqid, username):
+            data = await lxns_records(qqid, exact=True)
+        elif maiApi.token:
             obj = await maiApi.query_user_get_dev(qqid=qqid, username=username)
             data = obj.records
         else:
@@ -798,7 +831,8 @@ async def level_achievement_list_data(
         
         image = tricolor_gradient(1400, 150 + plc)
 
-        sc = DrawScore(image)
+        theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+        sc = DrawScore(image, theme)
         im = sc.draw_scorelist(rating, newdata, page, end_page_num)
         msg = MessageSegment.image(image_to_base64(im))
     except (
@@ -808,6 +842,7 @@ async def level_achievement_list_data(
         TokenError,
         TokenDisableError,
         TokenNotFoundError,
+        LxnsError,
     ) as e:
         msg = str(e)
     except Exception as e:
@@ -834,12 +869,12 @@ async def rating_ranking_data(name: str, page: int) -> Union[MessageSegment, str
             if name in [r.username.lower() for r in rank_data]:
                 rank_index = [r.username.lower() for r in rank_data].index(name) + 1
                 nickname = rank_data[rank_index - 1].username
-                data = f'截止至 {_time}\n玩家 {nickname} 在查分器已注册用户ra排行第{rank_index}'
+                data = f'截止至 {_time}\n玩家 {nickname} 在水鱼查分器已注册用户ra排行第{rank_index}'
             else:
                 data = '未找到该玩家'
         else:
             user_num = len(rank_data)
-            msg = f'截止至 {_time}，查分器已注册用户ra排行：\n'
+            msg = f'截止至 {_time}，水鱼查分器已注册用户ra排行：\n'
             if page * 50 > user_num:
                 page = user_num // 50 + 1
             end = page * 50 if page * 50 < user_num else user_num

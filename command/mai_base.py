@@ -129,19 +129,8 @@ async def mai_today_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    wm_list = [
-        '拼机', 
-        '推分', 
-        '越级', 
-        '下埋', 
-        '夜勤', 
-        '练底力', 
-        '练手法', 
-        '打旧框', 
-        '干饭', 
-        '抓绝赞', 
-        '收歌'
-    ]
+    from .. import FORTUNE
+
     uid = event.get_sender_id()
     # 确保 uid 是整数类型
     try:
@@ -157,9 +146,9 @@ async def mai_today_handler(event: AstrMessageEvent):
     msg = f'\n今日人品值：{rp}\n'
     for i in range(11):
         if wm_value[i] == 3:
-            msg += f'宜 {wm_list[i]}\n'
+            msg += f'宜 {FORTUNE[i]}\n'
         elif wm_value[i] == 0:
-            msg += f'忌 {wm_list[i]}\n'
+            msg += f'忌 {FORTUNE[i]}\n'
     music = mai.total_list[h % len(mai.total_list)]
     ds = '/'.join([str(_) for _ in music.ds])
     # 动态获取 BOTNAME，确保获取最新值
@@ -295,3 +284,167 @@ async def my_rating_ranking_handler(event: AstrMessageEvent):
                 return
     except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError) as e:
         yield event.plain_result(str(e))
+
+
+# ============================ 数据源 / 主题 / 落雪绑定 ============================
+CODE_PATTERN = re.compile(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+LXNS_ERROR = 'BOT 管理员尚未配置落雪查分器相关信息'
+
+# 数据源中文别名 -> 索引
+_SOURCE_ALIAS = {
+    '水鱼': '0', 'diving-fish': '0', 'divingfish': '0', 'df': '0',
+    '落雪': '1', 'lxns': '1', 'lxns-network': '1', 'lx': '1',
+}
+
+
+def _lxns_configured() -> bool:
+    """落雪是否可用（配置了开发者 Token 或 OAuth 应用）"""
+    cfg = maiApi.config
+    return bool(cfg.lxns_dev_token) or bool(cfg.lx_client_id and cfg.lx_redirect_uri)
+
+
+def _authorize_url() -> str:
+    cfg = maiApi.config
+    return (
+        'https://maimai.lxns.net/oauth/authorize'
+        '?response_type=code'
+        f'&client_id={cfg.lx_client_id}'
+        f'&redirect_uri={cfg.lx_redirect_uri}'
+        '&scope=read_player+read_user_profile+write_player'
+    )
+
+
+async def source_handler(event: AstrMessageEvent):
+    """数据源 切换查分器"""
+    from ..libraries.maimaidx_user import ServiceName, userstore
+
+    args = event.message_str.strip().replace('数据源', '', 1).strip().lower()
+    if not args:
+        try:
+            current = userstore.get(int(event.get_sender_id())).service.label
+        except (ValueError, TypeError):
+            current = ServiceName.DIVINGFISH.label
+        yield event.plain_result(
+            f'当前数据源：「{current}」\n'
+            f'可使用「数据源 序号」进行切换：\n{ServiceName.get_help()}'
+        )
+        return
+
+    index = _SOURCE_ALIAS.get(args, args)
+    source_ = ServiceName.get_by_index(index)
+    if source_ is None:
+        yield event.plain_result(f'未找到该数据源：\n{ServiceName.get_help()}')
+        return
+
+    qqid = event.get_sender_id()
+    if source_ == ServiceName.LXNS and not _lxns_configured():
+        await userstore.update(int(qqid), service=ServiceName.DIVINGFISH)
+        yield event.plain_result(
+            LXNS_ERROR + '。为防止无法查询成绩，已强制将数据源切换为水鱼查分器。'
+        )
+        return
+
+    await userstore.update(int(qqid), service=source_)
+    tip = ''
+    if source_ == ServiceName.LXNS:
+        tip = (
+            '\n※ 若未进行 OAuth 授权，请确保已在落雪查分器绑定 QQ 号，'
+            '并在「隐私设置」中允许第三方读取成绩。'
+        )
+    yield event.plain_result(f'数据源已切换为：「{source_.label}」{tip}')
+
+
+async def theme_handler(event: AstrMessageEvent):
+    """主题 切换成绩图主题"""
+    from ..libraries.maimaidx_user import Theme, userstore
+
+    args = event.message_str.strip()
+    for p in ('主题', 'theme'):
+        if args.lower().startswith(p):
+            args = args[len(p):].strip()
+            break
+    if not args:
+        try:
+            current = userstore.get(int(event.get_sender_id())).theme.value
+        except (ValueError, TypeError):
+            current = Theme.PRISM_PLUS.value
+        yield event.plain_result(
+            f'当前主题：「{current}」\n可使用「主题 序号」进行切换：\n{Theme.get_help()}'
+        )
+        return
+
+    theme_ = Theme.get_by_index(args)
+    if theme_ is None:
+        yield event.plain_result(f'未找到该主题：\n{Theme.get_help()}')
+        return
+    await userstore.update(int(event.get_sender_id()), theme=theme_)
+    yield event.plain_result(f'主题已切换为：「{theme_.value}」')
+
+
+async def bind_lxns_handler(event: AstrMessageEvent):
+    """绑定落雪/lxbind 引导 OAuth 授权"""
+    cfg = maiApi.config
+    if not cfg.lx_client_id or not cfg.lx_redirect_uri:
+        yield event.plain_result(
+            LXNS_ERROR + '，无法进行 OAuth 绑定授权。\n'
+            '（如管理员已配置开发者 Token，你只需在落雪绑定 QQ 号后使用「数据源 落雪」即可）'
+        )
+        return
+    from textwrap import dedent
+    botname = get_botname()
+    msg = dedent(f'''
+        请点击以下链接进行授权，
+        允许「{botname} BOT」访问你的落雪查分器数据：
+        =======================
+        {_authorize_url()}
+        =======================
+        授权后你会得到一个格式为「XXXX-XXXX-XXXX」的授权码，
+        请复制它并发送「授权码 XXXX-XXXX-XXXX」完成绑定。
+        =======================
+        注意：请在落雪查分器「账号设置 -> 隐私设置」中
+        开启允许读取成绩，否则 BOT 无法查询你的成绩。
+    ''').strip()
+    yield event.plain_result(msg)
+
+
+async def authcode_handler(event: AstrMessageEvent):
+    """授权码/code 使用授权码完成落雪 OAuth 绑定"""
+    from ..libraries.maimaidx_lxns import LxnsAPI, LxnsError
+    from ..libraries.maimaidx_user import ServiceName, userstore
+
+    args = event.message_str.strip()
+    for p in ('授权码', 'code'):
+        if args.lower().startswith(p):
+            args = args[len(p):].strip()
+            break
+    code = args.strip()
+    if not CODE_PATTERN.fullmatch(code):
+        yield event.plain_result('授权码格式错误，请重新发送。格式：授权码 XXXX-XXXX-XXXX')
+        return
+
+    cfg = maiApi.config
+    if not cfg.lx_client_id or not cfg.lx_client_secret or not cfg.lx_redirect_uri:
+        yield event.plain_result(LXNS_ERROR + '，无法完成 OAuth 绑定。')
+        return
+
+    qqid = event.get_sender_id()
+    try:
+        api = LxnsAPI(qqid=int(qqid))
+        token = await api.oauth_fetch_token(code)
+        api.access_token = token.access_token
+        player = await api.player_personal()
+        await userstore.update(
+            int(qqid),
+            access_token=token.access_token,
+            refresh_token=token.refresh_token,
+            friend_code=player.friend_code,
+            service=ServiceName.LXNS,
+        )
+        yield event.plain_result(
+            f'授权完成！已绑定落雪账号「{player.name}」，数据源已切换为落雪。'
+        )
+    except LxnsError as e:
+        yield event.plain_result(f'授权失败：{e}')
+    except Exception as e:
+        log.error(f'落雪授权失败: {e}')
+        yield event.plain_result('授权失败，请检查授权码是否正确或稍后重试。')

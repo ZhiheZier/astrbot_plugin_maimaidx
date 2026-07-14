@@ -119,6 +119,20 @@ async def table_pfm_handler(event: AstrMessageEvent):
         yield event.plain_result('无法识别的表格')
 
 
+async def plate_condition_handler(event: AstrMessageEvent):
+    """牌子条件 指令：发送牌子完成条件说明图"""
+    from .. import maimaidir
+
+    path = maimaidir / 'table_condition.jpg'
+    if not path.exists():
+        yield event.plain_result('未找到「牌子条件」说明图（table_condition.jpg），请更新静态资源')
+        return
+    chain = [Comp.Image.fromFileSystem(str(path))]
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    yield event.chain_result(chain)
+
+
 async def rise_score_handler(event: AstrMessageEvent):
     """我要在x+上x分命令处理"""
     qqid = event.get_sender_id()

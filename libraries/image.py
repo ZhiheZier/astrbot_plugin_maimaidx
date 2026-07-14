@@ -1,11 +1,15 @@
 import base64
 from io import BytesIO
-from typing import Tuple, Union
+from typing import Optional, Set, Tuple, Union
+from urllib.request import Request, urlopen
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from .. import SHANGGUMONO, Path, coverdir
+from .. import SHANGGUMONO, Path, coverdir, log
+
+# 记录在线下载失败（如 CDN 无此封面）的 ID，避免重复请求
+_missing_covers: Set[int] = set()
 
 
 class DrawText:
@@ -100,9 +104,56 @@ def rounded_corners(
     return new_im
 
 
+def _download_cover(music_id: int) -> Optional[Path]:
+    """当本地缺少封面且开启在线素材时，从水鱼封面 CDN 下载并缓存。
+
+    Params:
+        `music_id`: 谱面 ID（会按 `% 10000` 取标准封面编号）
+    Returns:
+        下载成功返回本地缓存路径，否则返回 `None`
+    """
+    # 延迟导入以避免导入期循环依赖
+    from .maimaidx_api_data import maiApi
+
+    if not getattr(maiApi.config, 'assets_online', True):
+        return None
+
+    # DX / 宴会場 ID 与标准封面共用同一张图（编号后四位）
+    cover_id = int(music_id) % 10000
+    if cover_id in _missing_covers:
+        return None
+
+    target = coverdir / f'{cover_id}.png'
+    if target.exists():
+        return target
+
+    # 水鱼封面 CDN 使用未补零的 ID
+    url = f'{maiApi.MaiCover}/{cover_id}.png'
+    try:
+        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urlopen(req, timeout=10) as resp:
+            if getattr(resp, 'status', 200) != 200:
+                _missing_covers.add(cover_id)
+                return None
+            content = resp.read()
+        if not content:
+            _missing_covers.add(cover_id)
+            return None
+        coverdir.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return target
+    except Exception as e:
+        _missing_covers.add(cover_id)
+        log.warning(f'在线下载封面失败（id={music_id} → {cover_id}）：{e}')
+        return None
+
+
 def music_picture(music_id: Union[int, str]) -> Path:
     """
-    获取谱面图片路径
+    获取谱面图片路径。
+
+    对齐上游：封面文件按 `song_id % 10000` 取本地文件；
+    均不存在时回退 `0.png`（占位图）。
     
     Params:
         `music_id`: 谱面 ID
@@ -110,17 +161,25 @@ def music_picture(music_id: Union[int, str]) -> Path:
         `Path`
     """
     music_id = int(music_id)
+    # 优先精确 ID（兼容本地额外存放的 DX 专用封面）
     if (_path := coverdir / f'{music_id}.png').exists():
         return _path
-    if music_id > 100000:
-        music_id -= 100000
-        if (_path := coverdir / f'{music_id}.png').exists():
-            return _path
-    if 1000 < music_id < 10000 or 10000 < music_id <= 11000:
-        for _id in [music_id + 10000, music_id - 10000]:
-            if (_path := coverdir / f'{_id}.png').exists():
-                return _path
-    return coverdir / '11000.png'
+
+    cover_id = music_id % 10000
+    if (_path := coverdir / f'{cover_id}.png').exists():
+        return _path
+
+    # 本地无封面时，按需在线下载并缓存（受 assets_online 控制）
+    if (_online := _download_cover(music_id)) is not None:
+        return _online
+
+    fallback = coverdir / '0.png'
+    if fallback.exists():
+        return fallback
+    # 极端情况：连占位图都没有时生成一张纯色图，避免 FileNotFoundError
+    coverdir.mkdir(parents=True, exist_ok=True)
+    Image.new('RGBA', (200, 200), (80, 80, 80, 255)).save(fallback)
+    return fallback
 
 
 def text_to_image(text: str) -> Image.Image:
