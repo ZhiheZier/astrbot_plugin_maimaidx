@@ -16,7 +16,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.2.2")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.2.3")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
