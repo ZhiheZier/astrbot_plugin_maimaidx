@@ -4,7 +4,7 @@ from typing import Optional, Set, Tuple, Union
 from urllib.request import Request, urlopen
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
 from .. import SHANGGUMONO, Path, coverdir, log
 
@@ -77,6 +77,67 @@ def tricolor_gradient(
     
     image = Image.fromarray(array).convert('RGBA')
     return image
+
+
+def hex_to_rgb(hex_str: str) -> Tuple[int, ...]:
+    hex_str = hex_str.lstrip("#")
+    return tuple(int(hex_str[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def tricolor_gradient_prism_plus(width: int, height: int) -> Image.Image:
+    """
+    垂直绘制 PRiSM PLUS 渐变背景
+    """
+    colors_list = [
+        (0.0, hex_to_rgb("#ffffff")),
+        (0.14, hex_to_rgb("#ffffff")),
+        (0.24, hex_to_rgb("#ffd5cf")),
+        (0.46, hex_to_rgb("#ffd5cf")),
+        (0.56, hex_to_rgb("#ffc5d5")),
+        (0.67, hex_to_rgb("#eaabff")),
+        (0.85, hex_to_rgb("#72bcfe")),
+        (0.95, hex_to_rgb("#65f2df")),
+        (1.0, hex_to_rgb("#65f2df")),
+    ]
+    line = Image.new("RGBA", (1, height))
+    for y in range(height):
+        t = 1.0 - (y / (height - 1)) if height > 1 else 0
+        for i in range(len(colors_list) - 1):
+            p1, c1 = colors_list[i]
+            p2, c2 = colors_list[i + 1]
+            if p1 <= t <= p2:
+                rel_t = (t - p1) / (p2 - p1)
+                rgb = tuple(int(c1[j] + (c2[j] - c1[j]) * rel_t) for j in range(3))
+                line.putpixel((0, y), rgb)
+                break
+    return line.resize((width, height), resample=Image.Resampling.BICUBIC)
+
+
+def generate_frosted_card(
+    im: Image.Image,
+    box: Tuple[int, int, int, int],
+    alpha: float = 0.4,
+) -> Image.Image:
+    """
+    绘制毛玻璃卡片效果
+    """
+    if alpha < 0 or alpha > 1:
+        raise ValueError
+    roi = im.crop(box)
+    roi_w, roi_h = roi.size
+    frosted = roi.filter(ImageFilter.GaussianBlur(4))
+    white_layer = Image.new("RGBA", (roi_w, roi_h), (255, 255, 255, int(255 * alpha)))
+    card = Image.alpha_composite(frosted, white_layer)
+    mask = Image.new("L", (roi_w, roi_h), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, roi_w, roi_h), radius=25, fill=255)
+    shadow = Image.new("RGBA", (roi_w + 10, roi_h + 10), (0, 0, 0, 0))
+    draw_shadow = ImageDraw.Draw(shadow)
+    draw_shadow.rounded_rectangle((8, 8, 8 + roi_w, 8 + roi_h), radius=25, fill=(0, 0, 0, 50))
+    shadow_layer = shadow.filter(ImageFilter.GaussianBlur(3))
+    im.paste(shadow_layer, (box[0] - 5, box[1] - 5), shadow_layer)
+    im.paste(card, (box[0], box[1]), mask)
+    return im
 
 
 def rounded_corners(

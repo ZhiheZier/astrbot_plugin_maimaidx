@@ -93,11 +93,11 @@ class ScoreBaseImage:
         cls.title_bg = cls._open_themed(default, 'title.png')
         cls.title_lengthen_bg = cls._open_themed(default, 'title_lengthen.png')
         cls.design_bg = cls._open_themed(default, 'design.png')
-        cls.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA').resize((1400, 220))
+        cls.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA')
         cls.shines_bg = Image.open(maimaidir / 'bg_shines.png').convert('RGBA')
         cls.pattern_bg = Image.open(maimaidir / 'pattern.png')
         cls.rainbow_bg = Image.open(maimaidir / 'rainbow.png').convert('RGBA')
-        cls.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA').resize((1200, 200))
+        cls.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA')
     
     
     def __init__(
@@ -136,11 +136,11 @@ class ScoreBaseImage:
             Image.open(maimaidir / 'rise_score_master.png'),
             Image.open(maimaidir / 'rise_score_remaster.png')
         ]
-        self.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA').resize((1400, 220))
+        self.aurora_bg = Image.open(maimaidir / 'aurora.png').convert('RGBA')
         self.shines_bg = Image.open(maimaidir / 'bg_shines.png').convert('RGBA')
         self.pattern_bg = Image.open(maimaidir / 'pattern.png')
         self.rainbow_bg = Image.open(maimaidir / 'rainbow.png').convert('RGBA')
-        self.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA').resize((1200, 200))
+        self.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA')
     
     def whiledraw(
         self, 
