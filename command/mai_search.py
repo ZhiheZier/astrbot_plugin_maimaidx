@@ -8,7 +8,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import SONGS_PER_PAGE, diffs, log
-from ..command.mai_base import convert_message_segment_to_chain
+from ..command.mai_base import append_theme_source_tip, convert_message_segment_to_chain
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import *
@@ -492,4 +492,5 @@ async def query_chart_handler(event: AstrMessageEvent):
     
     pic = await draw_music_info(music, event.get_sender_id())
     chain = convert_message_segment_to_chain(pic)
+    append_theme_source_tip(chain, pic)
     yield event.chain_result(chain)

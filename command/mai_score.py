@@ -8,7 +8,11 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import log, is_reply_enabled
-from ..command.mai_base import extract_at_qqid, convert_message_segment_to_chain
+from ..command.mai_base import (
+    append_theme_source_tip,
+    convert_message_segment_to_chain,
+    extract_at_qqid,
+)
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimai_best_50 import generate
 from ..libraries.maimaidx_music import mai
@@ -38,6 +42,7 @@ async def best50_handler(event: AstrMessageEvent, all_perfect: bool = False):
     
     result = await generate(qqid, username, all_perfect=all_perfect)
     chain: List[Any] = convert_message_segment_to_chain(result)
+    append_theme_source_tip(chain, result)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
@@ -91,6 +96,7 @@ async def minfo_handler(event: AstrMessageEvent):
             songs = str(alias[0].SongID)
     pic = await draw_music_play_data(qqid, songs)
     chain = convert_message_segment_to_chain(pic)
+    append_theme_source_tip(chain, pic)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
