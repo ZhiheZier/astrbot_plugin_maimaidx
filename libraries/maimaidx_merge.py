@@ -435,8 +435,11 @@ async def merge_alias_data(
     local_alias_data: Optional[dict[str, list[str]]],
 ) -> list[dict]:
     """合并别名，返回插件 Alias 兼容结构：SongID / Name / Alias。"""
-    alias_map: dict[int, set[str]] = {}
+    alias_map: dict[int, dict[str, None]] = {}
     song_name_map: dict[int, str] = {}
+
+    def add_aliases(sid: int, names: list[str]):
+        alias_map.setdefault(sid, {}).update(dict.fromkeys(str(a) for a in names if a))
 
     for item in yuzu_aliases or []:
         try:
@@ -444,7 +447,7 @@ async def merge_alias_data(
         except (TypeError, ValueError):
             continue
         names = item.get('Alias') or item.get('alias') or []
-        alias_map.setdefault(sid, set()).update(str(a) for a in names if a)
+        add_aliases(sid, names)
         name = item.get('Name') or item.get('name') or ''
         if name:
             song_name_map.setdefault(sid, str(name))
@@ -452,10 +455,9 @@ async def merge_alias_data(
     if lxns_aliases is not None:
         for item in lxns_aliases.aliases:
             sid = item.song_id
-            # 落雪别名 ID 为标准谱 ID；>1000 的 DX 曲在水鱼侧 +10000
             if sid > 1000:
                 sid += 10000
-            alias_map.setdefault(sid, set()).update(item.aliases or [])
+            add_aliases(sid, item.aliases or [])
 
     if local_alias_data:
         for _a, aliases in local_alias_data.items():
@@ -463,14 +465,14 @@ async def merge_alias_data(
                 sid = int(_a)
             except (TypeError, ValueError):
                 continue
-            alias_map.setdefault(sid, set()).update(aliases or [])
+            add_aliases(sid, aliases or [])
 
     result = sorted(
         [
             {
                 'SongID': sid,
                 'Name': song_name_map.get(sid, ''),
-                'Alias': sorted(aliases),
+                'Alias': list(aliases),
             }
             for sid, aliases in alias_map.items()
             if aliases

@@ -907,7 +907,7 @@ class MaimaiDXPlugin(Star):
         async for result in arcade_query_multiple_handler(event):
             yield result
 
-    @filter.regex(r'^/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|jr|几卡)$')
+    @filter.regex(r'^/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|j|jr|几卡)$')
     async def arcade_query_person(self, event: AstrMessageEvent):
         """有多少人/有几人/有几卡"""
         group_id = event.message_obj.group_id

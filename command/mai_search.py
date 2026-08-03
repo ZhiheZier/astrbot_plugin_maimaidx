@@ -408,7 +408,7 @@ async def search_alias_song_handler(event: AstrMessageEvent):
                     return
                 else:
                     alias_data = obj
-        except AliasesNotFoundError:
+        except Exception:
             pass
     
     if alias_data:
