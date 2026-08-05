@@ -123,9 +123,10 @@ class Reviewed(StatusBase):
 
 
 class PushAliasStatus(BaseModel):
-    
-    Type: str
-    Status: Union[AliasStatus, Approved, Reviewed]
+    model_config = {"populate_by_name": True}
+
+    Type: str = Field(alias="type")
+    Status: Union[AliasStatus, Approved, Reviewed] = Field(alias="status")
 
 
 ##### Guess
