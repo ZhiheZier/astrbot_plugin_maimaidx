@@ -52,7 +52,7 @@ async def update_alias_handler(event: AstrMessageEvent, superusers: list = None)
     """更新别名库命令处理"""
     sender_id = event.get_sender_id()
     if superusers and str(sender_id) not in superusers:
-        yield event.plain_result('仅允许超级管理员执行此操作')
+        yield event.plain_result('仅允许管理员执行此操作')
         return
     
     try:
@@ -69,7 +69,7 @@ async def alias_switch_on_off_handler(event: AstrMessageEvent, superusers: list 
     """全局开启/关闭别名推送命令处理"""
     sender_id = event.get_sender_id()
     if superusers and str(sender_id) not in superusers:
-        yield event.plain_result('仅允许超级管理员执行此操作')
+        yield event.plain_result('仅允许管理员执行此操作')
         return
     
     try:

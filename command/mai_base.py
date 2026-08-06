@@ -112,7 +112,7 @@ async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
     """更新maimai数据"""
     sender_id = event.get_sender_id()
     if superusers and str(sender_id) not in superusers:
-        yield event.plain_result('仅允许超级管理员执行此操作')
+        yield event.plain_result('仅允许管理员执行此操作')
         return
     
     await mai.get_music()

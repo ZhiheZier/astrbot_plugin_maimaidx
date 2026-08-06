@@ -25,7 +25,7 @@ async def update_table_handler(event: AstrMessageEvent, superusers: list = None)
     """更新定数表命令处理"""
     sender_id = event.get_sender_id()
     if superusers and str(sender_id) not in superusers:
-        yield event.plain_result('仅允许超级管理员执行此操作')
+        yield event.plain_result('仅允许管理员执行此操作')
         return
     
     result = await update_rating_table()
@@ -37,7 +37,7 @@ async def update_plate_handler(event: AstrMessageEvent, superusers: list = None)
     """更新完成表命令处理"""
     sender_id = event.get_sender_id()
     if superusers and str(sender_id) not in superusers:
-        yield event.plain_result('仅允许超级管理员执行此操作')
+        yield event.plain_result('仅允许管理员执行此操作')
         return
     
     result = await update_plate_table()

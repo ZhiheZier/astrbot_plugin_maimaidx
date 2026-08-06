@@ -16,7 +16,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.2.4")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.2.5")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -294,14 +294,14 @@ class MaimaiDXPlugin(Star):
             loga.error(f'机厅数据更新失败: {e}')
 
     # 注册命令处理函数
-    # 群组开关命令（超级管理员专用）
+    # 群组开关命令（管理员专用）
     @filter.regex(r'^/?(开启|关闭)舞萌功能$')
     async def toggle_maimai_feature(self, event: AstrMessageEvent):
-        """开启/关闭舞萌功能（超级管理员专用）"""
-        # 检查是否为超级管理员
+        """开启/关闭舞萌功能（管理员专用）"""
+        # 检查是否为管理员
         sender_id = str(event.get_sender_id())
         if sender_id not in self.superusers:
-            yield event.plain_result('仅允许超级管理员执行此操作')
+            yield event.plain_result('仅允许管理员执行此操作')
             return
         
         # 检查是否在群聊中
@@ -336,7 +336,7 @@ class MaimaiDXPlugin(Star):
         async for result in update_data_handler(event, self.superusers):
             yield result
 
-    @filter.regex(r'^/?(帮助maimaiDX|帮助maimaidx)$')
+    @filter.regex(r'^/?(帮助maimaiDX|帮助maimaidx|helpmaimai|helpmaimaiDX|helpmaimaidx)$')
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
         # 检查群组是否启用
