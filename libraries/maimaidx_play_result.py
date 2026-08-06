@@ -103,6 +103,28 @@ class Player(BaseModel):
     star: int = 0
 
 
+def dx_star_from_percentage(percentage: float) -> int:
+    """按游戏 DX SCORE 百分比计算 0～5 星。"""
+    if percentage < 85:
+        return 0
+    if percentage < 90:
+        return 1
+    if percentage < 93:
+        return 2
+    if percentage < 95:
+        return 3
+    if percentage < 97:
+        return 4
+    return 5
+
+
+def dx_star_from_scores(dx_score: int, max_dx_score: int) -> Optional[int]:
+    """按实际 DX SCORE 与理论满分计算星级；满分无效时返回 None。"""
+    if max_dx_score <= 0:
+        return None
+    return dx_star_from_percentage(dx_score / max_dx_score * 100)
+
+
 # ---------------------------------------------------------------------------
 # 曲库定数字典查找
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@
   },
   "maimaidxtoken": {
     "description": "水鱼查分器开发者 Token",
-    "hint": "水鱼查分器开发者 token。由于水鱼修改了请求鉴权，未填写时仅可使用 b50 指令。",
+    "hint": "水鱼查分器开发者 token。填写后支持 AP50、星级 B50、拟合 B50、单曲成绩、完成表、进度等完整成绩查询；未填写时仅可使用 b50 等公开查询指令。",
     "type": "string",
     "default": ""
   },
