@@ -26,8 +26,13 @@ class MaimaiDXPlugin(Star):
         
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合
+        self.arcade_enabled_groups = set()  # 启用排卡功能的群组ID集合（默认关闭）
         # 使用 AstrBot 官方数据持久化目录（data/plugin_data/<plugin>），不再写入插件 static 目录
         self.data_file = StarTools.get_data_dir("astrbot_plugin_maimaidx") / "disabled_groups.json"
+        self.arcade_switch_file = (
+            StarTools.get_data_dir("astrbot_plugin_maimaidx")
+            / "enabled_arcade_groups.json"
+        )
         self._migrate_disabled_groups()  # 从旧位置（static/data）迁移
         
         # 从插件配置中读取 bot 名称并设置到 __init__.py
@@ -85,6 +90,7 @@ class MaimaiDXPlugin(Star):
         try:
             # 加载禁用群组列表
             self._load_disabled_groups()
+            self._load_arcade_enabled_groups()
             
             # 设置配置
             self._setup_configuration()
@@ -150,6 +156,44 @@ class MaimaiDXPlugin(Star):
     def _is_group_enabled(self, group_id: str) -> bool:
         """检查群组是否启用插件"""
         return group_id not in self.disabled_groups
+
+    def _load_arcade_enabled_groups(self):
+        """加载已开启排卡功能的群组；文件不存在时默认全部关闭。"""
+        try:
+            if not self.arcade_switch_file.exists():
+                self._save_arcade_enabled_groups()
+                return
+            with open(self.arcade_switch_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            self.arcade_enabled_groups = {
+                str(group_id)
+                for group_id in data.get('enabled_groups', [])
+                if group_id is not None
+            }
+            loga.info(
+                f'已加载排卡启用群组列表，共 '
+                f'{len(self.arcade_enabled_groups)} 个群组'
+            )
+        except Exception as e:
+            loga.error(f'加载排卡启用群组列表失败: {e}')
+            self.arcade_enabled_groups = set()
+
+    def _save_arcade_enabled_groups(self):
+        """保存已开启排卡功能的群组。"""
+        try:
+            with open(self.arcade_switch_file, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {'enabled_groups': sorted(self.arcade_enabled_groups)},
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+        except Exception as e:
+            loga.error(f'保存排卡启用群组列表失败: {e}')
+
+    def _is_arcade_enabled(self, group_id: str) -> bool:
+        """检查指定群组是否启用排卡功能。"""
+        return str(group_id) in self.arcade_enabled_groups
     
     def _setup_configuration(self):
         """处理配置相关的初始化"""
@@ -807,11 +851,47 @@ class MaimaiDXPlugin(Star):
             yield result
 
     # 机厅相关命令
+    @filter.regex(r'^/?(开启|关闭)(?:机厅)?排卡$')
+    async def toggle_arcade(self, event: AstrMessageEvent):
+        """按群开启/关闭机厅排卡功能。"""
+        group_id = event.message_obj.group_id
+        if not group_id:
+            yield event.plain_result('开启/关闭排卡功能仅在群聊中可用')
+            return
+
+        from .command.mai_arcade import is_admin
+
+        sender_id = str(event.get_sender_id())
+        if sender_id not in self.superusers and not await is_admin(event):
+            yield event.plain_result('仅允许群管理员或超级管理员开关排卡功能')
+            return
+
+        gid = str(group_id)
+        action = event.message_str.strip().lstrip('/')
+        if action.startswith('关闭'):
+            if gid not in self.arcade_enabled_groups:
+                yield event.plain_result('本群排卡功能已经是关闭状态')
+                return
+            self.arcade_enabled_groups.remove(gid)
+            self._save_arcade_enabled_groups()
+            yield event.plain_result('已关闭本群排卡功能')
+            return
+
+        if gid in self.arcade_enabled_groups:
+            yield event.plain_result('本群排卡功能已经是开启状态')
+            return
+        self.arcade_enabled_groups.add(gid)
+        self._save_arcade_enabled_groups()
+        yield event.plain_result('已开启本群排卡功能')
+
     @filter.regex(r'^/?(帮助maimaiDX排卡|帮助maimaidx排卡)$')
     async def dx_arcade_help(self, event: AstrMessageEvent):
         """帮助maimaiDX排卡"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import dx_arcade_help_handler
         async for result in dx_arcade_help_handler(event):
@@ -821,7 +901,10 @@ class MaimaiDXPlugin(Star):
     async def add_arcade(self, event: AstrMessageEvent):
         """添加机厅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import add_arcade_handler
         async for result in add_arcade_handler(event, self.superusers):
@@ -831,7 +914,10 @@ class MaimaiDXPlugin(Star):
     async def delete_arcade(self, event: AstrMessageEvent):
         """删除机厅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import delete_arcade_handler
         async for result in delete_arcade_handler(event, self.superusers):
@@ -841,7 +927,10 @@ class MaimaiDXPlugin(Star):
     async def arcade_alias(self, event: AstrMessageEvent):
         """添加/删除机厅别名"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import arcade_alias_handler
         async for result in arcade_alias_handler(event):
@@ -851,7 +940,10 @@ class MaimaiDXPlugin(Star):
     async def modify_arcade(self, event: AstrMessageEvent):
         """修改机厅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import modify_arcade_handler
         async for result in modify_arcade_handler(event):
@@ -861,7 +953,10 @@ class MaimaiDXPlugin(Star):
     async def subscribe_arcade(self, event: AstrMessageEvent):
         """订阅/取消订阅机厅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import subscribe_arcade_handler
         async for result in subscribe_arcade_handler(event):
@@ -871,7 +966,10 @@ class MaimaiDXPlugin(Star):
     async def check_subscribe(self, event: AstrMessageEvent):
         """查看订阅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import check_subscribe_handler
         async for result in check_subscribe_handler(event):
@@ -881,7 +979,10 @@ class MaimaiDXPlugin(Star):
     async def search_arcade(self, event: AstrMessageEvent):
         """查找机厅"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import search_arcade_handler
         async for result in search_arcade_handler(event):
@@ -891,7 +992,10 @@ class MaimaiDXPlugin(Star):
     async def arcade_person(self, event: AstrMessageEvent):
         """操作排卡人数"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import arcade_person_handler
         async for result in arcade_person_handler(event):
@@ -901,7 +1005,10 @@ class MaimaiDXPlugin(Star):
     async def arcade_query_multiple(self, event: AstrMessageEvent):
         """机厅几人"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import arcade_query_multiple_handler
         async for result in arcade_query_multiple_handler(event):
@@ -911,9 +1018,11 @@ class MaimaiDXPlugin(Star):
     async def arcade_query_person(self, event: AstrMessageEvent):
         """有多少人/有几人/有几卡"""
         group_id = event.message_obj.group_id
-        if group_id and not self._is_group_enabled(str(group_id)):
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
             return
         from .command.mai_arcade import arcade_query_person_handler
         async for result in arcade_query_person_handler(event):
             yield result
-

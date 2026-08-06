@@ -20,6 +20,7 @@ from ..libraries.maimaidx_arcade import (
 
 
 sv_help = """排卡指令如下：
+开启排卡 / 关闭排卡（仅群管理员）
 添加机厅 <店名> <地址> <机台数量> 添加机厅信息
 删除机厅 <店名> 删除机厅信息
 修改机厅 <店名> 数量 <数量> ... 修改机厅信息
@@ -403,4 +404,3 @@ async def arcade_query_person_handler(event: AstrMessageEvent):
             yield event.plain_result('\n'.join(result))
         else:
             yield event.plain_result('该群未订阅任何机厅，请使用 订阅机厅 <名称> 指令订阅机厅')
-
