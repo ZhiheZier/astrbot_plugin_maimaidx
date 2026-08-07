@@ -10,7 +10,7 @@ import traceback
 import json
 from pathlib import Path
 
-from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn, static, _BOTNAME, init_static_dir, data_dir
+from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn, static, _BOTNAME, init_static_dir
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
@@ -29,14 +29,16 @@ class MaimaiDXPlugin(Star):
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
         
-        # 群组/排卡持久化文件（在 static/data 下）
-        self.data_file = data_dir / "disabled_groups.json"
-        self.arcade_switch_file = data_dir / "enabled_arcade_groups.json"
+        # 群组/排卡持久化文件（在 static/data 下，通过模块引用获取更新后的路径）
+        import sys
+        _pkg = sys.modules[__name__.rsplit('.', 1)[0]]
+        self.data_file = _pkg.data_dir / "disabled_groups.json"
+        self.arcade_switch_file = _pkg.data_dir / "enabled_arcade_groups.json"
         # 从旧位置（plugin_data 根目录）迁移到 static/data（根目录的版本更新）
-        if data_dir.exists():
+        if _pkg.data_dir.exists():
             for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
                 old = plugin_data_root / fname
-                new = data_dir / fname
+                new = _pkg.data_dir / fname
                 if old.exists():
                     new.write_bytes(old.read_bytes())
                     old.unlink()
