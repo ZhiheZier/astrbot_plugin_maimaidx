@@ -1,7 +1,6 @@
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.core.star.filter.event_message_type import EventMessageType
-from astrbot.api.star import Context, Star, register
-from astrbot.core.utils.astrbot_path import get_astrbot_data_path
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -27,7 +26,7 @@ class MaimaiDXPlugin(Star):
         self.scheduler.start()
         
         # 将 static 迁移到 AstrBot 数据目录（重装不丢失）
-        plugin_data_root = Path(get_astrbot_data_path()) / "plugin_data" / "astrbot_plugin_maimaidx"
+        plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
         
         # 群组/排卡持久化文件（在 static/data 下）
