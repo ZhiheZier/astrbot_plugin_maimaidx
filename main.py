@@ -10,7 +10,7 @@ import traceback
 import json
 from pathlib import Path
 
-from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn, static, _BOTNAME, init_static_dir
+from . import Root, log, loga, plate_to_dx_version, platecn, _BOTNAME, init_static_dir
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
@@ -31,13 +31,14 @@ class MaimaiDXPlugin(Star):
         
         # 群组/排卡持久化文件（在 static/data 下，通过模块引用获取更新后的路径）
         pkg = sys.modules[pkg_name]
+        self.pkg = pkg
         self.data_file = pkg.data_dir / "disabled_groups.json"
         self.arcade_switch_file = pkg.data_dir / "enabled_arcade_groups.json"
         # 从旧位置（plugin_data 根目录）迁移到 static/data（根目录的版本更新）
-        if pkg.data_dir.exists():
+        if self.pkg.data_dir.exists():
             for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
                 old = plugin_data_root / fname
-                new = pkg.data_dir / fname
+                new = self.pkg.data_dir / fname
                 if old.exists():
                     new.write_bytes(old.read_bytes())
                     old.unlink()
@@ -257,7 +258,7 @@ class MaimaiDXPlugin(Star):
     def _perform_initial_checks(self):
         """执行对目录和数据的初始检查"""
         # 检查定数表文件夹
-        if not ratingdir.exists() or not any(ratingdir.iterdir()):
+        if not self.pkg.ratingdir.exists() or not any(self.pkg.ratingdir.iterdir()):
             log.warning(
                 '注意！注意！检测到定数表文件夹为空！'
                 '可能导致「定数表」「完成表」指令无法使用，'
@@ -265,14 +266,14 @@ class MaimaiDXPlugin(Star):
             )
         
         # 检查完成表文件夹
-        if not platedir.exists():
+        if not self.pkg.platedir.exists():
             log.warning(
                 '注意！注意！未检测到完成表文件夹 plate_table，'
                 '请及时私聊BOT使用指令「更新完成表」进行生成。'
             )
         else:
             plate_list = [name for name in list(plate_to_dx_version.keys())[1:]]
-            platedir_list = [f.name.split('.')[0] for f in platedir.iterdir()]
+            platedir_list = [f.name.split('.')[0] for f in self.pkg.platedir.iterdir()]
             cn_list = [name for name in list(platecn.keys())]
             notin = set(plate_list) - set(platedir_list) - set(cn_list)
             if notin:
