@@ -11,6 +11,7 @@ from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
 from .maimaidx_model import ChartInfo, PlayInfoDefault, PlayInfoDev, UserInfo
 from .maimaidx_music import mai
+from .maimaidx_play_result import dx_star_from_percentage
 from .maimaidx_user import Theme
 
 
@@ -207,7 +208,7 @@ class ScoreBaseImage:
                 dxscore = 0
                 log.warning(f'无法获取歌曲 {info.song_id} 的谱面数据 (level_index: {info.level_index})')
             
-            dxnum = dxScore(int(info.dxScore / dxscore * 100)) if dxscore > 0 else 0
+            dxnum = dxScore(info.dxScore / dxscore * 100) if dxscore > 0 else 0
             if dxnum:
                 self._im.alpha_composite(
                     Image.open(maimaidir / f'UI_GAM_Gauge_DXScoreIcon_0{dxnum}.png').resize((47, 26)), (x + 217, y + 80)
@@ -230,6 +231,10 @@ class DrawBest(ScoreBaseImage):
         UserInfo: UserInfo,
         qqid: Optional[Union[int, str]] = None,
         theme: Theme = Theme.PRISM_PLUS,
+        all_perfect: bool = False,
+        min_dx_star: Optional[int] = None,
+        fitted: bool = False,
+        all_perfect_plus: bool = False,
     ) -> None:
         bg = themed_path(theme, 'b50.png')
         super().__init__(Image.open(bg).convert('RGBA'), theme)
@@ -240,6 +245,10 @@ class DrawBest(ScoreBaseImage):
         self.sdBest = UserInfo.charts.sd
         self.dxBest = UserInfo.charts.dx
         self.qqid = qqid
+        self.all_perfect = all_perfect
+        self.min_dx_star = min_dx_star
+        self.fitted = fitted
+        self.all_perfect_plus = all_perfect_plus
 
     @classmethod
     def from_best50(
@@ -248,11 +257,23 @@ class DrawBest(ScoreBaseImage):
         best50,
         qqid: Optional[Union[int, str]] = None,
         theme: Theme = Theme.PRISM_PLUS,
+        all_perfect: bool = False,
+        min_dx_star: Optional[int] = None,
+        fitted: bool = False,
+        all_perfect_plus: bool = False,
     ) -> 'DrawBest':
         """从统一 Player + Best50 构建绘图对象。"""
         from .maimaidx_play_result import best50_to_userinfo
 
-        return cls(best50_to_userinfo(player, best50), qqid=qqid, theme=theme)
+        return cls(
+            best50_to_userinfo(player, best50),
+            qqid=qqid,
+            theme=theme,
+            all_perfect=all_perfect,
+            min_dx_star=min_dx_star,
+            fitted=fitted,
+            all_perfect_plus=all_perfect_plus,
+        )
 
     def _findRaPic(self) -> str:
         """
@@ -380,9 +401,25 @@ class DrawBest(ScoreBaseImage):
 
         self._sy.draw(445, 135, 25, self.userName, (0, 0, 0, 255), 'lm')
         sdrating, dxrating = sum([_.ra for _ in self.sdBest]), sum([_.ra for _ in self.dxBest])
-        self._tb.draw(
+        summary = format_best50_summary(
+            sdrating,
+            dxrating,
+            self.Rating,
+            all_perfect=self.all_perfect,
+            min_dx_star=self.min_dx_star,
+            fitted=self.fitted,
+            all_perfect_plus=self.all_perfect_plus,
+        )
+        # Torus 不包含中文字形；仅在汇总中出现中文标签时切换中文字体。
+        # 普通 B50、AP50 和 AP+50 仍沿用原字体，保持现有视觉效果。
+        summary_drawer = (
+            self._sy
+            if any('\u4e00' <= char <= '\u9fff' for char in summary)
+            else self._tb
+        )
+        summary_drawer.draw(
             570, 172, 17, 
-            f'B35: {sdrating} + B15: {dxrating} = {self.Rating}', 
+            summary,
             (0, 0, 0, 255), 'mm', 3, (255, 255, 255, 255)
         )
         self._sy.draw(
@@ -397,7 +434,34 @@ class DrawBest(ScoreBaseImage):
         return self._im
 
 
-def dxScore(dx: int) -> int:
+def format_best50_summary(
+    old_rating: int,
+    new_rating: int,
+    total_rating: int,
+    *,
+    all_perfect: bool = False,
+    min_dx_star: Optional[int] = None,
+    fitted: bool = False,
+    all_perfect_plus: bool = False,
+) -> str:
+    """生成普通或筛选模式 B50 图片顶部的 Rating 汇总文字。"""
+    if all_perfect:
+        label = '(ap)'
+    elif all_perfect_plus:
+        label = '(ap+)'
+    elif fitted:
+        label = '(拟合)'
+    elif min_dx_star is not None:
+        label = f'({min_dx_star}星)'
+    else:
+        label = ''
+    return (
+        f'{label}B35: {old_rating} + '
+        f'B15: {new_rating} = {total_rating}'
+    )
+
+
+def dxScore(dx: float) -> int:
     """
     获取DX评分星星数量
     
@@ -406,19 +470,7 @@ def dxScore(dx: int) -> int:
     Returns:
         `int` 返回星星数量
     """
-    if dx <= 85:
-        result = 0
-    elif dx <= 90:
-        result = 1
-    elif dx <= 93:
-        result = 2
-    elif dx <= 95:
-        result = 3
-    elif dx <= 97:
-        result = 4
-    else:
-        result = 5
-    return result
+    return dx_star_from_percentage(dx)
 
 
 def getCharWidth(o: int) -> int:
@@ -552,7 +604,10 @@ def computeRa(
 async def generate(
     qqid: Optional[int] = None,
     username: Optional[str] = None,
-    all_perfect: bool = False
+    all_perfect: bool = False,
+    min_dx_star: Optional[int] = None,
+    fitted: bool = False,
+    all_perfect_plus: bool = False,
 ) -> Union[MessageSegment, str]:
     """
     生成b50
@@ -560,12 +615,15 @@ async def generate(
     Params:
         `qqid`: QQ号
         `username`: 用户名
-        `all_perfect`: 是否为 ap50（仅落雪支持）
+        `all_perfect`: 是否为 ap50
+        `min_dx_star`: DX SCORE 最低星级（1～5）
+        `fitted`: 是否用谱面拟合定数重算 B50
+        `all_perfect_plus`: 是否只保留玩家实际 AP+ 成绩
     Returns:
         `Union[MessageSegment, str]`
     """
     from .maimaidx_lxns import LxnsError
-    from .maimaidx_source import get_best50, is_lxns
+    from .maimaidx_source import get_best50
     try:
         from .maimaidx_user import Theme, userstore
 
@@ -574,15 +632,35 @@ async def generate(
             theme = Theme.PRISM_PLUS
         else:
             theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
-        if all_perfect and not is_lxns(qqid, username):
-            return 'ap50 仅支持「落雪」数据源，请使用「数据源」指令切换后再试'
         player, best50 = await get_best50(
-            qqid=qqid, username=username, all_perfect=all_perfect
+            qqid=qqid,
+            username=username,
+            all_perfect=all_perfect,
+            min_dx_star=min_dx_star,
+            fitted=fitted,
+            all_perfect_plus=all_perfect_plus,
         )
-        draw_best = DrawBest.from_best50(player, best50, qqid=qqid, theme=theme)
+        draw_best = DrawBest.from_best50(
+            player,
+            best50,
+            qqid=qqid,
+            theme=theme,
+            all_perfect=all_perfect,
+            min_dx_star=min_dx_star,
+            fitted=fitted,
+            all_perfect_plus=all_perfect_plus,
+        )
 
         msg = MessageSegment.image(image_to_base64(await draw_best.draw()))
-    except (UserNotFoundError, UserNotExistsError, UserDisabledQueryError, LxnsError) as e:
+    except (
+        UserNotFoundError,
+        UserNotExistsError,
+        UserDisabledQueryError,
+        TokenError,
+        TokenDisableError,
+        TokenNotFoundError,
+        LxnsError,
+    ) as e:
         msg = str(e)
     except Exception as e:
         log.error(traceback.format_exc())

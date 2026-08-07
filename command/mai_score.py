@@ -20,8 +20,14 @@ from ..libraries.maimaidx_music_info import draw_music_play_data
 from ..libraries.maimaidx_player_score import music_global_data
 
 
-async def best50_handler(event: AstrMessageEvent, all_perfect: bool = False):
-    """b50/B50/ap50 命令处理"""
+async def best50_handler(
+    event: AstrMessageEvent,
+    all_perfect: bool = False,
+    min_dx_star: int | None = None,
+    fitted: bool = False,
+    all_perfect_plus: bool = False,
+):
+    """普通/AP/AP+/星级/拟合 B50 命令处理"""
     # 检查数据是否加载
     if not hasattr(mai, 'total_list') or not mai.total_list:
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
@@ -32,7 +38,22 @@ async def best50_handler(event: AstrMessageEvent, all_perfect: bool = False):
     # 移除命令前缀
     # 检查是否有 @ 消息
     if '@' not in message_str:
-        cleaned = re.sub(r'(?i)^(ap50|b50)', '', message_str.strip())
+        if all_perfect_plus:
+            cleaned = re.sub(
+                r'^/?(?i:ap\+50|理论b50)', '', message_str.strip()
+            )
+        elif fitted:
+            cleaned = re.sub(
+                r'^/?(?i:拟合b50|f50)', '', message_str.strip()
+            )
+        elif min_dx_star is not None:
+            cleaned = re.sub(
+                r'^/?[一二三四五]星(?i:b50)', '', message_str.strip()
+            )
+        else:
+            cleaned = re.sub(
+                r'(?i)^/?(?:ap50|b50)', '', message_str.strip()
+            )
         username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
     else:
         username = ''   
@@ -40,7 +61,14 @@ async def best50_handler(event: AstrMessageEvent, all_perfect: bool = False):
         if at_qqid:
             qqid = at_qqid
     
-    result = await generate(qqid, username, all_perfect=all_perfect)
+    result = await generate(
+        qqid,
+        username,
+        all_perfect=all_perfect,
+        min_dx_star=min_dx_star,
+        fitted=fitted,
+        all_perfect_plus=all_perfect_plus,
+    )
     chain: List[Any] = convert_message_segment_to_chain(result)
     append_theme_source_tip(chain, result)
     if is_reply_enabled():

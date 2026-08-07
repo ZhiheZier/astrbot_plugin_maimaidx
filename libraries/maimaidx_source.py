@@ -6,9 +6,10 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 from .maimaidx_api_data import maiApi
+from .maimaidx_error import TokenNotFoundError
 from .maimaidx_lxns import (
     LxnsAPI,
     LxnsFeatureUnavailable,
@@ -23,11 +24,14 @@ from .maimaidx_play_result import (
     PlayedResult,
     Player,
     best50_to_userinfo,
+    dx_star_from_scores,
+    playinfo_to_played,
     played_list_to_plate,
     played_list_to_records,
     userinfo_to_best50,
     userinfo_to_player,
 )
+from .maimaidx_music import mai
 from .maimaidx_user import ServiceName, User, userstore
 
 
@@ -68,12 +72,275 @@ async def get_best50(
     username: Optional[str] = None,
     *,
     all_perfect: bool = False,
+    min_dx_star: Optional[int] = None,
+    fitted: bool = False,
+    all_perfect_plus: bool = False,
 ) -> Tuple[Player, Best50]:
-    """按用户数据源获取 b50 / ap50，返回统一 Player + Best50。"""
-    if is_lxns(qqid, username):
-        return await _lxns_best50_raw(qqid, all_perfect=all_perfect)
-    user = await maiApi.query_user_b50(qqid=qqid, username=username)
-    return userinfo_to_player(user), userinfo_to_best50(user)
+    """按用户数据源获取普通、AP、AP+、星级或拟合 B50。"""
+    if sum((all_perfect, min_dx_star is not None, fitted, all_perfect_plus)) > 1:
+        raise ValueError('AP50、AP+50、DX 星级与拟合 B50 不能同时启用')
+    if min_dx_star is not None and not 1 <= min_dx_star <= 5:
+        raise ValueError('DX 星级必须在 1 到 5 之间')
+
+    if all_perfect_plus:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_ap_plus50_records(records, _is_new_song)
+    elif fitted:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_fitted_b50_records(
+            records,
+            _is_new_song,
+            _fitted_level_value,
+            _rating_for_level_value,
+        )
+    elif min_dx_star is not None:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_star_b50_records(
+            records,
+            min_dx_star,
+            _is_new_song,
+            _dx_star_for_record,
+        )
+    elif is_lxns(qqid, username):
+        player, best50 = await _lxns_best50_raw(
+            qqid, all_perfect=all_perfect
+        )
+    elif all_perfect:
+        player, best50 = await _divingfish_ap50_raw(
+            qqid=qqid, username=username
+        )
+    else:
+        user = await maiApi.query_user_b50(qqid=qqid, username=username)
+        return userinfo_to_player(user), userinfo_to_best50(user)
+
+    if all_perfect or all_perfect_plus or min_dx_star is not None or fitted:
+        filtered_rating = best50.sd_total + best50.dx_total
+        player = player.model_copy(update={'rating': filtered_rating})
+    return player, best50
+
+
+def select_ap50_records(
+    records: List[PlayedResult],
+    is_new_song: Callable[[int], Optional[bool]],
+) -> Best50:
+    """从完整成绩中选出旧曲 AP35 与新曲 AP15。"""
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+
+    for record in records:
+        if (record.fc or '').lower() not in {'ap', 'app'}:
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        (new_records if is_new else old_records).append(record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    ap35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    ap15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in ap35),
+        dx_total=sum(record.rating for record in ap15),
+        sd=ap35,
+        dx=ap15,
+    )
+
+
+def select_ap_plus50_records(
+    records: List[PlayedResult],
+    is_new_song: Callable[[int], Optional[bool]],
+) -> Best50:
+    """从玩家完整成绩中选出旧曲 AP+35 与新曲 AP+15。"""
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        if (record.fc or '').lower() != 'app':
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        (new_records if is_new else old_records).append(record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    app35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    app15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in app35),
+        dx_total=sum(record.rating for record in app15),
+        sd=app35,
+        dx=app15,
+    )
+
+
+def select_star_b50_records(
+    records: List[PlayedResult],
+    min_dx_star: int,
+    is_new_song: Callable[[int], Optional[bool]],
+    dx_star_of: Callable[[PlayedResult], Optional[int]],
+) -> Best50:
+    """从完整成绩中选出 DX SCORE 至少 N 星的 B35 与 B15。"""
+    if not 1 <= min_dx_star <= 5:
+        raise ValueError('DX 星级必须在 1 到 5 之间')
+
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        dx_star = dx_star_of(record)
+        if dx_star is None or dx_star < min_dx_star:
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        (new_records if is_new else old_records).append(record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    b35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    b15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in b35),
+        dx_total=sum(record.rating for record in b15),
+        sd=b35,
+        dx=b15,
+    )
+
+
+def select_fitted_b50_records(
+    records: List[PlayedResult],
+    is_new_song: Callable[[int], Optional[bool]],
+    fitted_level_value_of: Callable[[PlayedResult], Optional[float]],
+    rating_of: Callable[[float, float], int],
+) -> Best50:
+    """用拟合定数重算 Rating，并选出拟合 B35 与 B15。"""
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        fitted_level_value = fitted_level_value_of(record)
+        if fitted_level_value is None or fitted_level_value <= 0:
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        fitted_record = record.model_copy(
+            update={
+                'level_value': fitted_level_value,
+                'rating': rating_of(fitted_level_value, record.achievements),
+            }
+        )
+        (new_records if is_new else old_records).append(fitted_record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    b35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    b15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in b35),
+        dx_total=sum(record.rating for record in b15),
+        sd=b35,
+        dx=b15,
+    )
+
+
+def _is_new_song(song_id: int) -> Optional[bool]:
+    music = mai.total_list.by_id(str(song_id))
+    return music.basic_info.is_new if music else None
+
+
+def _dx_star_for_record(record: PlayedResult) -> Optional[int]:
+    """取得成绩的 DX SCORE 星级；水鱼成绩按谱面物量计算。"""
+    if record.dx_star is not None and (
+        record.dx_star > 0 or record.dx_score <= 0
+    ):
+        return record.dx_star
+    music = mai.total_list.by_id(str(record.song_id))
+    if (
+        not music
+        or record.level_index < 0
+        or record.level_index >= len(music.charts)
+    ):
+        return None
+    max_dx_score = sum(music.charts[record.level_index].notes) * 3
+    return dx_star_from_scores(record.dx_score, max_dx_score)
+
+
+def _fitted_level_value(record: PlayedResult) -> Optional[float]:
+    """读取谱面拟合定数；暂无统计时回退到官方定数。"""
+    music = mai.total_list.by_id(str(record.song_id))
+    if music and music.stats and 0 <= record.level_index < len(music.stats):
+        stats = music.stats[record.level_index]
+        if stats and stats.fit_diff is not None:
+            return round(stats.fit_diff, 2)
+    return record.level_value or None
+
+
+def _rating_for_level_value(level_value: float, achievements: float) -> int:
+    """按指定定数和达成率计算单曲 Rating。"""
+    from .maimai_best_50 import computeRa
+
+    return int(computeRa(level_value, achievements))
+
+
+async def _divingfish_dev_records_raw(
+    qqid: Optional[Union[int, str]] = None,
+    username: Optional[str] = None,
+) -> Tuple[Player, List[PlayedResult]]:
+    """读取水鱼开发者接口的完整成绩。"""
+    if not maiApi.token:
+        raise TokenNotFoundError
+    user = await maiApi.query_user_get_dev(qqid=qqid, username=username)
+    records = [playinfo_to_played(record) for record in (user.records or [])]
+    return userinfo_to_player(user), records
+
+
+async def _divingfish_ap50_raw(
+    qqid: Optional[Union[int, str]] = None,
+    username: Optional[str] = None,
+) -> Tuple[Player, Best50]:
+    """使用水鱼开发者接口的完整成绩生成 AP50。"""
+    player, records = await _divingfish_dev_records_raw(
+        qqid=qqid, username=username
+    )
+    return player, select_ap50_records(records, _is_new_song)
 
 
 async def get_records(
@@ -87,8 +354,6 @@ async def get_records(
     水鱼优先开发者全量 records；无 token / 失败时回退 plate（全版本）。
     """
     from .. import plate_to_dx_version
-    from .maimaidx_play_result import playinfo_to_played
-
     if is_lxns(qqid, username):
         return await _lxns_records_raw(qqid, exact=exact)
 
@@ -133,9 +398,19 @@ async def get_player_b50_userinfo(
     username: Optional[str] = None,
     *,
     all_perfect: bool = False,
+    min_dx_star: Optional[int] = None,
+    fitted: bool = False,
+    all_perfect_plus: bool = False,
 ) -> UserInfo:
     """统一取 b50 并转为 UserInfo，供现有绘图直接使用。"""
-    player, best50 = await get_best50(qqid, username, all_perfect=all_perfect)
+    player, best50 = await get_best50(
+        qqid,
+        username,
+        all_perfect=all_perfect,
+        min_dx_star=min_dx_star,
+        fitted=fitted,
+        all_perfect_plus=all_perfect_plus,
+    )
     return best50_to_userinfo(player, best50)
 
 
@@ -276,6 +551,10 @@ __all__ = [
     'get_service',
     'is_lxns',
     'get_best50',
+    'select_ap50_records',
+    'select_ap_plus50_records',
+    'select_star_b50_records',
+    'select_fitted_b50_records',
     'get_records',
     'get_player_b50_userinfo',
     'get_plate',

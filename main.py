@@ -5,6 +5,7 @@ from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import asyncio
+import re
 import traceback
 import json
 from pathlib import Path
@@ -508,12 +509,50 @@ class MaimaiDXPlugin(Star):
 
     @filter.regex(r'^/?(?i:ap50)\s*(.*)$')
     async def ap50(self, event: AstrMessageEvent):
-        """ap50 命令（全 AP 成绩，仅落雪数据源）"""
+        """ap50 命令（全 AP 成绩）"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_score import best50_handler
         async for result in best50_handler(event, all_perfect=True):
+            yield result
+
+    @filter.regex(r'^/?([一二三四五])星(?i:b50)\s*(.*)$')
+    async def dx_star_best50(self, event: AstrMessageEvent):
+        """一星b50～五星b50：查询 DX SCORE 至少对应星级的 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        star_map = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5}
+        match = re.match(
+            r'^/?([一二三四五])星(?i:b50)', event.message_str.strip()
+        )
+        if not match:
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(
+            event, min_dx_star=star_map[match.group(1)]
+        ):
+            yield result
+
+    @filter.regex(r'^/?(?i:拟合b50|f50)\s*(.*)$')
+    async def fitted_best50(self, event: AstrMessageEvent):
+        """拟合b50/f50：按谱面拟合定数重算 Rating 后生成 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, fitted=True):
+            yield result
+
+    @filter.regex(r'^/?(?i:ap\+50|理论b50)\s*$')
+    async def ap_plus50(self, event: AstrMessageEvent):
+        """ap+50/理论b50：查询玩家实际 AP+ Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, all_perfect_plus=True):
             yield result
 
     @filter.regex(r'^/?(minfo|Minfo|MINFO|info|Info|INFO)\s*(.*)$')
