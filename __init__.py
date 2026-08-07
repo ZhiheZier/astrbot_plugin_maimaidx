@@ -111,13 +111,23 @@ def init_static_dir(data_root: Path):
     new_static = data_root / "static"
 
     # 迁移旧文件
-    if old_static.exists():
+    if old_static.exists() and old_static != new_static:
         if not new_static.exists():
-            _copy_tree(old_static, new_static)
-            log.info(f'已将 static 迁移至 {new_static}')
+            try:
+                _copy_tree(old_static, new_static)
+                log.info(f'已将 static 迁移至 {new_static}')
+            except Exception as e:
+                log.error(f'static 迁移失败，请手动复制: {e}')
         # 清理旧目录（避免混淆）
-        import shutil
-        shutil.rmtree(str(old_static), ignore_errors=True)
+        try:
+            import shutil
+            shutil.rmtree(str(old_static), ignore_errors=True)
+        except Exception:
+            pass
+
+    # 确保必要子目录存在
+    for d in (data_root / "static" / d for d in ('data', 'mai', 'font', 'mai/pic', 'mai/cover', 'mai/plate', 'mai/shogou', 'mai/plate_version', 'mai/plate_table', 'mai/rating_table')):
+        d.mkdir(parents=True, exist_ok=True)
 
     static = new_static
     font_dir = static / "font"
@@ -130,10 +140,6 @@ def init_static_dir(data_root: Path):
     plate_version_dir = mai_dir / "plate_version"
     plate_table_dir = mai_dir / "plate_table"
     rating_table_dir = mai_dir / "rating_table"
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-    plate_table_dir.mkdir(parents=True, exist_ok=True)
-    rating_table_dir.mkdir(parents=True, exist_ok=True)
 
     pie_html_file = static / "temp_pie.html"
     guess_file = data_dir / "group_guess_switch.json"
