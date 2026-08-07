@@ -151,6 +151,28 @@ def init_static_dir(data_root: Path):
     ratingdir = rating_table_dir
     platedir = plate_table_dir
 
+    # 更新已导入本模块路径的所有子模块
+    _update_submodules()
+
+
+def _update_submodules():
+    """将 init_static_dir 更新后的路径同步到所有已导入的子模块。"""
+    import sys
+    pkg_name = __name__
+    # 找到所有属于本插件的已加载模块
+    for mod_name, mod in list(sys.modules.items()):
+        if mod_name.startswith(pkg_name + '.') or mod_name == pkg_name:
+            for attr in ('static', 'data_dir', 'mai_dir', 'pic_dir', 'cover_dir',
+                         'music_file', 'chart_file', 'alias_file', 'arcades_json',
+                         'merge_music_file', 'merge_alias_file', 'lxns_music_file',
+                         'lxns_alias_file', 'local_alias_file', 'guess_file',
+                         'group_alias_file', 'pie_html_file', 'maimaidir',
+                         'coverdir', 'ratingdir', 'platedir', 'plate_version_dir',
+                         'plate_table_dir', 'rating_table_dir', 'shougou_dir',
+                         'font_dir', 'plate_dir'):
+                if hasattr(mod, attr):
+                    setattr(mod, attr, globals().get(attr))
+
 
 def _copy_tree(src: Path, dst: Path):
     """递归复制目录。"""
