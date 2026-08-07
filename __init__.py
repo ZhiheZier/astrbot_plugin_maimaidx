@@ -105,6 +105,7 @@ def init_static_dir(data_root: Path):
     global music_file, chart_file, lxns_music_file, lxns_alias_file
     global merge_music_file, merge_alias_file, arcades_json
     global maimaidir, coverdir, ratingdir, platedir
+    global SIYUAN, SHANGGUMONO, TBFONT, FOTNEWRODIN
 
     old_static = static
     new_static = data_root / "static"
@@ -151,6 +152,12 @@ def init_static_dir(data_root: Path):
     ratingdir = rating_table_dir
     platedir = plate_table_dir
 
+    # 字体路径也随 font_dir 更新
+    SIYUAN = font_dir / "ResourceHanRoundedCN-Bold.ttf"
+    SHANGGUMONO = font_dir / "ShangguMonoSC-Regular.otf"
+    TBFONT = font_dir / "Torus SemiBold.otf"
+    FOTNEWRODIN = font_dir / "FOT-NewRodin Pro EB.otf"
+
     # 更新已导入本模块路径的所有子模块
     _update_submodules()
 
@@ -169,7 +176,8 @@ def _update_submodules():
                          'group_alias_file', 'pie_html_file', 'maimaidir',
                          'coverdir', 'ratingdir', 'platedir', 'plate_version_dir',
                          'plate_table_dir', 'rating_table_dir', 'shougou_dir',
-                         'font_dir', 'plate_dir'):
+                         'font_dir', 'plate_dir',
+                         'SIYUAN', 'TBFONT', 'FOTNEWRODIN', 'SHANGGUMONO'):
                 if hasattr(mod, attr):
                     setattr(mod, attr, globals().get(attr))
 
