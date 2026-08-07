@@ -29,16 +29,19 @@ class MaimaiDXPlugin(Star):
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
         
-        # 群组/排卡持久化文件（在 static/data 下，通过模块引用获取更新后的路径）
+        # 获取包模块引用（之后所有路径通过 pkg 动态获取）
+        pkg_name = __name__.rsplit('.', 1)[0]
         pkg = sys.modules[pkg_name]
         self.pkg = pkg
+        
+        # 群组/排卡持久化文件（在 static/data 下）
         self.data_file = pkg.data_dir / "disabled_groups.json"
         self.arcade_switch_file = pkg.data_dir / "enabled_arcade_groups.json"
-        # 从旧位置（plugin_data 根目录）迁移到 static/data（根目录的版本更新）
-        if self.pkg.data_dir.exists():
+        # 从旧位置（plugin_data 根目录）迁移到 static/data
+        if pkg.data_dir.exists():
             for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
                 old = plugin_data_root / fname
-                new = self.pkg.data_dir / fname
+                new = pkg.data_dir / fname
                 if old.exists():
                     new.write_bytes(old.read_bytes())
                     old.unlink()
@@ -53,13 +56,10 @@ class MaimaiDXPlugin(Star):
         enable_reply = bool(self.config.get("enable_reply", True))
         # 从插件配置中读取开发者 token，避免将 token 写入仓库文件
         plugin_token = str(self.config.get("maimaidxtoken", "") or "").strip()
-        pkg_name = __name__.rsplit('.', 1)[0]  # 获取包名，例如 'myplugins.astrbot_plugin_maimaidx'
         if pkg_name in sys.modules:
-            module = sys.modules[pkg_name]
-            # 更新内部变量和公共变量
-            setattr(module, '_BOTNAME', bot_name)
-            setattr(module, 'BOTNAME', bot_name)
-            setattr(module, '_ENABLE_REPLY', enable_reply)
+            setattr(pkg, '_BOTNAME', bot_name)
+            setattr(pkg, 'BOTNAME', bot_name)
+            setattr(pkg, '_ENABLE_REPLY', enable_reply)
             log.info(f'已设置 bot 名称: {bot_name}')
             log.info(f'引用回复（Reply）: {"开启" if enable_reply else "关闭"}')
 
