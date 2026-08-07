@@ -32,6 +32,14 @@ class MaimaiDXPlugin(Star):
         # 群组/排卡持久化文件（在 static/data 下）
         self.data_file = data_dir / "disabled_groups.json"
         self.arcade_switch_file = data_dir / "enabled_arcade_groups.json"
+        # 从旧位置（plugin_data 根目录）迁移到 static/data
+        for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
+            old = plugin_data_root / fname
+            new = data_dir / fname
+            if old.exists() and not new.exists():
+                new.write_bytes(old.read_bytes())
+                old.unlink()
+                log.info(f'已将 {fname} 迁移至 {new}')
         
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合
