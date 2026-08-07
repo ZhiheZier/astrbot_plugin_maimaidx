@@ -30,15 +30,14 @@ class MaimaiDXPlugin(Star):
         init_static_dir(plugin_data_root)
         
         # 群组/排卡持久化文件（在 static/data 下，通过模块引用获取更新后的路径）
-        import sys
-        _pkg = sys.modules[__name__.rsplit('.', 1)[0]]
-        self.data_file = _pkg.data_dir / "disabled_groups.json"
-        self.arcade_switch_file = _pkg.data_dir / "enabled_arcade_groups.json"
+        pkg = sys.modules[pkg_name]
+        self.data_file = pkg.data_dir / "disabled_groups.json"
+        self.arcade_switch_file = pkg.data_dir / "enabled_arcade_groups.json"
         # 从旧位置（plugin_data 根目录）迁移到 static/data（根目录的版本更新）
-        if _pkg.data_dir.exists():
+        if pkg.data_dir.exists():
             for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
                 old = plugin_data_root / fname
-                new = _pkg.data_dir / fname
+                new = pkg.data_dir / fname
                 if old.exists():
                     new.write_bytes(old.read_bytes())
                     old.unlink()
