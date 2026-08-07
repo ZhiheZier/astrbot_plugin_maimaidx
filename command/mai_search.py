@@ -68,8 +68,6 @@ async def search_music_handler(event: AstrMessageEvent):
         chain = convert_message_segment_to_chain(pic)
         if is_reply_enabled():
             chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-        if is_reply_enabled():
-            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
         
@@ -136,11 +134,11 @@ async def search_base_handler(event: AstrMessageEvent):
     else:
         ds1, ds2, page = args
     page = int(page)
-    # 处理 "13+" 格式：当作 13.0 查询
+    # 处理 "13+" 格式：13.6 ~ 13.9
     if ds1.endswith('+') and ds1[:-1].replace('.', '').isdigit():
-        ds1 = ds1[:-1]
+        ds1 = ds1[:-1] + '.6'
     if ds2.endswith('+') and ds2[:-1].replace('.', '').isdigit():
-        ds2 = ds2[:-1]
+        ds2 = ds2[:-1] + '.9'
     try:
         result = song_level(float(ds1), float(ds2))
     except ValueError:
@@ -462,8 +460,6 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         chain.insert(0, Comp.Plain('您要找的是不是：'))
         if is_reply_enabled():
             chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-        if is_reply_enabled():
-            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
     
@@ -487,8 +483,6 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         pic = await draw_music_info(result.random(), event.get_sender_id())
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, Comp.Plain('您要找的是不是：'))
-        if is_reply_enabled():
-            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         if is_reply_enabled():
             chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
