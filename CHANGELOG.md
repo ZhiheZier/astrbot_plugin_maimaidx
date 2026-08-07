@@ -24,3 +24,8 @@
 ### 其他
 - 统一管理员提示语
 - static/ 迁移到 AstrBot 持久化数据目录，重装不丢失
+  - 自动复制旧 static 并删除插件目录副本
+  - 旧 disabled_groups/enabled_arcade_groups 自动迁入 static/data
+  - _update_submodules 同步路径到所有已导入子模块
+  - main.py 通过 sys.modules 动态引用路径
+  - README 资源包路径更新
