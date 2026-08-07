@@ -7,7 +7,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import SONGS_PER_PAGE, diffs, log
+from .. import SONGS_PER_PAGE, diffs, log, is_reply_enabled
 from ..command.mai_base import append_theme_source_tip, convert_message_segment_to_chain
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
@@ -66,6 +66,8 @@ async def search_music_handler(event: AstrMessageEvent):
     if len(result) == 1:
         pic = await draw_music_info(result.random(), event.get_sender_id())
         chain = convert_message_segment_to_chain(pic)
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
         
@@ -436,6 +438,8 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         pic = await draw_music_info(music, event.get_sender_id())
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, Comp.Plain('您要找的是不是：'))
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
     
@@ -457,6 +461,8 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         pic = await draw_music_info(result.random(), event.get_sender_id())
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, Comp.Plain('您要找的是不是：'))
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
         yield event.chain_result(chain)
         return
     elif len(result) < 50:
