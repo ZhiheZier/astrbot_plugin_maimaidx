@@ -461,7 +461,7 @@ def format_best50_summary(
     )
 
 
-def dxScore(dx: float) -> int:
+def dxScore(dx: int) -> int:
     """
     获取DX评分星星数量
     

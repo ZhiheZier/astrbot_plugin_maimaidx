@@ -545,7 +545,7 @@ class MaimaiDXPlugin(Star):
         async for result in best50_handler(event, fitted=True):
             yield result
 
-    @filter.regex(r'^/?(?i:ap\+50|理论b50)\s*$')
+    @filter.regex(r'^/?(?i:ap\+50|理论b50)\s*(.*)$')
     async def ap_plus50(self, event: AstrMessageEvent):
         """ap+50/理论b50：查询玩家实际 AP+ Best 50"""
         group_id = event.message_obj.group_id
