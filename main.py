@@ -10,7 +10,7 @@ import traceback
 import json
 from pathlib import Path
 
-from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn, static, _BOTNAME
+from . import Root, log, loga, ratingdir, platedir, plate_to_dx_version, platecn, static, _BOTNAME, init_static_dir, data_dir
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
@@ -25,16 +25,17 @@ class MaimaiDXPlugin(Star):
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
         
+        # 将 static 迁移到 AstrBot 数据目录（重装不丢失）
+        plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
+        init_static_dir(plugin_data_root)
+        
+        # 群组/排卡持久化文件（在 static/data 下）
+        self.data_file = data_dir / "disabled_groups.json"
+        self.arcade_switch_file = data_dir / "enabled_arcade_groups.json"
+        
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合
         self.arcade_enabled_groups = set()  # 启用排卡功能的群组ID集合（默认关闭）
-        # 使用 AstrBot 官方数据持久化目录（data/plugin_data/<plugin>），不再写入插件 static 目录
-        self.data_file = StarTools.get_data_dir("astrbot_plugin_maimaidx") / "disabled_groups.json"
-        self.arcade_switch_file = (
-            StarTools.get_data_dir("astrbot_plugin_maimaidx")
-            / "enabled_arcade_groups.json"
-        )
-        self._migrate_disabled_groups()  # 从旧位置（static/data）迁移
         
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
@@ -117,17 +118,6 @@ class MaimaiDXPlugin(Star):
             log.error(f'插件初始化失败: {e}')
             log.error(traceback.format_exc())
             log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
-
-    def _migrate_disabled_groups(self):
-        """将旧版存放于 static/data 的禁用群组文件迁移到 AstrBot 数据目录"""
-        try:
-            old_file = static / "data" / "disabled_groups.json"
-            if old_file.exists() and not self.data_file.exists():
-                self.data_file.write_bytes(old_file.read_bytes())
-                old_file.unlink()
-                log.info(f'已将禁用群组列表迁移至 {self.data_file}')
-        except Exception as e:
-            log.error(f'迁移禁用群组列表失败: {e}')
 
     def _load_disabled_groups(self):
         """加载禁用群组列表"""

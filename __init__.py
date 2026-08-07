@@ -96,9 +96,62 @@ plate_version_dir: Path = mai_dir / "plate_version"
 plate_table_dir: Path = mai_dir / "plate_table"
 rating_table_dir: Path = mai_dir / "rating_table"
 
-data_dir.mkdir(parents=True, exist_ok=True)
-plate_table_dir.mkdir(parents=True, exist_ok=True)
-rating_table_dir.mkdir(parents=True, exist_ok=True)
+
+def init_static_dir(data_root: Path):
+    """将 static 目录迁移到 AstrBot 数据目录，重装插件不丢失。"""
+    global static, font_dir, data_dir, mai_dir, pic_dir, cover_dir, plate_dir
+    global shougou_dir, plate_version_dir, plate_table_dir, rating_table_dir
+    global pie_html_file, guess_file, group_alias_file, alias_file, local_alias_file
+    global music_file, chart_file, lxns_music_file, lxns_alias_file
+    global merge_music_file, merge_alias_file, arcades_json
+    global maimaidir, coverdir, ratingdir, platedir
+
+    old_static = static
+    new_static = data_root / "static"
+
+    # 迁移旧文件
+    if old_static.exists() and not new_static.exists():
+        _copy_tree(old_static, new_static)
+        log.info(f'已将 static 迁移至 {new_static}')
+
+    static = new_static
+    font_dir = static / "font"
+    data_dir = static / "data"
+    mai_dir = static / "mai"
+    pic_dir = mai_dir / "pic"
+    cover_dir = mai_dir / "cover"
+    plate_dir = mai_dir / "plate"
+    shougou_dir = mai_dir / "shougou"
+    plate_version_dir = mai_dir / "plate_version"
+    plate_table_dir = mai_dir / "plate_table"
+    rating_table_dir = mai_dir / "rating_table"
+
+    data_dir.mkdir(parents=True, exist_ok=True)
+    plate_table_dir.mkdir(parents=True, exist_ok=True)
+    rating_table_dir.mkdir(parents=True, exist_ok=True)
+
+    pie_html_file = static / "temp_pie.html"
+    guess_file = data_dir / "group_guess_switch.json"
+    group_alias_file = data_dir / "group_alias_switch.json"
+    alias_file = data_dir / "music_alias.json"
+    local_alias_file = data_dir / "local_music_alias.json"
+    music_file = data_dir / "music_data.json"
+    chart_file = data_dir / "music_chart.json"
+    lxns_music_file = data_dir / "lxns_music_data.json"
+    lxns_alias_file = data_dir / "lxns_music_alias.json"
+    merge_music_file = data_dir / "merge_music_data.json"
+    merge_alias_file = data_dir / "merge_music_alias.json"
+    arcades_json = data_dir / "arcades.json"
+    maimaidir = pic_dir
+    coverdir = cover_dir
+    ratingdir = rating_table_dir
+    platedir = plate_table_dir
+
+
+def _copy_tree(src: Path, dst: Path):
+    """递归复制目录。"""
+    import shutil
+    shutil.copytree(str(src), str(dst))
 
 # 路径文件
 pie_html_file: Path = static / "temp_pie.html"  # 饼图html文件
