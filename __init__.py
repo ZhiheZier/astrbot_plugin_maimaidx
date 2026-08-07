@@ -110,9 +110,13 @@ def init_static_dir(data_root: Path):
     new_static = data_root / "static"
 
     # 迁移旧文件
-    if old_static.exists() and not new_static.exists():
-        _copy_tree(old_static, new_static)
-        log.info(f'已将 static 迁移至 {new_static}')
+    if old_static.exists():
+        if not new_static.exists():
+            _copy_tree(old_static, new_static)
+            log.info(f'已将 static 迁移至 {new_static}')
+        # 清理旧目录（避免混淆）
+        import shutil
+        shutil.rmtree(str(old_static), ignore_errors=True)
 
     static = new_static
     font_dir = static / "font"

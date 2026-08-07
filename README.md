@@ -31,9 +31,13 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 
 ### 2. 下载静态资源
 
-下载静态资源文件，解压后将 `static` 文件夹复制到插件根目录并覆盖。
+下载静态资源文件，解压后将 `static` 文件夹复制到 **AstrBot 插件数据目录**：
 
-> 目录约定：JSON 数据文件位于 `static/data/`，字体文件位于 `static/font/`，图片素材位于 `static/mai/`。
+```
+<AstrBot>/data/plugin_data/astrbot_plugin_maimaidx/
+```
+
+> 首次启动插件后该目录会自动创建。资源包只需放置 `static/mai/` 和 `static/font/` 即可，`static/data/` 由插件自动生成。
 
 **① 完整资源包（CN1.55，必需）**
 
