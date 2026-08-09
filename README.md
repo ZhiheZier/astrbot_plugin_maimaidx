@@ -1,7 +1,5 @@
 # astrbot_plugin_maimaidx
 
-> ⚠️ **v1.3.1 重要更新**：资源文件存放位置已变更，更新后请将资源包重新放入 `data/plugin_data/astrbot_plugin_maimaidx/static/` 目录（详见安装步骤）。旧群组配置和用户数据会自动迁移。
-
 [![python3](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
