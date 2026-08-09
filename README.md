@@ -31,14 +31,13 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 
 ### 2. 下载静态资源
 
-下载静态资源文件，解压后将 `static` 文件夹复制到 **AstrBot 插件数据目录**：
+下载静态资源文件，解压后将 `static` 文件夹复制到 **AstrBot 插件数据目录**覆盖：
 
 ```
 <AstrBot>/data/plugin_data/astrbot_plugin_maimaidx/
 ```
 
-> 首次启动插件后该目录会自动创建。资源包只需放置 `static/mai/` 和 `static/font/` 即可。
-> `static/data/` 由插件自动生成（缓存文件）。
+> 首次启动插件后该目录会自动创建。
 > 群组/用户配置（`disabled_groups.json`、`enabled_arcade_groups.json`、`group_guess_switch.json`、`user_data.json`）存储在持久化根目录下。
 
 **① 完整资源包（CN1.55，必需）**
