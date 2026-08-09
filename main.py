@@ -17,7 +17,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.3.0")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.3.1")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -25,7 +25,7 @@ class MaimaiDXPlugin(Star):
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
         
-        # 将 static 迁移到 AstrBot 数据目录（重装不丢失）
+        # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
         
@@ -34,18 +34,16 @@ class MaimaiDXPlugin(Star):
         pkg = sys.modules[pkg_name]
         self.pkg = pkg
         
-        # 群组/排卡持久化文件（在 static/data 下）
-        self.data_file = pkg.data_dir / "disabled_groups.json"
-        self.arcade_switch_file = pkg.data_dir / "enabled_arcade_groups.json"
-        # 从旧位置（plugin_data 根目录）迁移到 static/data
-        if pkg.data_dir.exists():
-            for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
-                old = plugin_data_root / fname
-                new = pkg.data_dir / fname
-                if old.exists():
-                    new.write_bytes(old.read_bytes())
-                    old.unlink()
-                    log.info(f'已将 {fname} 迁移至 {new}')
+        # 群组/排卡持久化文件（在持久化根目录下）
+        self.data_file = plugin_data_root / "disabled_groups.json"
+        self.arcade_switch_file = plugin_data_root / "enabled_arcade_groups.json"
+        # 从旧位置（static/data）迁移到根目录
+        for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
+            old = pkg.data_dir / fname
+            new = plugin_data_root / fname
+            if old.exists() and not new.exists():
+                old.rename(new)
+                log.info(f'已将 {fname} 迁移至 {new}')
         
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合

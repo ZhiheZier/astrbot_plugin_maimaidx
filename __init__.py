@@ -98,32 +98,16 @@ rating_table_dir: Path = mai_dir / "rating_table"
 
 
 def init_static_dir(data_root: Path):
-    """将 static 目录迁移到 AstrBot 数据目录，重装插件不丢失。"""
+    """将 static 读取路径指向 AstrBot 持久化数据目录。"""
     global static, font_dir, data_dir, mai_dir, pic_dir, cover_dir, plate_dir
     global shougou_dir, plate_version_dir, plate_table_dir, rating_table_dir
     global pie_html_file, guess_file, group_alias_file, alias_file, local_alias_file
     global music_file, chart_file, lxns_music_file, lxns_alias_file
-    global merge_music_file, merge_alias_file, arcades_json
+    global merge_music_file, merge_alias_file, arcades_json, user_file
     global maimaidir, coverdir, ratingdir, platedir
     global SIYUAN, SHANGGUMONO, TBFONT, FOTNEWRODIN
 
-    old_static = static
     new_static = data_root / "static"
-
-    # 迁移旧文件
-    if old_static.exists() and old_static != new_static:
-        if not new_static.exists():
-            try:
-                _copy_tree(old_static, new_static)
-                log.info(f'已将 static 迁移至 {new_static}')
-            except Exception as e:
-                log.error(f'static 迁移失败，请手动复制: {e}')
-        # 清理旧目录（避免混淆）
-        try:
-            import shutil
-            shutil.rmtree(str(old_static), ignore_errors=True)
-        except Exception:
-            pass
 
     # 确保必要子目录存在
     for d in (data_root / "static" / d for d in ('data', 'mai', 'font', 'mai/pic', 'mai/cover', 'mai/plate', 'mai/shogou', 'mai/plate_version', 'mai/plate_table', 'mai/rating_table')):
@@ -142,7 +126,8 @@ def init_static_dir(data_root: Path):
     rating_table_dir = mai_dir / "rating_table"
 
     pie_html_file = static / "temp_pie.html"
-    guess_file = data_dir / "group_guess_switch.json"
+    guess_file = data_root / "group_guess_switch.json"
+    user_file = data_root / "user_data.json"
     group_alias_file = data_dir / "group_alias_switch.json"
     alias_file = data_dir / "music_alias.json"
     local_alias_file = data_dir / "local_music_alias.json"
@@ -178,7 +163,7 @@ def _update_submodules():
             for attr in ('static', 'data_dir', 'mai_dir', 'pic_dir', 'cover_dir',
                          'music_file', 'chart_file', 'alias_file', 'arcades_json',
                          'merge_music_file', 'merge_alias_file', 'lxns_music_file',
-                         'lxns_alias_file', 'local_alias_file', 'guess_file',
+                         'lxns_alias_file', 'local_alias_file', 'guess_file', 'user_file',
                          'group_alias_file', 'pie_html_file', 'maimaidir',
                          'coverdir', 'ratingdir', 'platedir', 'plate_version_dir',
                          'plate_table_dir', 'rating_table_dir', 'shougou_dir',
@@ -187,15 +172,10 @@ def _update_submodules():
                 if hasattr(mod, attr):
                     setattr(mod, attr, globals().get(attr))
 
-
-def _copy_tree(src: Path, dst: Path):
-    """递归复制目录。"""
-    import shutil
-    shutil.copytree(str(src), str(dst))
-
 # 路径文件
 pie_html_file: Path = static / "temp_pie.html"  # 饼图html文件
-guess_file: Path = data_dir / "group_guess_switch.json"  # 猜歌开关群文件
+guess_file: Path = data_dir / "group_guess_switch.json"  # 猜歌开关群文件（init_static_dir 后指向持久化根目录）
+user_file: Path = data_dir / "user_data.json"  # 用户数据（init_static_dir 后指向持久化根目录）
 group_alias_file: Path = data_dir / "group_alias_switch.json"  # 别名推送开关群文件
 alias_file: Path = data_dir / "music_alias.json"  # 柚子别名暂存文件
 local_alias_file: Path = data_dir / "local_music_alias.json"  # 本地别名文件

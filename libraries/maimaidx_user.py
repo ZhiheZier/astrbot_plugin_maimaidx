@@ -4,10 +4,7 @@ from typing import Dict, Optional
 
 from pydantic import BaseModel
 
-from .. import data_dir, log
-
-# 用户数据（数据源/主题/落雪绑定）与原项目保持一致，存放于 static/data
-user_file = data_dir / 'user_data.json'
+from .. import log, user_file
 
 class ServiceName(str, Enum):
     """查分数据源"""

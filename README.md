@@ -1,5 +1,7 @@
 # astrbot_plugin_maimaidx
 
+> ⚠️ **v1.3.1 重要更新**：资源文件存放位置已变更，更新后请将资源包重新放入 `data/plugin_data/astrbot_plugin_maimaidx/static/` 目录（详见安装步骤）。旧群组配置和用户数据会自动迁移。
+
 [![python3](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
@@ -37,11 +39,13 @@ git clone https://github.com/ZhiheZier/astrbot_plugin_maimaidx.git
 <AstrBot>/data/plugin_data/astrbot_plugin_maimaidx/
 ```
 
-> 首次启动插件后该目录会自动创建。资源包只需放置 `static/mai/` 和 `static/font/` 即可，`static/data/` 由插件自动生成。
+> 首次启动插件后该目录会自动创建。资源包只需放置 `static/mai/` 和 `static/font/` 即可。
+> `static/data/` 由插件自动生成（缓存文件）。
+> 群组/用户配置（`disabled_groups.json`、`enabled_arcade_groups.json`、`group_guess_switch.json`、`user_data.json`）存储在持久化根目录下。
 
 **① 完整资源包（CN1.55，必需）**
 
-解压后将其中的 `mai` 文件夹放入插件的 `static` 目录：
+解压后将其中的 `mai` 文件夹放入插件数据目录下的 `static` 目录：
 
 - [Cloudreve私人云盘](https://cloud.yuzuchan.moe/f/34s7/Resource%20CN1.55.7z)
 - [onedrive](https://yuzuai-my.sharepoint.com/:u:/g/personal/yuzu_yuzuchan_moe/IQBGKHie6MAaTZy3rME7Q-ruAVKgXDCKROqz5e25KtMeeVY?e=53eC6a)

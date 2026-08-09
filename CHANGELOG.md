@@ -1,4 +1,6 @@
-## v1.3.0
+## v1.3.1
+
+> ⚠️ **v1.3.1 更新说明**：static 目录迁移到了 AstrBot 持久化数据目录，**更新后需要重新下载资源包并放入新位置**，详情见下方安装步骤。旧数据（群组配置、用户偏好等）会自动迁移。
 
 ### 新功能
 - 合并 PR #9: 群级排卡功能开关 (`开启排卡`/`关闭排卡`)
@@ -27,8 +29,7 @@
 - 定数查歌支持 7+ 等格式（7.6~7.9）
 - 上分推荐新版本范围只取最新版本
 - static/ 迁移到 AstrBot 持久化数据目录，重装不丢失
-  - 自动复制旧 static 并删除插件目录副本
-  - 旧 disabled_groups/enabled_arcade_groups 自动迁入 static/data
   - _update_submodules 同步路径（含字体）到所有已导入子模块
   - main.py 通过 sys.modules 动态引用路径
   - README 资源包路径更新
+  - disabled_groups/enabled_arcade_groups/group_guess_switch/user_data 存于持久化根目录
