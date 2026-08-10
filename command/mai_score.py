@@ -9,7 +9,6 @@ from astrbot.api.event import AstrMessageEvent
 
 from .. import log, is_reply_enabled
 from ..command.mai_base import (
-    append_theme_source_tip,
     convert_message_segment_to_chain,
     extract_at_qqid,
 )
@@ -26,8 +25,9 @@ async def best50_handler(
     min_dx_star: int | None = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    ideal: bool = False,
 ):
-    """普通/AP/AP+/星级/拟合 B50 命令处理"""
+    """普通/AP/AP+/星级/拟合/理想 B50 命令处理"""
     # 检查数据是否加载
     if not hasattr(mai, 'total_list') or not mai.total_list:
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
@@ -38,7 +38,11 @@ async def best50_handler(
     # 移除命令前缀
     # 检查是否有 @ 消息
     if '@' not in message_str:
-        if all_perfect_plus:
+        if ideal:
+            cleaned = re.sub(
+                r'^/?(?i:理想b50|i50)', '', message_str.strip()
+            )
+        elif all_perfect_plus:
             cleaned = re.sub(
                 r'^/?(?i:ap\+50|理论b50)', '', message_str.strip()
             )
@@ -68,9 +72,9 @@ async def best50_handler(
         min_dx_star=min_dx_star,
         fitted=fitted,
         all_perfect_plus=all_perfect_plus,
+        ideal=ideal,
     )
     chain: List[Any] = convert_message_segment_to_chain(result)
-    append_theme_source_tip(chain, result)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
@@ -124,7 +128,6 @@ async def minfo_handler(event: AstrMessageEvent):
             songs = str(alias[0].SongID)
     pic = await draw_music_play_data(qqid, songs)
     chain = convert_message_segment_to_chain(pic)
-    append_theme_source_tip(chain, pic)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)

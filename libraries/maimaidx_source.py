@@ -75,14 +75,30 @@ async def get_best50(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    ideal: bool = False,
 ) -> Tuple[Player, Best50]:
-    """按用户数据源获取普通、AP、AP+、星级或拟合 B50。"""
-    if sum((all_perfect, min_dx_star is not None, fitted, all_perfect_plus)) > 1:
-        raise ValueError('AP50、AP+50、DX 星级与拟合 B50 不能同时启用')
+    """按用户数据源获取普通、AP、AP+、星级、拟合或理想 B50。"""
+    if sum(
+        (all_perfect, min_dx_star is not None, fitted, all_perfect_plus, ideal)
+    ) > 1:
+        raise ValueError('AP50、AP+50、DX 星级、拟合与理想 B50 不能同时启用')
     if min_dx_star is not None and not 1 <= min_dx_star <= 5:
         raise ValueError('DX 星级必须在 1 到 5 之间')
 
-    if all_perfect_plus:
+    if ideal:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_ideal_b50_records(
+            records,
+            _is_new_song,
+            _rating_for_level_value,
+        )
+    elif all_perfect_plus:
         if is_lxns(qqid, username):
             player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
             records = await _lxns_records_raw(qqid, exact=False)
@@ -131,7 +147,13 @@ async def get_best50(
         user = await maiApi.query_user_b50(qqid=qqid, username=username)
         return userinfo_to_player(user), userinfo_to_best50(user)
 
-    if all_perfect or all_perfect_plus or min_dx_star is not None or fitted:
+    if (
+        all_perfect
+        or all_perfect_plus
+        or min_dx_star is not None
+        or fitted
+        or ideal
+    ):
         filtered_rating = best50.sd_total + best50.dx_total
         player = player.model_copy(update={'rating': filtered_rating})
     return player, best50
@@ -281,6 +303,80 @@ def select_fitted_b50_records(
     )
 
 
+IDEAL_ACHIEVEMENT_THRESHOLDS = (
+    50.0,
+    60.0,
+    70.0,
+    75.0,
+    80.0,
+    90.0,
+    94.0,
+    97.0,
+    98.0,
+    99.0,
+    99.5,
+    100.0,
+    100.5,
+    101.0,
+)
+
+
+def _next_ideal_achievement(achievements: float) -> float:
+    """返回当前评价提升一档后的代表达成率。"""
+    for threshold in IDEAL_ACHIEVEMENT_THRESHOLDS:
+        if achievements < threshold:
+            return threshold
+    return 101.0
+
+
+def select_ideal_b50_records(
+    records: List[PlayedResult],
+    is_new_song: Callable[[int], Optional[bool]],
+    rating_of: Callable[[float, float], int],
+) -> Best50:
+    """将每个已有成绩提升一个评价档位后，重新选出 B35 与 B15。"""
+    from .maimai_best_50 import computeRa
+
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        if record.level_value <= 0:
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+
+        ideal_achievement = _next_ideal_achievement(record.achievements)
+        ideal_rate = computeRa(
+            record.level_value, ideal_achievement, onlyrate=True
+        )
+        update = {
+            'achievements': ideal_achievement,
+            'rating': rating_of(record.level_value, ideal_achievement),
+            'rate': ideal_rate.lower(),
+        }
+        if ideal_achievement >= 101.0:
+            update['fc'] = 'app'
+        ideal_record = record.model_copy(update=update)
+        (new_records if is_new else old_records).append(ideal_record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    b35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    b15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in b35),
+        dx_total=sum(record.rating for record in b15),
+        sd=b35,
+        dx=b15,
+    )
+
+
 def _is_new_song(song_id: int) -> Optional[bool]:
     music = mai.total_list.by_id(str(song_id))
     return music.basic_info.is_new if music else None
@@ -401,6 +497,7 @@ async def get_player_b50_userinfo(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    ideal: bool = False,
 ) -> UserInfo:
     """统一取 b50 并转为 UserInfo，供现有绘图直接使用。"""
     player, best50 = await get_best50(
@@ -410,6 +507,7 @@ async def get_player_b50_userinfo(
         min_dx_star=min_dx_star,
         fitted=fitted,
         all_perfect_plus=all_perfect_plus,
+        ideal=ideal,
     )
     return best50_to_userinfo(player, best50)
 
@@ -555,6 +653,7 @@ __all__ = [
     'select_ap_plus50_records',
     'select_star_b50_records',
     'select_fitted_b50_records',
+    'select_ideal_b50_records',
     'get_records',
     'get_player_b50_userinfo',
     'get_plate',

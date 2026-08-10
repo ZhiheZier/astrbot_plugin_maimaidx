@@ -235,6 +235,7 @@ class DrawBest(ScoreBaseImage):
         min_dx_star: Optional[int] = None,
         fitted: bool = False,
         all_perfect_plus: bool = False,
+        ideal: bool = False,
     ) -> None:
         bg = themed_path(theme, 'b50.png')
         super().__init__(Image.open(bg).convert('RGBA'), theme)
@@ -249,6 +250,7 @@ class DrawBest(ScoreBaseImage):
         self.min_dx_star = min_dx_star
         self.fitted = fitted
         self.all_perfect_plus = all_perfect_plus
+        self.ideal = ideal
 
     @classmethod
     def from_best50(
@@ -261,6 +263,7 @@ class DrawBest(ScoreBaseImage):
         min_dx_star: Optional[int] = None,
         fitted: bool = False,
         all_perfect_plus: bool = False,
+        ideal: bool = False,
     ) -> 'DrawBest':
         """从统一 Player + Best50 构建绘图对象。"""
         from .maimaidx_play_result import best50_to_userinfo
@@ -273,6 +276,7 @@ class DrawBest(ScoreBaseImage):
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            ideal=ideal,
         )
 
     def _findRaPic(self) -> str:
@@ -409,6 +413,7 @@ class DrawBest(ScoreBaseImage):
             min_dx_star=self.min_dx_star,
             fitted=self.fitted,
             all_perfect_plus=self.all_perfect_plus,
+            ideal=self.ideal,
         )
         # Torus 不包含中文字形；仅在汇总中出现中文标签时切换中文字体。
         # 普通 B50、AP50 和 AP+50 仍沿用原字体，保持现有视觉效果。
@@ -443,6 +448,7 @@ def format_best50_summary(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    ideal: bool = False,
 ) -> str:
     """生成普通或筛选模式 B50 图片顶部的 Rating 汇总文字。"""
     if all_perfect:
@@ -451,6 +457,8 @@ def format_best50_summary(
         label = '(ap+)'
     elif fitted:
         label = '(拟合)'
+    elif ideal:
+        label = '(理想)'
     elif min_dx_star is not None:
         label = f'({min_dx_star}星)'
     else:
@@ -608,6 +616,7 @@ async def generate(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    ideal: bool = False,
 ) -> Union[MessageSegment, str]:
     """
     生成b50
@@ -619,6 +628,7 @@ async def generate(
         `min_dx_star`: DX SCORE 最低星级（1～5）
         `fitted`: 是否用谱面拟合定数重算 B50
         `all_perfect_plus`: 是否只保留玩家实际 AP+ 成绩
+        `ideal`: 是否将玩家每个已有成绩提升一个评价档位
     Returns:
         `Union[MessageSegment, str]`
     """
@@ -639,6 +649,7 @@ async def generate(
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            ideal=ideal,
         )
         draw_best = DrawBest.from_best50(
             player,
@@ -649,6 +660,7 @@ async def generate(
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            ideal=ideal,
         )
 
         msg = MessageSegment.image(image_to_base64(await draw_best.draw()))

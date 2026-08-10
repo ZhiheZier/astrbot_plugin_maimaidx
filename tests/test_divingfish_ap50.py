@@ -17,6 +17,7 @@ from ..libraries.maimaidx_source import (
     select_ap50_records,
     select_ap_plus50_records,
     select_fitted_b50_records,
+    select_ideal_b50_records,
     select_star_b50_records,
 )
 
@@ -195,6 +196,87 @@ class ApPlusBest50SelectionTest(unittest.TestCase):
         )
 
 
+class IdealBest50SelectionTest(unittest.TestCase):
+    def test_promotes_each_achievement_tier_without_mutating_records(self):
+        achievements = [
+            49.0,
+            55.0,
+            65.0,
+            72.0,
+            77.0,
+            85.0,
+            92.0,
+            95.0,
+            97.5,
+            98.5,
+            99.25,
+            99.75,
+            100.25,
+            100.75,
+        ]
+        expected = [
+            50.0,
+            60.0,
+            70.0,
+            75.0,
+            80.0,
+            90.0,
+            94.0,
+            97.0,
+            98.0,
+            99.0,
+            99.5,
+            100.0,
+            100.5,
+            101.0,
+        ]
+        records = [
+            make_record(song_id, 1, fc='fc', achievements=achievement)
+            for song_id, achievement in enumerate(achievements, start=1)
+        ]
+
+        best50 = select_ideal_b50_records(
+            records,
+            lambda _song_id: False,
+            lambda _level_value, achievement: int(achievement * 10),
+        )
+
+        promoted = {record.song_id: record for record in best50.sd}
+        self.assertEqual(
+            [promoted[song_id].achievements for song_id in range(1, 15)],
+            expected,
+        )
+        self.assertEqual(promoted[8].rate, 's')
+        self.assertEqual(promoted[12].rate, 'sss')
+        self.assertEqual(promoted[13].rate, 'sssp')
+        self.assertEqual(promoted[14].rate, 'sssp')
+        self.assertEqual(promoted[14].fc, 'app')
+        self.assertEqual(records[13].achievements, 100.75)
+        self.assertEqual(records[13].rating, 1)
+        self.assertEqual(records[13].fc, 'fc')
+
+    def test_selects_ideal_b35_and_b15_after_resorting(self):
+        records = []
+        is_new = {}
+        for song_id in range(1, 41):
+            records.append(make_record(song_id, 1, achievements=99.0))
+            is_new[song_id] = False
+        for song_id in range(101, 121):
+            records.append(make_record(song_id, 1, achievements=100.0))
+            is_new[song_id] = True
+
+        best50 = select_ideal_b50_records(
+            records,
+            is_new.get,
+            lambda _level_value, achievement: int(achievement * 100),
+        )
+
+        self.assertEqual(len(best50.sd), 35)
+        self.assertEqual(len(best50.dx), 15)
+        self.assertEqual(best50.sd_total, sum(record.rating for record in best50.sd))
+        self.assertEqual(best50.dx_total, sum(record.rating for record in best50.dx))
+
+
 class Best50SummaryTest(unittest.TestCase):
     def test_formats_regular_b50_summary(self):
         self.assertEqual(
@@ -226,8 +308,57 @@ class Best50SummaryTest(unittest.TestCase):
             '(ap+)B35: 100 + B15: 50 = 150',
         )
 
+    def test_formats_ideal50_summary(self):
+        self.assertEqual(
+            format_best50_summary(100, 50, 150, ideal=True),
+            '(理想)B35: 100 + B15: 50 = 150',
+        )
+
 
 class Best50RoutingTest(unittest.IsolatedAsyncioTestCase):
+    async def test_divingfish_ideal50_uses_all_dev_records(self):
+        old_record = make_record(1, 100, fc='fc', achievements=99.25)
+        new_record = make_record(2, 200, fc='fc', achievements=100.75)
+        user = UserInfoDev(
+            additional_rating=0,
+            nickname='player',
+            plate=None,
+            rating=15000,
+            username='player',
+            records=[
+                played_to_playinfodev(old_record),
+                played_to_playinfodev(new_record),
+            ],
+        )
+        query_b50 = AsyncMock()
+        query_dev = AsyncMock(return_value=user)
+
+        with (
+            patch(
+                'data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_source.is_lxns',
+                return_value=False,
+            ),
+            patch(
+                'data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_source._is_new_song',
+                side_effect=lambda song_id: song_id == 2,
+            ),
+            patch(
+                'data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_source._rating_for_level_value',
+                side_effect=lambda _level_value, achievement: int(achievement * 10),
+            ),
+            patch.object(maiApi, 'token', 'developer-token'),
+            patch.object(maiApi, 'query_user_b50', query_b50),
+            patch.object(maiApi, 'query_user_get_dev', query_dev),
+        ):
+            player, best50 = await get_best50(qqid=123456, ideal=True)
+
+        query_dev.assert_awaited_once_with(qqid=123456, username=None)
+        query_b50.assert_not_awaited()
+        self.assertEqual(best50.sd[0].achievements, 99.5)
+        self.assertEqual(best50.dx[0].achievements, 101.0)
+        self.assertEqual(best50.dx[0].fc, 'app')
+        self.assertEqual(player.rating, 2005)
+
     async def test_divingfish_ap_plus50_uses_player_dev_records(self):
         old_app = make_record(1, 100, fc='app', achievements=100.75)
         new_app = make_record(2, 200, fc='app', achievements=101.0)

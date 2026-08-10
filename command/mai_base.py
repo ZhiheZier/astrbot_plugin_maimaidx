@@ -52,12 +52,6 @@ def extract_at_qqid(event: AstrMessageEvent):
     return None
 
 
-# 查分图成功返回后的提示（主题 / 数据源）
-TIP_THEME_SOURCE = (
-    '可使用「主题」指令更换主题，「数据源」指令更换指定查分器。'
-)
-
-
 def convert_message_segment_to_chain(msg):
     """将 MessageSegment 转换为 astrbot 的 MessageChain"""
     if isinstance(msg, str):
@@ -97,15 +91,6 @@ def convert_message_segment_to_chain(msg):
     
     # 默认返回文本
     return [Comp.Plain(str(msg))]
-
-
-def append_theme_source_tip(chain, result):
-    """图片成功返回时，在图片后追加主题 / 数据源提示。"""
-    if isinstance(result, str):
-        return chain
-    if hasattr(result, 'type') and result.type == 'image':
-        chain.append(Comp.Plain(TIP_THEME_SOURCE))
-    return chain
 
 
 async def update_data_handler(event: AstrMessageEvent, superusers: list = None):

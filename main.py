@@ -544,6 +544,16 @@ class MaimaiDXPlugin(Star):
         async for result in best50_handler(event, fitted=True):
             yield result
 
+    @filter.regex(r'^/?(?i:理想b50|i50)\s*(.*)$')
+    async def ideal_best50(self, event: AstrMessageEvent):
+        """理想b50/i50：将玩家每个已有成绩提升一个评价档位后生成 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, ideal=True):
+            yield result
+
     @filter.regex(r'^/?(?i:ap\+50|理论b50)\s*(.*)$')
     async def ap_plus50(self, event: AstrMessageEvent):
         """ap+50/理论b50：查询玩家实际 AP+ Best 50"""
