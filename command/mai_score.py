@@ -55,6 +55,10 @@ async def best50_handler(
                 r'(?i)^/?(?:ap50|b50)', '', message_str.strip()
             )
         username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
+        # 纯数字输入视为 QQ 号而不是舞萌用户名
+        if username.isdigit():
+            qqid = int(username)
+            username = ''
     else:
         username = ''   
         at_qqid = extract_at_qqid(event)
