@@ -20,14 +20,26 @@ from ..libraries.maimaidx_music_info import draw_music_play_data
 from ..libraries.maimaidx_player_score import music_global_data
 
 
+ACHIEVEMENT_COMMAND_PATTERNS = {
+    'under_s': r'^/?(?i:越级b50|越级50|a50)',
+    'near': r'^/?(?i:寸b50|寸50|c50)',
+    'lock': r'^/?(?i:锁血b50|锁血50|s50)',
+}
+DIFFICULTY_B50_COMMAND_PATTERN = r'^/?[白紫红黄绿]谱(?i:b50)'
+ALL_SONGS_B50_COMMAND_PATTERN = r'^/?(?i:全曲b50|allb50|ab50)'
+
+
 async def best50_handler(
     event: AstrMessageEvent,
     all_perfect: bool = False,
     min_dx_star: int | None = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    achievement_mode: str | None = None,
+    difficulty_index: int | None = None,
+    all_songs: bool = False,
 ):
-    """普通/AP/AP+/星级/拟合 B50 命令处理"""
+    """普通、筛选及全曲 B50 命令处理。"""
     # 检查数据是否加载
     if not hasattr(mai, 'total_list') or not mai.total_list:
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
@@ -38,7 +50,29 @@ async def best50_handler(
     # 移除命令前缀
     # 检查是否有 @ 消息
     if '@' not in message_str:
-        if all_perfect_plus:
+        if all_songs:
+            cleaned = re.sub(
+                ALL_SONGS_B50_COMMAND_PATTERN,
+                '',
+                message_str.strip(),
+            )
+        elif achievement_mode is not None:
+            if achievement_mode not in ACHIEVEMENT_COMMAND_PATTERNS:
+                raise ValueError(f'未知的达成率筛选模式：{achievement_mode}')
+            cleaned = re.sub(
+                ACHIEVEMENT_COMMAND_PATTERNS[achievement_mode],
+                '',
+                message_str.strip(),
+            )
+        elif difficulty_index is not None:
+            if not 0 <= difficulty_index <= 4:
+                raise ValueError('谱面难度索引必须在 0 到 4 之间')
+            cleaned = re.sub(
+                DIFFICULTY_B50_COMMAND_PATTERN,
+                '',
+                message_str.strip(),
+            )
+        elif all_perfect_plus:
             cleaned = re.sub(
                 r'^/?(?i:ap\+50|理论b50)', '', message_str.strip()
             )
@@ -72,6 +106,9 @@ async def best50_handler(
         min_dx_star=min_dx_star,
         fitted=fitted,
         all_perfect_plus=all_perfect_plus,
+        achievement_mode=achievement_mode,
+        difficulty_index=difficulty_index,
+        all_songs=all_songs,
     )
     chain: List[Any] = convert_message_segment_to_chain(result)
     append_theme_source_tip(chain, result)

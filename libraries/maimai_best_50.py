@@ -235,6 +235,9 @@ class DrawBest(ScoreBaseImage):
         min_dx_star: Optional[int] = None,
         fitted: bool = False,
         all_perfect_plus: bool = False,
+        achievement_mode: Optional[str] = None,
+        difficulty_index: Optional[int] = None,
+        all_songs: bool = False,
     ) -> None:
         bg = themed_path(theme, 'b50.png')
         super().__init__(Image.open(bg).convert('RGBA'), theme)
@@ -249,6 +252,9 @@ class DrawBest(ScoreBaseImage):
         self.min_dx_star = min_dx_star
         self.fitted = fitted
         self.all_perfect_plus = all_perfect_plus
+        self.achievement_mode = achievement_mode
+        self.difficulty_index = difficulty_index
+        self.all_songs = all_songs
 
     @classmethod
     def from_best50(
@@ -261,6 +267,9 @@ class DrawBest(ScoreBaseImage):
         min_dx_star: Optional[int] = None,
         fitted: bool = False,
         all_perfect_plus: bool = False,
+        achievement_mode: Optional[str] = None,
+        difficulty_index: Optional[int] = None,
+        all_songs: bool = False,
     ) -> 'DrawBest':
         """从统一 Player + Best50 构建绘图对象。"""
         from .maimaidx_play_result import best50_to_userinfo
@@ -273,6 +282,9 @@ class DrawBest(ScoreBaseImage):
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            achievement_mode=achievement_mode,
+            difficulty_index=difficulty_index,
+            all_songs=all_songs,
         )
 
     def _findRaPic(self) -> str:
@@ -409,6 +421,9 @@ class DrawBest(ScoreBaseImage):
             min_dx_star=self.min_dx_star,
             fitted=self.fitted,
             all_perfect_plus=self.all_perfect_plus,
+            achievement_mode=self.achievement_mode,
+            difficulty_index=self.difficulty_index,
+            all_songs=self.all_songs,
         )
         # Torus 不包含中文字形；仅在汇总中出现中文标签时切换中文字体。
         # 普通 B50、AP50 和 AP+50 仍沿用原字体，保持现有视觉效果。
@@ -428,8 +443,11 @@ class DrawBest(ScoreBaseImage):
             self.text_color, 'mm', 5, (255, 255, 255, 255)
         )
 
-        self.whiledraw(self.sdBest, True)
-        self.whiledraw(self.dxBest, False)
+        if self.all_songs:
+            self.whiledraw(self.sdBest + self.dxBest, True)
+        else:
+            self.whiledraw(self.sdBest, True)
+            self.whiledraw(self.dxBest, False)
 
         return self._im
 
@@ -443,8 +461,13 @@ def format_best50_summary(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    achievement_mode: Optional[str] = None,
+    difficulty_index: Optional[int] = None,
+    all_songs: bool = False,
 ) -> str:
     """生成普通或筛选模式 B50 图片顶部的 Rating 汇总文字。"""
+    if all_songs:
+        return f'(全曲)B50: {total_rating}'
     if all_perfect:
         label = '(ap)'
     elif all_perfect_plus:
@@ -453,6 +476,20 @@ def format_best50_summary(
         label = '(拟合)'
     elif min_dx_star is not None:
         label = f'({min_dx_star}星)'
+    elif achievement_mode is not None:
+        labels = {
+            'under_s': '(越级)',
+            'near': '(寸)',
+            'lock': '(锁血)',
+        }
+        if achievement_mode not in labels:
+            raise ValueError(f'未知的达成率筛选模式：{achievement_mode}')
+        label = labels[achievement_mode]
+    elif difficulty_index is not None:
+        labels = ('绿谱', '黄谱', '红谱', '紫谱', '白谱')
+        if not 0 <= difficulty_index < len(labels):
+            raise ValueError('谱面难度索引必须在 0 到 4 之间')
+        label = f'({labels[difficulty_index]})'
     else:
         label = ''
     return (
@@ -608,6 +645,9 @@ async def generate(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    achievement_mode: Optional[str] = None,
+    difficulty_index: Optional[int] = None,
+    all_songs: bool = False,
 ) -> Union[MessageSegment, str]:
     """
     生成b50
@@ -619,6 +659,9 @@ async def generate(
         `min_dx_star`: DX SCORE 最低星级（1～5）
         `fitted`: 是否用谱面拟合定数重算 B50
         `all_perfect_plus`: 是否只保留玩家实际 AP+ 成绩
+        `achievement_mode`: 达成率筛选模式
+        `difficulty_index`: 谱面难度索引（0～4）
+        `all_songs`: 是否忽略新旧曲分类并选取 Rating 最高的 50 项
     Returns:
         `Union[MessageSegment, str]`
     """
@@ -639,6 +682,9 @@ async def generate(
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            achievement_mode=achievement_mode,
+            difficulty_index=difficulty_index,
+            all_songs=all_songs,
         )
         draw_best = DrawBest.from_best50(
             player,
@@ -649,6 +695,9 @@ async def generate(
             min_dx_star=min_dx_star,
             fitted=fitted,
             all_perfect_plus=all_perfect_plus,
+            achievement_mode=achievement_mode,
+            difficulty_index=difficulty_index,
+            all_songs=all_songs,
         )
 
         msg = MessageSegment.image(image_to_base64(await draw_best.draw()))
