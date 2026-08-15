@@ -78,6 +78,62 @@ async def best50_handler(
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     yield event.chain_result(chain)
+
+
+async def gold_analysis_handler(event: AstrMessageEvent):
+    """含金量分析：展示当前 B50 中拟合定数高于官方定数最多的谱面。"""
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+
+    qqid = event.get_sender_id()
+    message_str = event.message_str.strip()
+    if '@' not in message_str:
+        cleaned = re.sub(r'^/?(?:含金量分析|含金量)', '', message_str)
+        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
+    else:
+        username = ''
+        at_qqid = extract_at_qqid(event)
+        if at_qqid:
+            qqid = at_qqid
+
+    from ..libraries.maimaidx_analysis import generate_gold_analysis
+
+    result = await generate_gold_analysis(qqid=qqid, username=username)
+    chain: List[Any] = convert_message_segment_to_chain(result)
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    yield event.chain_result(chain)
+
+
+async def water_analysis_handler(event: AstrMessageEvent):
+    """水分分析：展示当前 B50 中官方定数高于拟合定数最多的谱面。"""
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+
+    qqid = event.get_sender_id()
+    message_str = event.message_str.strip()
+    if '@' not in message_str:
+        cleaned = re.sub(
+            r'^/?(?:水分分析|含水量分析|含水量)',
+            '',
+            message_str,
+        )
+        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
+    else:
+        username = ''
+        at_qqid = extract_at_qqid(event)
+        if at_qqid:
+            qqid = at_qqid
+
+    from ..libraries.maimaidx_analysis import generate_water_analysis
+
+    result = await generate_water_analysis(qqid=qqid, username=username)
+    chain: List[Any] = convert_message_segment_to_chain(result)
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    yield event.chain_result(chain)
     
     
 async def minfo_handler(event: AstrMessageEvent):

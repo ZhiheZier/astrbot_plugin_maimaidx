@@ -23,6 +23,54 @@ def themed_path(theme: Theme, name: str) -> Path:
     return maimaidir / name
 
 
+def rating_asset_name(rating: int, theme: Theme = Theme.PRISM_PLUS) -> str:
+    """按 DX Rating 返回与 B50 页头一致的 Rating 牌素材名。"""
+    if rating < 1000:
+        num = '01'
+    elif rating < 2000:
+        num = '02'
+    elif rating < 4000:
+        num = '03'
+    elif rating < 7000:
+        num = '04'
+    elif rating < 10000:
+        num = '05'
+    elif rating < 12000:
+        num = '06'
+    elif rating < 13000:
+        num = '07'
+    elif rating < 14000:
+        num = '08'
+    elif rating < 14500:
+        num = '09'
+    elif rating < 15000:
+        num = '10'
+    elif theme == Theme.CIRCLE and rating >= 16000:
+        num = '12'
+    else:
+        num = '11'
+    return f'UI_CMN_DXRating_{num}.png'
+
+
+def rating_star_asset_name(rating: int) -> str:
+    """返回 Circle 主题 14000 以上 Rating 牌右侧的星标素材名。"""
+    from bisect import bisect_right
+
+    thresholds = [
+        14000, 14250, 14500, 14750, 15000, 15250,
+        15500, 15750, 16000, 16250, 16500, 16750,
+    ]
+    num_map = [1, 2, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4]
+    idx = max(bisect_right(thresholds, rating) - 1, 0)
+    return f'UI_CMN_DXRating_Star_0{num_map[idx]}.png'
+
+
+def dani_plate_asset_name(course_rank: int) -> str:
+    """按玩家段位返回与 B50 页头一致的段位牌素材名。"""
+    num = course_rank if course_rank <= 10 else course_rank + 1
+    return f'UI_DNM_DaniPlate_{num:02d}.png'
+
+
 class ScoreBaseImage:
     
     text_color = (124, 129, 255, 255)
@@ -282,51 +330,11 @@ class DrawBest(ScoreBaseImage):
         Returns:
             `str` 返回图片名称
         """
-        if self.Rating < 1000:
-            num = '01'
-        elif self.Rating < 2000:
-            num = '02'
-        elif self.Rating < 4000:
-            num = '03'
-        elif self.Rating < 7000:
-            num = '04'
-        elif self.Rating < 10000:
-            num = '05'
-        elif self.Rating < 12000:
-            num = '06'
-        elif self.Rating < 13000:
-            num = '07'
-        elif self.Rating < 14000:
-            num = '08'
-        elif self.Rating < 14500:
-            num = '09'
-        elif self.Rating < 15000:
-            num = '10'
-        else:
-            if self.theme == Theme.CIRCLE:
-                if self.Rating < 16000:
-                    num = '11'
-                elif self.Rating < 17000:
-                    num = '12'
-                else:
-                    num = '11'
-            else:
-                num = '11'
-        return f'UI_CMN_DXRating_{num}.png'
+        return rating_asset_name(self.Rating, self.theme)
 
     def _raPicStar(self) -> str:
         """CIRCLE 主题高分段星标"""
-        from bisect import bisect_right
-
-        thresholds = [
-            14000, 14250, 14500, 14750, 15000, 15250,
-            15500, 15750, 16000, 16250, 16500, 16750,
-        ]
-        num_map = [1, 2, 1, 2, 1, 2, 3, 4, 1, 2, 3, 4]
-        idx = bisect_right(thresholds, self.Rating) - 1
-        if idx < 0:
-            idx = 0
-        return f'UI_CMN_DXRating_Star_0{num_map[idx]}.png'
+        return rating_star_asset_name(self.Rating)
 
     def _findMatchLevel(self) -> str:
         """
@@ -335,11 +343,7 @@ class DrawBest(ScoreBaseImage):
         Returns:
             `str` 返回图片名称
         """
-        if self.addRating <= 10:
-            num = f'{self.addRating:02d}'
-        else:
-            num = f'{self.addRating + 1:02d}'
-        return f'UI_DNM_DaniPlate_{num}.png'
+        return dani_plate_asset_name(self.addRating)
 
     async def draw(self) -> Image.Image:
         

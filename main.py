@@ -506,6 +506,26 @@ class MaimaiDXPlugin(Star):
         async for result in best50_handler(event):
             yield result
 
+    @filter.regex(r'^/?(?:含金量分析|含金量)\s*(.*)$')
+    async def gold_analysis(self, event: AstrMessageEvent):
+        """含金量分析：分析当前 B50 的拟合定数与官方定数差值"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import gold_analysis_handler
+        async for result in gold_analysis_handler(event):
+            yield result
+
+    @filter.regex(r'^/?(?:水分分析|含水量分析|含水量)\s*(.*)$')
+    async def water_analysis(self, event: AstrMessageEvent):
+        """水分分析：分析当前 B50 的官方定数与拟合定数差值"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import water_analysis_handler
+        async for result in water_analysis_handler(event):
+            yield result
+
     @filter.regex(r'^/?(?i:ap50)\s*(.*)$')
     async def ap50(self, event: AstrMessageEvent):
         """ap50 命令（全 AP 成绩）"""
