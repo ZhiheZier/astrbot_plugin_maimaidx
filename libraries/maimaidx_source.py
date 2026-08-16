@@ -75,14 +75,67 @@ async def get_best50(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    achievement_mode: Optional[str] = None,
+    difficulty_index: Optional[int] = None,
+    all_songs: bool = False,
 ) -> Tuple[Player, Best50]:
-    """按用户数据源获取普通、AP、AP+、星级或拟合 B50。"""
-    if sum((all_perfect, min_dx_star is not None, fitted, all_perfect_plus)) > 1:
-        raise ValueError('AP50、AP+50、DX 星级与拟合 B50 不能同时启用')
+    """按用户数据源获取普通、筛选或不分版本的全曲 B50。"""
+    if sum(
+        (
+            all_perfect,
+            min_dx_star is not None,
+            fitted,
+            all_perfect_plus,
+            achievement_mode is not None,
+            difficulty_index is not None,
+            all_songs,
+        )
+    ) > 1:
+        raise ValueError(
+            'AP50、AP+50、DX 星级、拟合、达成率、谱面难度与全曲 B50 '
+            '不能同时启用'
+        )
     if min_dx_star is not None and not 1 <= min_dx_star <= 5:
         raise ValueError('DX 星级必须在 1 到 5 之间')
+    if difficulty_index is not None and not 0 <= difficulty_index <= 4:
+        raise ValueError('谱面难度索引必须在 0 到 4 之间')
 
-    if all_perfect_plus:
+    if all_songs:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_all_songs_b50_records(records)
+    elif difficulty_index is not None:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=False)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_difficulty_b50_records(
+            records,
+            difficulty_index,
+            _is_new_song,
+        )
+    elif achievement_mode is not None:
+        if is_lxns(qqid, username):
+            player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
+            records = await _lxns_records_raw(qqid, exact=True)
+        else:
+            player, records = await _divingfish_dev_records_raw(
+                qqid=qqid, username=username
+            )
+        best50 = select_achievement_b50_records(
+            records,
+            achievement_mode,
+            _is_new_song,
+        )
+    elif all_perfect_plus:
         if is_lxns(qqid, username):
             player, _ = await _lxns_best50_raw(qqid, all_perfect=False)
             records = await _lxns_records_raw(qqid, exact=False)
@@ -131,10 +184,41 @@ async def get_best50(
         user = await maiApi.query_user_b50(qqid=qqid, username=username)
         return userinfo_to_player(user), userinfo_to_best50(user)
 
-    if all_perfect or all_perfect_plus or min_dx_star is not None or fitted:
+    if (
+        all_perfect
+        or all_perfect_plus
+        or min_dx_star is not None
+        or fitted
+        or achievement_mode is not None
+        or difficulty_index is not None
+        or all_songs
+    ):
         filtered_rating = best50.sd_total + best50.dx_total
         player = player.model_copy(update={'rating': filtered_rating})
     return player, best50
+
+
+def select_all_songs_b50_records(records: List[PlayedResult]) -> Best50:
+    """忽略新旧曲分类，按单曲 Rating 选出最高的 50 个成绩。"""
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    top50 = sorted(records, key=sort_key, reverse=True)[:50]
+
+    # Best50 数据结构仍以 35 + 15 保存，以兼容既有模型转换；
+    # 全曲模式渲染时会将两段重新合并并连续绘制。
+    first35 = top50[:35]
+    last15 = top50[35:]
+    return Best50(
+        sd_total=sum(record.rating for record in first35),
+        dx_total=sum(record.rating for record in last15),
+        sd=first35,
+        dx=last15,
+    )
 
 
 def select_ap50_records(
@@ -199,6 +283,100 @@ def select_ap_plus50_records(
         dx_total=sum(record.rating for record in app15),
         sd=app35,
         dx=app15,
+    )
+
+
+ACHIEVEMENT_B50_MODES = frozenset({'under_s', 'near', 'lock'})
+
+
+def achievement_matches_mode(achievements: float, mode: str) -> bool:
+    """判断达成率是否属于指定的特殊 B50 区间。"""
+    if mode not in ACHIEVEMENT_B50_MODES:
+        raise ValueError(f'未知的达成率筛选模式：{mode}')
+
+    value = float(achievements)
+    if mode == 'under_s':
+        return value < 97.0
+    if mode == 'near':
+        return (
+            99.95 <= value <= 99.9999
+            or 100.45 <= value <= 100.4999
+        )
+    return (
+        100.0 <= value <= 100.05
+        or 100.5 <= value <= 100.55
+    )
+
+
+def select_achievement_b50_records(
+    records: List[PlayedResult],
+    mode: str,
+    is_new_song: Callable[[int], Optional[bool]],
+) -> Best50:
+    """按达成率区间筛选完整成绩，再选出旧曲 35 与新曲 15。"""
+    if mode not in ACHIEVEMENT_B50_MODES:
+        raise ValueError(f'未知的达成率筛选模式：{mode}')
+
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        if not achievement_matches_mode(record.achievements, mode):
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        (new_records if is_new else old_records).append(record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    b35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    b15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in b35),
+        dx_total=sum(record.rating for record in b15),
+        sd=b35,
+        dx=b15,
+    )
+
+
+def select_difficulty_b50_records(
+    records: List[PlayedResult],
+    difficulty_index: int,
+    is_new_song: Callable[[int], Optional[bool]],
+) -> Best50:
+    """按谱面难度筛选完整成绩，再选出旧曲 35 与新曲 15。"""
+    if not 0 <= difficulty_index <= 4:
+        raise ValueError('谱面难度索引必须在 0 到 4 之间')
+
+    old_records: List[PlayedResult] = []
+    new_records: List[PlayedResult] = []
+    for record in records:
+        if record.level_index != difficulty_index:
+            continue
+        is_new = is_new_song(record.song_id)
+        if is_new is None:
+            continue
+        (new_records if is_new else old_records).append(record)
+
+    sort_key = lambda r: (
+        r.rating,
+        r.achievements,
+        r.level_value,
+        r.song_id,
+        r.level_index,
+    )
+    b35 = sorted(old_records, key=sort_key, reverse=True)[:35]
+    b15 = sorted(new_records, key=sort_key, reverse=True)[:15]
+    return Best50(
+        sd_total=sum(record.rating for record in b35),
+        dx_total=sum(record.rating for record in b15),
+        sd=b35,
+        dx=b15,
     )
 
 
@@ -401,6 +579,9 @@ async def get_player_b50_userinfo(
     min_dx_star: Optional[int] = None,
     fitted: bool = False,
     all_perfect_plus: bool = False,
+    achievement_mode: Optional[str] = None,
+    difficulty_index: Optional[int] = None,
+    all_songs: bool = False,
 ) -> UserInfo:
     """统一取 b50 并转为 UserInfo，供现有绘图直接使用。"""
     player, best50 = await get_best50(
@@ -410,6 +591,9 @@ async def get_player_b50_userinfo(
         min_dx_star=min_dx_star,
         fitted=fitted,
         all_perfect_plus=all_perfect_plus,
+        achievement_mode=achievement_mode,
+        difficulty_index=difficulty_index,
+        all_songs=all_songs,
     )
     return best50_to_userinfo(player, best50)
 
@@ -553,6 +737,10 @@ __all__ = [
     'get_best50',
     'select_ap50_records',
     'select_ap_plus50_records',
+    'achievement_matches_mode',
+    'select_achievement_b50_records',
+    'select_difficulty_b50_records',
+    'select_all_songs_b50_records',
     'select_star_b50_records',
     'select_fitted_b50_records',
     'get_records',

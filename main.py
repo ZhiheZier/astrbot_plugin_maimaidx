@@ -506,6 +506,14 @@ class MaimaiDXPlugin(Star):
         async for result in best50_handler(event):
             yield result
 
+    @filter.regex(r'^/?(?i:全曲b50|allb50|ab50)\s*(.*)$')
+    async def all_songs_best50(self, event: AstrMessageEvent):
+        """全曲b50/allb50/ab50：不分新旧曲查询 Rating 最高的 50 项。"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, all_songs=True):
     @filter.regex(r'^/?(?:含金量分析|含金量)\s*(.*)$')
     async def gold_analysis(self, event: AstrMessageEvent):
         """含金量分析：分析当前 B50 的拟合定数与官方定数差值"""
@@ -572,6 +580,56 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_score import best50_handler
         async for result in best50_handler(event, all_perfect_plus=True):
+            yield result
+
+    @filter.regex(r'^/?(?i:越级b50|越级50|a50)\s*(.*)$')
+    async def under_s_best50(self, event: AstrMessageEvent):
+        """越级50/a50：查询达成率低于 97% 的 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, achievement_mode='under_s'):
+            yield result
+
+    @filter.regex(r'^/?(?i:寸b50|寸50|c50)\s*(.*)$')
+    async def near_best50(self, event: AstrMessageEvent):
+        """寸50/c50：查询略低于 SSS 或 SSS+ 的 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, achievement_mode='near'):
+            yield result
+
+    @filter.regex(r'^/?(?i:锁血b50|锁血50|s50)\s*(.*)$')
+    async def lock_best50(self, event: AstrMessageEvent):
+        """锁血50/s50：查询略高于 SSS 或 SSS+ 的 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(event, achievement_mode='lock'):
+            yield result
+
+    @filter.regex(r'^/?([白紫红黄绿])谱(?i:b50)\s*(.*)$')
+    async def difficulty_best50(self, event: AstrMessageEvent):
+        """白/紫/红/黄/绿谱 b50：按谱面难度筛选 Best 50"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        match = re.match(
+            r'^/?([白紫红黄绿])谱(?i:b50)',
+            event.message_str.strip(),
+        )
+        if not match:
+            return
+        difficulty_map = {'绿': 0, '黄': 1, '红': 2, '紫': 3, '白': 4}
+        from .command.mai_score import best50_handler
+        async for result in best50_handler(
+            event,
+            difficulty_index=difficulty_map[match.group(1)],
+        ):
             yield result
 
     @filter.regex(r'^/?(minfo|Minfo|MINFO|info|Info|INFO)\s*(.*)$')
