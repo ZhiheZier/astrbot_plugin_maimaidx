@@ -1,7 +1,7 @@
 name: astrbot_plugin_maimaidx
 display_name: 国服舞萌插件
 desc: 国服舞萌查分插件，支持查询成绩、排名、曲目信息等功能（一定要看文档！！！）
-version: v1.3.1
+version: v1.3.2
 author: ZhiheZier
 repo: https://github.com/ZhiheZier/astrbot_plugin_maimaidx
 support_platforms:
