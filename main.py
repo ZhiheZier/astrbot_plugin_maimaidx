@@ -514,6 +514,8 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_score import best50_handler
         async for result in best50_handler(event, all_songs=True):
+            yield result
+
     @filter.regex(r'^/?(?:含金量分析|含金量)\s*(.*)$')
     async def gold_analysis(self, event: AstrMessageEvent):
         """含金量分析：分析当前 B50 的拟合定数与官方定数差值"""
