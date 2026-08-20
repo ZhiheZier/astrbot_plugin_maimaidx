@@ -1,6 +1,6 @@
 import base64
 from io import BytesIO
-from typing import Optional, Set, Tuple, Union
+from typing import List, Optional, Set, Tuple, Union
 from urllib.request import Request, urlopen
 
 import numpy as np
@@ -54,6 +54,54 @@ class DrawText:
                 stroke_width=stroke_width, 
                 stroke_fill=stroke_fill
             )
+
+
+def draw_text_with_font_fallback(
+    image: ImageDraw.ImageDraw,
+    pos_x: int,
+    pos_y: int,
+    size: int,
+    text: Union[str, int, float],
+    color: Tuple[int, int, int, int],
+    primary_font: Path,
+    fallback_font: Path,
+    anchor: str = 'mm',
+    stroke_width: int = 0,
+    stroke_fill: Tuple[int, int, int, int] = (0, 0, 0, 0),
+) -> None:
+    primary = ImageFont.truetype(str(primary_font), size)
+    fallback = ImageFont.truetype(str(fallback_font), size)
+    parts: List[Tuple[str, ImageFont.FreeTypeFont]] = []
+
+    for char in str(text):
+        font = primary if char.isascii() else fallback
+        if parts and parts[-1][1] is font:
+            parts[-1] = (parts[-1][0] + char, font)
+        else:
+            parts.append((char, font))
+
+    total_width = sum(image.textlength(part, font=font) for part, font in parts)
+    if anchor[0] == 'm':
+        x = pos_x - total_width / 2
+        part_anchor = 'lm'
+    elif anchor[0] == 'r':
+        x = pos_x - total_width
+        part_anchor = 'lm'
+    else:
+        x = pos_x
+        part_anchor = 'la' if len(anchor) > 1 and anchor[1] == 'a' else 'lm'
+
+    for part, font in parts:
+        image.text(
+            (x, pos_y),
+            part,
+            color,
+            font=font,
+            anchor=part_anchor,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_fill,
+        )
+        x += image.textlength(part, font=font)
 
 
 def tricolor_gradient(
