@@ -372,13 +372,14 @@ class DrawGoldAnalysis:
         self.image.alpha_composite(rating_badge, (rating_x, rating_y))
 
         rating = f'{max(self.player.rating, 0):05d}'[-5:]
+        rating_digit_x = 138
         for index, digit in enumerate(rating):
             digit_image = Image.open(
                 maimaidir / f'UI_NUM_Drating_{digit}.png'
             ).convert('RGBA').resize((23, 26), Image.Resampling.LANCZOS)
             self.image.alpha_composite(
                 digit_image,
-                (134 + 19 * index, rating_y + 9),
+                (rating_digit_x + 19 * index, rating_y + 9),
             )
         self.draw = ImageDraw.Draw(self.image)
 
