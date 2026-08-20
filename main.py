@@ -918,6 +918,16 @@ class MaimaiDXPlugin(Star):
         async for result in alias_local_apply_handler(event):
             yield result
 
+    @filter.regex(r'^/?(删除本地别名|删除本地别称)\s+(.+)$')
+    async def alias_local_delete(self, event: AstrMessageEvent):
+        """删除本地别名命令"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_alias import alias_local_delete_handler
+        async for result in alias_local_delete_handler(event):
+            yield result   
+
     @filter.regex(r'^/?(添加别名|增加别名|增添别名|添加别称)\s+(.+)$')
     async def alias_apply(self, event: AstrMessageEvent):
         """添加别名命令"""
