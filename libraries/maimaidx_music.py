@@ -413,6 +413,36 @@ async def update_local_alias(id: str, alias_name: str) -> bool:
         return False
 
 
+async def delete_local_alias(id: str, alias_name: str) -> bool:
+    try:
+        if local_alias_file.exists():
+            local_alias_data: Dict[str, List[str]] = await openfile(local_alias_file)
+        else:
+            local_alias_data: Dict[str, List[str]] = {}
+
+        if id not in local_alias_data:
+            return False
+
+        target = alias_name.lower()
+        if target in local_alias_data[id]:
+            local_alias_data[id].remove(target)
+        else:
+            return False
+
+        if len(local_alias_data[id]) == 0:
+            del local_alias_data[id]
+
+        alias_item = mai.total_alias_list.by_id(id)[0]
+        if target in alias_item.Alias:
+            alias_item.Alias.remove(target)
+
+        await writefile(local_alias_file, local_alias_data)
+        return True
+    except Exception as e:
+        log.error(f'删除本地别名失败：{e}')
+        return False
+
+
 class MaiMusic:
     
     total_list: MusicList
