@@ -926,7 +926,7 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_alias import alias_local_delete_handler
         async for result in alias_local_delete_handler(event):
-            yield result   
+            yield result
 
     @filter.regex(r'^/?(添加别名|增加别名|增添别名|添加别称)\s+(.+)$')
     async def alias_apply(self, event: AstrMessageEvent):

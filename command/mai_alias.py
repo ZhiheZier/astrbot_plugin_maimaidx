@@ -17,8 +17,7 @@ from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import ServerError
 from ..libraries.maimaidx_model import Alias, PushAliasStatus
-from ..libraries.maimaidx_music import alias, mai, update_local_alias
-from ..libraries.maimaidx_music import alias, mai, delete_local_alias
+from ..libraries.maimaidx_music import alias, delete_local_alias, mai, update_local_alias
 from ..libraries.maimaidx_music_info import draw_music_info
 
 
@@ -150,7 +149,7 @@ async def alias_local_delete_handler(event: AstrMessageEvent):
 
     message_str = event.message_str.strip()
     # 移除命令前缀
-    for prefix in ['删除本地别名', '移除本地别名']:
+    for prefix in ['删除本地别名', '删除本地别称', '移除本地别名', '移除本地别称']:
         if message_str.startswith(prefix):
             args_str = message_str[len(prefix):].strip()
             break
