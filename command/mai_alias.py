@@ -18,6 +18,7 @@ from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import ServerError
 from ..libraries.maimaidx_model import Alias, PushAliasStatus
 from ..libraries.maimaidx_music import alias, mai, update_local_alias
+from ..libraries.maimaidx_music import alias, mai, delete_local_alias
 from ..libraries.maimaidx_music_info import draw_music_info
 
 
@@ -137,6 +138,50 @@ async def alias_local_apply_handler(event: AstrMessageEvent):
         msg = '添加本地别名失败'
     else:
         msg = f'已成功为ID「{song_id}」添加别名「{alias_name}」到本地别名库'
+    yield event.plain_result(msg)
+
+
+async def alias_local_delete_handler(event: AstrMessageEvent):
+    """删除本地别名命令处理"""
+    # 检查数据是否加载
+    if not hasattr(mai, 'total_list') or not mai.total_list:
+        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
+        return
+
+    message_str = event.message_str.strip()
+    # 移除命令前缀
+    for prefix in ['删除本地别名', '移除本地别名']:
+        if message_str.startswith(prefix):
+            args_str = message_str[len(prefix):].strip()
+            break
+    else:
+        args_str = message_str
+
+    args: List[str] = args_str.split()
+    if len(args) != 2:
+        yield event.plain_result('参数错误，格式：删除本地别名 <歌曲ID> <别名>')
+        return
+
+    song_id, alias_name = args
+
+    if not mai.total_list.by_id(song_id):
+        yield event.plain_result(f'未找到ID为「{song_id}」的曲目')
+        return
+
+    if not hasattr(mai, 'total_alias_list') or not mai.total_alias_list:
+        yield event.plain_result('别名数据未加载，请稍后再试')
+        return
+
+    local_exist = mai.total_alias_list.by_id(song_id)
+    if not local_exist or alias_name.lower() not in local_exist[0].Alias:
+        yield event.plain_result('本地别名库不存在该别名')
+        return
+
+    issave = await delete_local_alias(song_id, alias_name)
+    if not issave:
+        msg = '删除本地别名失败'
+    else:
+        msg = f'已成功为ID「{song_id}」删除别名「{alias_name}」从本地别名库'
     yield event.plain_result(msg)
 
 
