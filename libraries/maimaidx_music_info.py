@@ -106,7 +106,7 @@ async def draw_music_info(
         spacing = 70 * num
         fn.draw(120, 590 + spacing, 22, f'{music.level[num]}({music.ds[num]})', color, 'mm')
         fitting = f'{round(music.stats[num].fit_diff, 2):.2f}' if music.stats and music.stats[num] else '-'
-        fn.draw(120, 613 + spacing, 15, fitting, default_color, 'mm')
+        fn.draw(120, 613 + spacing, 15, fitting, (255, 255, 255, 255), 'mm')
         charter = music.charts[num].charter
         if coloumWidth(charter) > 19:
             charter = changeColumnWidth(charter, 18) + '...'
