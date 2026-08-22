@@ -30,6 +30,7 @@ sv_help = """排卡指令如下：
 取消订阅机厅 <店名> 取消群组机厅订阅
 查找机厅,查询机厅,机厅查找,机厅查询 <关键词> 查询对应机厅信息
 <店名/别名>人数设置,设定,=,增加,加,+,减少,减,-<人数> 操作排卡人数
+<店名/别名>=-1 闭店，清空人数并标记为闭店状态
 <店名/别名>有多少人,有几人,有几卡,几人,几卡 查看排卡人数
 机厅几人 查看已订阅机厅排卡人数"""
 
@@ -313,12 +314,12 @@ async def arcade_person_handler(event: AstrMessageEvent):
         return
     
     message_str = event.message_str.strip()
-    match = re.match(r'^(.+)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?([0-9]+|＋|\+|－|-)(人|卡)?$', message_str)
+    match = re.match(r'^(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?$', message_str)
     if not match:
         return
     
     person_str = match.group(3)
-    if not person_str.isdigit() and person_str not in ['＋', '+', '－', '-']:
+    if not person_str.lstrip('-').isdigit() and person_str not in ['＋', '+', '－', '-']:
         yield event.plain_result('请输入正确的数字')
         return
     
@@ -328,7 +329,7 @@ async def arcade_person_handler(event: AstrMessageEvent):
         return
     
     value = match.group(2)
-    person = int(person_str) if person_str.isdigit() else 1
+    person = int(person_str) if person_str.lstrip('-').isdigit() else 1
     
     if match.group(1):
         if '人数' in match.group(1) or '卡' in match.group(1):
