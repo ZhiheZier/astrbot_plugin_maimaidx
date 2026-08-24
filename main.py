@@ -86,8 +86,17 @@ class MaimaiDXPlugin(Star):
             log.info('已配置落雪 OAuth 应用')
         if maiApi.divingfish_oauth_configured:
             log.info('已配置水鱼 OAuth 应用')
-        elif maiApi.config.df_client_id or maiApi.config.df_client_secret:
-            log.warning('水鱼 OAuth 配置不完整，需要同时填写 client_id 与 client_secret')
+        else:
+            if maiApi.config.df_client_id or maiApi.config.df_client_secret:
+                log.warning(
+                    '水鱼 OAuth 配置不完整，需要同时填写 df_client_id 与 df_client_secret'
+                )
+            if maiApi.config.maimaidxtoken:
+                log.warning(
+                    '检测到仅配置了水鱼 Developer-Token，尚未完成 OAuth 迁移。'
+                    '旧版成绩查询接口将于 2026-10-01 00:00（UTC+8）停止服务，'
+                    '请尽快配置 df_client_id 与 df_client_secret。'
+                )
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html

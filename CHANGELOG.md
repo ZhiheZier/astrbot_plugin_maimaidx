@@ -14,6 +14,7 @@
 
 - 保留水鱼 Developer-Token 迁移期兼容；OAuth 配置完成后自动优先使用新接口
 - 水鱼 OAuth access token 按用户缓存并在失效时自动换票，避免触发授权服务器限流
+- 仅配置水鱼 Developer-Token 时在启动日志输出 OAuth 迁移警告和旧接口停止日期
 
 ### 其他
 
