@@ -38,7 +38,68 @@ class TokenDisableError(Exception):
 class TokenNotFoundError(Exception):
 
     def __str__(self) -> str:
-        return '请先联系水鱼申请开发者token'
+        return 'BOT 管理员尚未配置水鱼 OAuth 应用或开发者 Token'
+
+
+class DivingFishOAuthError(TokenNotFoundError):
+    """水鱼 OAuth 请求失败。继承旧异常以兼容现有调用方。"""
+
+    message = '水鱼 OAuth 请求失败，请稍后重试'
+
+    def __str__(self) -> str:
+        return self.message
+
+
+class DivingFishOAuthNotBoundError(DivingFishOAuthError):
+
+    message = '尚未授权水鱼查分器，请发送「绑定水鱼」完成授权'
+
+
+class DivingFishOAuthConfigError(DivingFishOAuthError):
+
+    message = 'BOT 管理员配置的水鱼 OAuth 应用信息有误，请联系管理员检查'
+
+
+class DivingFishOAuthPermissionError(DivingFishOAuthError):
+
+    message = '水鱼 OAuth 授权缺少读取成绩权限，请重新绑定或联系 BOT 管理员'
+
+
+class DivingFishOAuthRateLimitError(DivingFishOAuthError):
+
+    message = '水鱼查分器查询次数已达上限，请稍后再试'
+
+
+class DivingFishOAuthServiceError(DivingFishOAuthError):
+
+    message = '水鱼 OAuth 服务暂时不可用，请稍后再试'
+
+
+class DivingFishOAuthTokenExpiredError(DivingFishOAuthError):
+    """仅供 API 层清除缓存并重试，不应直接展示给用户。"""
+
+    message = '水鱼 OAuth 访问令牌已失效，请重试'
+
+
+class DivingFishOAuthPendingError(DivingFishOAuthError):
+    """设备码授权仍在等待用户操作。"""
+
+    message = '正在等待用户完成水鱼授权'
+
+
+class DivingFishOAuthBindingDeniedError(DivingFishOAuthError):
+
+    message = '已取消水鱼查分器授权'
+
+
+class DivingFishOAuthBindingExpiredError(DivingFishOAuthError):
+
+    message = '水鱼查分器授权已超时，请重新发送「绑定水鱼」'
+
+
+class DivingFishLegacyApiRetiredError(DivingFishOAuthError):
+
+    message = '水鱼旧版开发者接口已停用，请联系 BOT 管理员配置 OAuth'
 
 
 class MusicNotPlayError(Exception):

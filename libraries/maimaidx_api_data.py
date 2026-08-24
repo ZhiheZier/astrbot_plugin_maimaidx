@@ -1,6 +1,9 @@
-from typing import Any, Dict
+import asyncio
+import hashlib
+import time
+from typing import Any, Dict, Tuple
 
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientError, ClientSession, ClientTimeout
 
 from .. import UUID
 from .maimaidx_error import *
@@ -10,6 +13,8 @@ from .maimaidx_model import *
 class MaiConfig(BaseModel):
     
     maimaidxtoken: Optional[str] = None
+    df_client_id: Optional[str] = None
+    df_client_secret: Optional[str] = None
     maimaidxproberproxy: bool = False
     maimaidxaliasproxy: bool = False
     maimaidxaliaspush: bool = True
@@ -32,6 +37,8 @@ class MaimaiAPI:
     MaiProberAPI = 'https://www.diving-fish.com/api/maimaidxprober'
     MaiCover = 'https://www.diving-fish.com/covers'
     MaiAliasAPI = 'https://www.yuzuchan.moe/api/maimaidx'
+    DivingFishAuthAPI = 'https://auth.diving-fish.com'
+    DivingFishOAuthScope = 'prober.records.read'
     QQAPI = 'http://q1.qlogo.cn/g'
     
     def __init__(self) -> None:
@@ -41,6 +48,9 @@ class MaimaiAPI:
         self.token = None
         self.MaiProberProxyAPI = None
         self.MaiAliasProxyAPI = None
+        self._oauth_tokens: Dict[str, Tuple[str, float]] = {}
+        self._oauth_locks: Dict[str, asyncio.Lock] = {}
+        self._oauth_cache_client_id: Optional[str] = None
     
     def load_config(self) -> MaiConfig:
         # 配置改由 AstrBot 插件配置（_conf_schema.json）在插件初始化时注入，
@@ -51,8 +61,221 @@ class MaimaiAPI:
         self.MaiProberProxyAPI = self.MaiProberAPI if not self.config.maimaidxproberproxy else self.MaiProxyAPI + '/maimaidxprober'
         self.MaiAliasProxyAPI = self.MaiAliasAPI if not self.config.maimaidxaliasproxy else self.MaiProxyAPI + '/maimaidxaliases'
         self.token = self.config.maimaidxtoken
+        self.headers = None
         if self.token:
             self.headers = {'developer-token': self.token}
+        if self._oauth_cache_client_id != self.config.df_client_id:
+            self._oauth_tokens.clear()
+            self._oauth_locks.clear()
+            self._oauth_cache_client_id = self.config.df_client_id
+
+    @property
+    def divingfish_oauth_configured(self) -> bool:
+        return bool(self.config.df_client_id and self.config.df_client_secret)
+
+    def _divingfish_subject_ref(self, external_id: Union[int, str]) -> str:
+        client_id = self.config.df_client_id
+        if not client_id:
+            raise DivingFishOAuthConfigError
+        value = f'{client_id}:{external_id}'.encode()
+        return hashlib.sha256(value).hexdigest()
+
+    def _divingfish_subject(
+        self,
+        qqid: Optional[Union[int, str]] = None,
+        username: Optional[str] = None,
+    ) -> str:
+        if username and username.strip():
+            return f'username:{username.strip()}'
+        if qqid is not None and str(qqid).strip():
+            return f'ref:{self._divingfish_subject_ref(str(qqid).strip())}'
+        raise UserNotFoundError
+
+    @staticmethod
+    def mask_qq(qqid: Union[int, str]) -> str:
+        value = str(qqid).strip()
+        if len(value) <= 4:
+            return 'QQ ****'
+        return f'QQ {value[:2]}****{value[-2:]}'
+
+    async def _request_divingfish_oauth(
+        self,
+        endpoint: str,
+        *,
+        data: Dict[str, str],
+    ) -> Dict[str, Any]:
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+                async with session.post(
+                    self.DivingFishAuthAPI + endpoint,
+                    data=data,
+                ) as res:
+                    try:
+                        payload = await res.json(content_type=None)
+                    except Exception:
+                        payload = {}
+                    if res.status == 200 and isinstance(payload, dict):
+                        return payload
+
+                    error = (
+                        payload.get('error', '')
+                        if isinstance(payload, dict)
+                        else ''
+                    )
+                    description = (
+                        payload.get('error_description', '')
+                        if isinstance(payload, dict)
+                        else ''
+                    )
+                    if error == 'consent_required':
+                        raise DivingFishOAuthNotBoundError
+                    if error == 'authorization_pending':
+                        raise DivingFishOAuthPendingError
+                    if error == 'access_denied':
+                        raise DivingFishOAuthBindingDeniedError
+                    if error == 'expired_token':
+                        raise DivingFishOAuthBindingExpiredError
+                    if error == 'invalid_client':
+                        raise DivingFishOAuthConfigError
+                    if (
+                        error == 'invalid_scope'
+                        or 'scope' in description.lower()
+                    ):
+                        raise DivingFishOAuthPermissionError
+                    if error == 'slow_down' or res.status == 429:
+                        raise DivingFishOAuthRateLimitError
+                    if res.status >= 500:
+                        raise DivingFishOAuthServiceError
+                    raise DivingFishOAuthError
+        except (ClientError, asyncio.TimeoutError) as exc:
+            raise DivingFishOAuthServiceError from exc
+
+    async def start_divingfish_binding(
+        self,
+        external_id: Union[int, str],
+    ) -> Dict[str, Any]:
+        """创建一次设备码授权，绑定关系由水鱼服务端持久化。"""
+        if not self.divingfish_oauth_configured:
+            raise DivingFishOAuthConfigError
+        return await self._request_divingfish_oauth(
+            '/oauth/device_authorization',
+            data={
+                'client_id': self.config.df_client_id,
+                'client_secret': self.config.df_client_secret,
+                'scope': self.DivingFishOAuthScope,
+                'subject_ref': self._divingfish_subject_ref(external_id),
+                'binding_label': self.mask_qq(external_id),
+            },
+        )
+
+    async def _divingfish_access_token(self, subject: str) -> str:
+        if not self.divingfish_oauth_configured:
+            raise DivingFishOAuthConfigError
+
+        cached = self._oauth_tokens.get(subject)
+        if cached and time.monotonic() < cached[1] - 30:
+            return cached[0]
+
+        lock = self._oauth_locks.setdefault(subject, asyncio.Lock())
+        async with lock:
+            cached = self._oauth_tokens.get(subject)
+            if cached and time.monotonic() < cached[1] - 30:
+                return cached[0]
+
+            payload = await self._request_divingfish_oauth(
+                '/oauth/token',
+                data={
+                    'grant_type': (
+                        'urn:diving-fish:params:oauth:grant-type:on-behalf-of'
+                    ),
+                    'client_id': self.config.df_client_id,
+                    'client_secret': self.config.df_client_secret,
+                    'subject': subject,
+                    'scope': self.DivingFishOAuthScope,
+                },
+            )
+            token = payload.get('access_token')
+            if not token:
+                raise DivingFishOAuthServiceError
+            expires_in = max(int(payload.get('expires_in', 300)), 1)
+            self._oauth_tokens[subject] = (
+                str(token),
+                time.monotonic() + expires_in,
+            )
+            return str(token)
+
+    async def wait_for_divingfish_binding(
+        self,
+        external_id: Union[int, str],
+        device_code: str,
+        *,
+        interval: int = 5,
+        expires_in: int = 600,
+    ) -> None:
+        """轮询设备码授权结果，成功后缓存本次返回的访问令牌。"""
+        subject = self._divingfish_subject(qqid=external_id)
+        poll_interval = max(int(interval), 1)
+        deadline = time.monotonic() + max(int(expires_in), 1)
+
+        while time.monotonic() < deadline:
+            await asyncio.sleep(poll_interval)
+            try:
+                payload = await self._request_divingfish_oauth(
+                    '/oauth/token',
+                    data={
+                        'grant_type': (
+                            'urn:ietf:params:oauth:grant-type:device_code'
+                        ),
+                        'device_code': device_code,
+                        'client_id': self.config.df_client_id,
+                        'client_secret': self.config.df_client_secret,
+                    },
+                )
+            except DivingFishOAuthPendingError:
+                continue
+            except DivingFishOAuthRateLimitError:
+                poll_interval += 5
+                continue
+
+            token = payload.get('access_token')
+            if not token:
+                raise DivingFishOAuthServiceError
+            token_expires_in = max(int(payload.get('expires_in', 300)), 1)
+            self._oauth_tokens[subject] = (
+                str(token),
+                time.monotonic() + token_expires_in,
+            )
+            return
+
+        raise DivingFishOAuthBindingExpiredError
+
+    async def _requestmai_oauth(
+        self,
+        method: str,
+        endpoint: str,
+        *,
+        qqid: Optional[Union[int, str]] = None,
+        username: Optional[str] = None,
+        **kwargs,
+    ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
+        subject = self._divingfish_subject(qqid=qqid, username=username)
+        token = await self._divingfish_access_token(subject)
+        try:
+            return await self._requestmai(
+                method,
+                endpoint,
+                request_headers={'Authorization': f'Bearer {token}'},
+                **kwargs,
+            )
+        except DivingFishOAuthTokenExpiredError:
+            self._oauth_tokens.pop(subject, None)
+            token = await self._divingfish_access_token(subject)
+            return await self._requestmai(
+                method,
+                endpoint,
+                request_headers={'Authorization': f'Bearer {token}'},
+                **kwargs,
+            )
     
     
     async def _requestalias(self, method: str, endpoint: str, **kwargs) -> APIResult:
@@ -80,6 +303,7 @@ class MaimaiAPI:
         self, 
         method: str, 
         endpoint: str, 
+        request_headers: Optional[Dict[str, str]] = None,
         **kwargs
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
@@ -96,7 +320,7 @@ class MaimaiAPI:
             async with session.request(
                 method, 
                 self.MaiProberProxyAPI + endpoint, 
-                headers=self.headers, 
+                headers=(self.headers if request_headers is None else request_headers),
                 **kwargs
             ) as res:
                 if res.status == 200:
@@ -120,18 +344,37 @@ class MaimaiAPI:
                     else:
                         raise UserNotFoundError
                 elif res.status == 403:
+                    error = await res.json(content_type=None)
+                    message = str(error.get('message', '')) if isinstance(error, dict) else ''
+                    if request_headers and 'Authorization' in request_headers:
+                        if '权限' in message or 'scope' in message.lower():
+                            raise DivingFishOAuthPermissionError
                     raise UserDisabledQueryError
+                elif res.status == 401:
+                    if request_headers and 'Authorization' in request_headers:
+                        raise DivingFishOAuthTokenExpiredError
+                    raise TokenError
+                elif res.status == 410:
+                    raise DivingFishLegacyApiRetiredError
+                elif res.status == 429:
+                    raise DivingFishOAuthRateLimitError
+                elif res.status == 503:
+                    raise DivingFishOAuthServiceError
                 else:
                     raise UnknownError
         return data
     
     async def music_data(self):
         """获取曲目数据"""
-        return await self._requestmai('GET', '/music_data')
+        return await self._requestmai(
+            'GET', '/music_data', request_headers={}
+        )
 
     async def chart_stats(self):
         """获取单曲数据"""
-        return await self._requestmai('GET', '/chart_stats')
+        return await self._requestmai(
+            'GET', '/chart_stats', request_headers={}
+        )
 
     async def query_user_b50(
         self, 
@@ -155,7 +398,14 @@ class MaimaiAPI:
             json['username'] = username
         json['b50'] = True
 
-        return UserInfo.model_validate(await self._requestmai('POST', '/query/player', json=json))
+        return UserInfo.model_validate(
+            await self._requestmai(
+                'POST',
+                '/query/player',
+                request_headers={},
+                json=json,
+            )
+        )
 
     async def query_user_plate(
         self,
@@ -175,13 +425,22 @@ class MaimaiAPI:
             `List[PlayInfoDefault]` 数据列表
         """
         json = {}
-        if qqid:
-            json['qq'] = qqid
-        if username:
-            json['username'] = username
         if version:
             json['version'] = version
-        result = await self._requestmai('POST', '/query/plate', json=json)
+        if self.divingfish_oauth_configured:
+            result = await self._requestmai_oauth(
+                'POST',
+                '/player/plate',
+                qqid=qqid,
+                username=username,
+                json=json,
+            )
+        else:
+            if qqid:
+                json['qq'] = qqid
+            if username:
+                json['username'] = username
+            result = await self._requestmai('POST', '/query/plate', json=json)
         return [PlayInfoDefault.model_validate(d) for d in result['verlist']]
 
     async def query_user_get_dev(
@@ -199,13 +458,22 @@ class MaimaiAPI:
         Returns:
             `UserInfoDev` 开发者用户信息
         """
-        params = {}
-        if qqid:
-            params['qq'] = qqid
-        if username:
-            params['username'] = username
-        
-        result = await self._requestmai('GET', '/dev/player/records', params=params)
+        if self.divingfish_oauth_configured:
+            result = await self._requestmai_oauth(
+                'GET',
+                '/player/records',
+                qqid=qqid,
+                username=username,
+            )
+        else:
+            params = {}
+            if qqid:
+                params['qq'] = qqid
+            if username:
+                params['username'] = username
+            result = await self._requestmai(
+                'GET', '/dev/player/records', params=params
+            )
         return UserInfoDev.model_validate(result)
 
     async def query_user_post_dev(
@@ -225,14 +493,23 @@ class MaimaiAPI:
         Returns:
             `List[PlayInfoDev]` 开发者成绩列表
         """
-        json = {}
-        if qqid:
-            json['qq'] = qqid
-        if username:
-            json['username'] = username
-        json['music_id'] = music_id
-        
-        result = await self._requestmai('POST', '/dev/player/record', json=json)
+        json = {'music_id': music_id}
+        if self.divingfish_oauth_configured:
+            result = await self._requestmai_oauth(
+                'POST',
+                '/player/record',
+                qqid=qqid,
+                username=username,
+                json=json,
+            )
+        else:
+            if qqid:
+                json['qq'] = qqid
+            if username:
+                json['username'] = username
+            result = await self._requestmai(
+                'POST', '/dev/player/record', json=json
+            )
         if result == {}:
             raise MusicNotPlayError
         
@@ -247,7 +524,9 @@ class MaimaiAPI:
         Returns:
             `List[UserRanking]` 按`ra`从高到低排序后的查分器排行模型列表
         """
-        result = await self._requestmai('GET', '/rating_ranking')
+        result = await self._requestmai(
+            'GET', '/rating_ranking', request_headers={}
+        )
         return sorted([UserRanking.model_validate(u) for u in result], key=lambda x: x.ra, reverse=True)
 
     async def get_plate_json(self) -> Dict[str, List[int]]:

@@ -17,7 +17,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import ws_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.3.3")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.0")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -52,7 +52,7 @@ class MaimaiDXPlugin(Star):
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
         enable_reply = bool(self.config.get("enable_reply", True))
-        # 从插件配置中读取开发者 token，避免将 token 写入仓库文件
+        # 从插件配置中读取开发者 token
         plugin_token = str(self.config.get("maimaidxtoken", "") or "").strip()
         if pkg_name in sys.modules:
             setattr(pkg, '_BOTNAME', bot_name)
@@ -61,9 +61,11 @@ class MaimaiDXPlugin(Star):
             log.info(f'已设置 bot 名称: {bot_name}')
             log.info(f'引用回复（Reply）: {"开启" if enable_reply else "关闭"}')
 
-        # 注入 token 并立即生效（不落盘）
-        if plugin_token:
-            maiApi.config.maimaidxtoken = plugin_token
+        # 注入水鱼凭据并立即生效（不落盘）
+        maiApi.config.maimaidxtoken = plugin_token or None
+        for _key in ('df_client_id', 'df_client_secret'):
+            _val = str(self.config.get(_key, '') or '').strip()
+            setattr(maiApi.config, _key, _val or None)
 
         # 注入布尔类配置（全部来自 AstrBot 插件配置，不再使用 static 的 config.json）
         maiApi.config.maimaidxproberproxy = bool(self.config.get('maimaidxproberproxy', False))
@@ -82,6 +84,10 @@ class MaimaiDXPlugin(Star):
             log.info('已配置落雪开发者 Token')
         if maiApi.config.lx_client_id and maiApi.config.lx_redirect_uri:
             log.info('已配置落雪 OAuth 应用')
+        if maiApi.divingfish_oauth_configured:
+            log.info('已配置水鱼 OAuth 应用')
+        elif maiApi.config.df_client_id or maiApi.config.df_client_secret:
+            log.warning('水鱼 OAuth 配置不完整，需要同时填写 client_id 与 client_secret')
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
@@ -452,7 +458,7 @@ class MaimaiDXPlugin(Star):
         async for result in my_rating_ranking_handler(event):
             yield result
 
-    # 数据源 / 主题 / 落雪绑定命令
+    # 数据源 / 主题 / 查分器绑定命令
     @filter.regex(r'^/?数据源(\s+.*)?$')
     async def data_source(self, event: AstrMessageEvent):
         """数据源 切换查分器"""
@@ -481,6 +487,16 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_base import bind_lxns_handler
         async for result in bind_lxns_handler(event):
+            yield result
+
+    @filter.regex(r'^/?(绑定水鱼|绑定df|dfbind)$')
+    async def bind_divingfish(self, event: AstrMessageEvent):
+        """绑定水鱼 引导设备码 OAuth 授权"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_base import bind_divingfish_handler
+        async for result in bind_divingfish_handler(event):
             yield result
 
     @filter.regex(r'^/?(?i:授权码|code)\s+.+$')

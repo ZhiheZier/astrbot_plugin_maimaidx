@@ -244,7 +244,11 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         # OAuth/落雪/开发者接口均带精确字段，按 dev 路径绘制
         from .maimaidx_source import is_lxns
 
-        dev = bool(maiApi.token or is_lxns(qqid))
+        dev = bool(
+            maiApi.divingfish_oauth_configured
+            or maiApi.token
+            or is_lxns(qqid)
+        )
 
         im = Image.open(themed_path(theme, 'play_info.png')).convert('RGBA')
     

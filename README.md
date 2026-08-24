@@ -12,6 +12,7 @@
 - 🎵 查询歌曲信息、定数、BPM、曲师、谱师
 - 📊 查询玩家成绩、各类 B50、牌子进度
 - 🔀 多查分器数据源：支持 **水鱼查分器（Diving-Fish）** 与 **落雪查分器（Lxns-Network）** 自由切换
+- 🔐 水鱼 OAuth：支持设备码授权、短期令牌自动换取与缓存，兼容完整成绩查询
 - 🧩 曲库合并：启动时将水鱼曲目与落雪曲目合并（补全白谱 / 宴会場等），渲染层仍使用兼容的 `Music` 模型
 - 🎯 成绩统一：水鱼 / 落雪成绩先归一为 `PlayedResult`，再桥接为现有绘图模型
 - 🏷️ 别名合并：柚子别名 + 落雪别名 + 本地别名启动时合并
@@ -94,8 +95,23 @@ apt install fonts-wqy-microhei
 - `enable_reply`: 是否在多数指令回复中添加“引用消息”（Reply），默认为开启
 
 **水鱼查分器（Diving-Fish）**
-- `maimaidxtoken`: 水鱼查分器开发者 token。填写后支持 AP50、AP+50、全曲 B50、星级 B50、拟合定数 50 等完整成绩查询；未填写时仅可使用 `b50` 等公开查询指令
+- `df_client_id`: 水鱼 OAuth 应用的 client_id
+- `df_client_secret`: 水鱼 OAuth 应用的 client_secret。请仅保存在 BOT 配置中，不要提交到公开仓库
+- `maimaidxtoken`: 旧版水鱼开发者 Token，仅供迁移期兼容；对应接口将在 2026-10-01 停止服务
 - `maimaidxproberproxy`: 是否使用中转访问水鱼查分器（适用于境外服务器），默认关闭
+
+> 水鱼 OAuth 配置：登录[水鱼开发者控制台](https://auth.diving-fish.com/console)。已有 Developer-Token 的管理员补全系统迁移生成的应用；没有迁移应用则为当前 BOT 实例登记新应用。接入方式选择“设备码”，权限仅选择 `prober.records.read`，然后生成 `client_secret`。未迁移授权关系的用户需要发送「绑定水鱼」完成一次授权。公开 `b50` 查询不要求绑定，AP50、拟合 B50、完成表、进度及单曲成绩等完整成绩功能需要授权。
+
+#### 从 Developer-Token 升级到 OAuth（v1.4.0）
+
+水鱼已停止签发 Developer-Token，旧版 `/dev/player/records`、`/dev/player/record` 与 `/query/plate` 接口将在 **2026-10-01 00:00（UTC+8）** 停止服务。升级步骤：
+
+1. 登录[水鱼开发者控制台](https://auth.diving-fish.com/console)，补全迁移应用或登记新应用。
+2. 接入方式选择“设备码”，仅申请 `prober.records.read` 权限，并生成 `client_secret`。
+3. 在 AstrBot 插件配置中填写 `df_client_id` 与 `df_client_secret`，然后重载插件。
+4. 未自动迁移授权关系的用户发送「绑定水鱼」，打开返回的链接并确认授权；BOT 返回绑定成功后即可查询完整成绩。
+
+迁移期间可以继续保留 `maimaidxtoken`；当 OAuth 配置完整时，插件会优先使用 OAuth 新接口。`client_secret` 只应保存在 BOT 配置中，禁止提交到公开仓库。
 
 **别名 / 素材 / 性能**
 - `maimaidxaliaspush`: 是否开启别名推送，默认开启
@@ -151,9 +167,10 @@ apt install fonts-wqy-microhei
 - `牌子条件` - 查看各牌子的完成条件说明图
 - `查看排名` - 查看排行榜（水鱼查分器）
 
-### 数据源 / 落雪查分器
+### 数据源 / 查分器授权
 - `数据源` - 查看当前数据源
 - `数据源 水鱼` / `数据源 落雪` - 切换查分数据源（也可用 `数据源 0` / `数据源 1`）
+- `绑定水鱼` / `dfbind` - 发起水鱼设备码 OAuth 授权（群聊和私聊均可）；授权成功后 BOT 会发送确认文本
 - `绑定落雪` / `lxbind` - 引导进行落雪 OAuth 授权（需管理员配置 OAuth 应用）
 - `授权码 XXXX-XXXX-XXXX` / `code XXXX-XXXX-XXXX` - 使用落雪返回的授权码完成绑定
 - `主题` / `主题 <序号>` - 查看 / 切换成绩图主题（`0`：prism_plus，`1`：circle）
@@ -169,6 +186,7 @@ apt install fonts-wqy-microhei
 - `添加机厅 <店名> <地址> <id>` - 添加机厅
 - `查找机厅 <关键词>` - 查找机厅
 - `订阅机厅 <店名>` - 订阅机厅
+- `<机厅名/别名>=-1` - 将机厅标记为闭店并清空排卡人数；人数恢复到 1 以上时自动恢复营业，设置为 0 时保持闭店
 - `机厅几人` - 查看已订阅机厅排卡人数
 
 ### 别名管理

@@ -362,13 +362,15 @@ async def merge_music_data(
         song = song_map.get(int(sid))
         if song is None:
             continue
-        for s in stat_list:
-            if s is None or not s.diff:
+        difficulties_by_index = {
+            diff.level_index: diff for diff in song.difficulties
+        }
+        for level_index, stats in enumerate(stat_list):
+            if stats is None:
                 continue
-            for diff in song.difficulties:
-                if diff.level == s.diff:
-                    diff.stats = s
-                    break
+            difficulty = difficulties_by_index.get(level_index)
+            if difficulty is not None:
+                difficulty.stats = stats
 
     result = sorted(song_map.values(), key=lambda x: x.song_id)
     await writefile(merge_music_file, [s.model_dump() for s in result])

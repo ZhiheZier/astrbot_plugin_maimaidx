@@ -304,6 +304,7 @@ async def my_rating_ranking_handler(event: AstrMessageEvent):
 # ============================ 数据源 / 主题 / 落雪绑定 ============================
 CODE_PATTERN = re.compile(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 LXNS_ERROR = 'BOT 管理员尚未配置落雪查分器相关信息'
+DIVINGFISH_OAUTH_ERROR = 'BOT 管理员尚未配置水鱼 OAuth 应用'
 
 # 数据源中文别名 -> 索引
 _SOURCE_ALIAS = {
@@ -420,6 +421,46 @@ async def bind_lxns_handler(event: AstrMessageEvent):
         开启允许读取成绩，否则 BOT 无法查询你的成绩。
     ''').strip()
     yield event.plain_result(msg)
+
+
+async def bind_divingfish_handler(event: AstrMessageEvent):
+    """绑定水鱼/dfbind：创建设备码授权链接。"""
+    from ..libraries.maimaidx_error import DivingFishOAuthError
+
+    if not maiApi.divingfish_oauth_configured:
+        yield event.plain_result(
+            DIVINGFISH_OAUTH_ERROR + '，请联系 BOT 管理员完成配置。'
+        )
+        return
+
+    qqid = event.get_sender_id()
+    try:
+        binding = await maiApi.start_divingfish_binding(qqid)
+        verification_uri = binding.get(
+            'verification_uri', 'https://auth.diving-fish.com/device'
+        )
+        verification_uri_complete = binding.get(
+            'verification_uri_complete', verification_uri
+        )
+        user_code = binding.get('user_code', '')
+        yield event.plain_result(
+            '请在 10 分钟内打开以下链接，登录水鱼账号并确认授权：\n'
+            f'{verification_uri_complete}\n'
+            f'绑定码：{user_code}\n'
+            f'绑定身份：{maiApi.mask_qq(qqid)}\n'
+            '请确认授权页中的绑定身份无误。授权完成后无需发送授权码，'
+            '直接使用成绩查询指令即可。'
+        )
+        await maiApi.wait_for_divingfish_binding(
+            qqid,
+            binding['device_code'],
+            interval=int(binding.get('interval', 5)),
+            expires_in=int(binding.get('expires_in', 600)),
+        )
+        success = '水鱼查分器绑定成功！现在可以使用完整成绩查询功能。'
+        yield event.plain_result(success)
+    except DivingFishOAuthError as e:
+        yield event.plain_result(str(e))
 
 
 async def authcode_handler(event: AstrMessageEvent):

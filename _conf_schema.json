@@ -13,7 +13,19 @@
   },
   "maimaidxtoken": {
     "description": "水鱼查分器开发者 Token",
-    "hint": "水鱼查分器开发者 token。填写后支持 AP50、星级 B50、拟合 B50、单曲成绩、完成表、进度等完整成绩查询；未填写时仅可使用 b50 等公开查询指令。",
+    "hint": "旧版兼容配置，将于 2026-10-01 停止服务。请迁移到下方水鱼 OAuth 配置。",
+    "type": "string",
+    "default": ""
+  },
+  "df_client_id": {
+    "description": "水鱼 OAuth 应用 client_id",
+    "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式选择设备码，仅申请 prober.records.read 权限。",
+    "type": "string",
+    "default": ""
+  },
+  "df_client_secret": {
+    "description": "水鱼 OAuth 应用 client_secret",
+    "hint": "与 client_id 配套使用。仅保存在 BOT 配置中。",
     "type": "string",
     "default": ""
   },

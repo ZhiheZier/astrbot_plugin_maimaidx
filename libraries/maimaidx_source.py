@@ -502,8 +502,8 @@ async def _divingfish_dev_records_raw(
     qqid: Optional[Union[int, str]] = None,
     username: Optional[str] = None,
 ) -> Tuple[Player, List[PlayedResult]]:
-    """读取水鱼开发者接口的完整成绩。"""
-    if not maiApi.token:
+    """通过水鱼 OAuth 或旧开发者接口读取完整成绩。"""
+    if not maiApi.divingfish_oauth_configured and not maiApi.token:
         raise TokenNotFoundError
     user = await maiApi.query_user_get_dev(qqid=qqid, username=username)
     records = [playinfo_to_played(record) for record in (user.records or [])]
@@ -529,18 +529,15 @@ async def get_records(
 ) -> List[PlayedResult]:
     """获取全部成绩（统一 PlayedResult）。
 
-    水鱼优先开发者全量 records；无 token / 失败时回退 plate（全版本）。
+    水鱼优先 OAuth/开发者全量 records；未配置时回退旧 plate（全版本）。
     """
     from .. import plate_to_dx_version
     if is_lxns(qqid, username):
         return await _lxns_records_raw(qqid, exact=exact)
 
-    try:
+    if maiApi.divingfish_oauth_configured or maiApi.token:
         dev = await maiApi.query_user_get_dev(qqid=qqid, username=username)
-        if dev.records:
-            return [playinfo_to_played(r) for r in dev.records]
-    except Exception:
-        pass
+        return [playinfo_to_played(r) for r in (dev.records or [])]
 
     from .maimai_best_50 import computeRa
     from .maimaidx_play_result import lookup_meta
@@ -632,13 +629,13 @@ async def get_music_record(
     music_id: Union[int, str],
     username: Optional[str] = None,
 ) -> List[PlayInfoDev]:
-    """统一取单曲成绩。无开发者 token 时用水鱼 plate 全量再按曲目过滤。"""
+    """统一取单曲成绩。未配置 OAuth/token 时用旧 plate 回退。"""
     from .. import plate_to_dx_version
     from .maimaidx_play_result import playinfo_to_played
 
     if is_lxns(qqid, username):
         return await lxns_music_record(qqid, music_id)
-    if maiApi.token:
+    if maiApi.divingfish_oauth_configured or maiApi.token:
         return await maiApi.query_user_post_dev(
             qqid=qqid, username=username, music_id=music_id
         )
