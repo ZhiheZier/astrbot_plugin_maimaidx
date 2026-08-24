@@ -24,6 +24,7 @@ class Arcade(BaseModel):
     person: int
     by: str
     time: str
+    status: str = '营业'
 
 
 class ArcadeList(List[Arcade]):
@@ -110,6 +111,8 @@ class ArcadeList(List[Arcade]):
     - 当前 {arcade.person} 人\n'''
             if arcade.num > 1:
                 msg += f'    - 平均 {arcade.person / arcade.num:.2f} 人\n'
+            if arcade.status == '闭店':
+                msg += '    - 状态：闭店\n'
             if arcade.by:
                 msg += f'    - 由 {arcade.by} 更新于 {arcade.time}'
             result.append(msg.strip())
@@ -308,6 +311,18 @@ async def update_person(arcadeList: List[Arcade], userName: str, value: str, per
     if len(arcadeList) == 1:
         _arcade = arcadeList[0]
         original_person = _arcade.person
+        # 闭店：<店名/别名>=-1 时清空人数并标记为闭店
+        if person == -1 and value in ['=', '＝', '设置', '设定']:
+            if _arcade.status == '闭店' and _arcade.person == 0:
+                return f'机厅：{_arcade.name} 已处于闭店状态'
+            _arcade.person = 0
+            _arcade.status = '闭店'
+            _arcade.by = userName
+            _arcade.time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+            await arcade.total.save_arcade()
+            return f'机厅：{_arcade.name}\n已闭店，人数已清空\n变更时间：{_arcade.time}'
+        if person < 0:
+            return '请勿乱玩bot，恼！'
         if value in ['+', '＋', '增加', '添加', '加']:
             if person > 30:
                 return '请勿乱玩bot，恼！'
@@ -323,6 +338,7 @@ async def update_person(arcadeList: List[Arcade], userName: str, value: str, per
         if _arcade.person == original_person:
             return f'人数没有变化\n机厅：{_arcade.name}\n当前人数：{_arcade.person}'
         else:
+            _arcade.status = '营业'
             _arcade.by = userName
             _arcade.time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
             await arcade.total.save_arcade()
