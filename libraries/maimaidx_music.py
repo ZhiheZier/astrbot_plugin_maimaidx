@@ -14,12 +14,9 @@ from .image import image_to_base64, music_picture
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
 from .maimaidx_merge import (
-    Difficulties,
     LXSongs,
-    Song,
     merge_alias_data,
     merge_music_data,
-    song_to_music,
 )
 from .maimaidx_model import *
 from .tool import openfile, writefile
@@ -75,52 +72,56 @@ def in_or_equal(
         return checker == elem
 
 
-class MusicList(List[Music]):
+class SongList(List[Song]):
     
-    def by_id(self, music_id: Union[str, int]) -> Optional[Music]:
-        for music in self:
-            if music.id == str(music_id):
-                return music
+    def by_id(self, music_id: Union[str, int]) -> Optional[Song]:
+        try:
+            target = int(music_id)
+        except (TypeError, ValueError):
+            return None
+        for song in self:
+            if song.song_id == target:
+                return song
         return None
 
-    def by_title(self, music_title: str) -> Optional[Music]:
-        for music in self:
-            if music.title == music_title:
-                return music
+    def by_title(self, music_title: str) -> Optional[Song]:
+        for song in self:
+            if song.song_name == music_title:
+                return song
         return None
     
     def by_plan(
         self, 
         level: str
-    ) -> Dict[str, Union[PlanInfo, RaMusic, Dict[int, Union[PlanInfo, RaMusic]]]]:
+    ) -> Dict[str, Union[PlanInfo, ChartRef, Dict[int, Union[PlanInfo, ChartRef]]]]:
         lv = defaultdict(dict)
         
-        def create_ra_music(music: Music, index: int) -> RaMusic:
-            return RaMusic(
-                id=music.id, 
-                ds=music.ds[index], 
-                lv=str(index), 
-                lvp=music.level[index], 
-                type=music.type
+        def create_chart_ref(song: Song, difficulty: Difficulties) -> ChartRef:
+            return ChartRef(
+                id=str(song.song_id),
+                ds=difficulty.level_value,
+                lv=str(difficulty.level_index),
+                lvp=difficulty.level,
+                type=song.type,
             )
         
-        for music in self:
-            if level not in music.level:
+        for song in self:
+            matching = [d for d in song.difficulties if d.level == level]
+            if not matching:
                 continue
-            if int(music.id) >= 100000:
+            if song.song_id >= 100000:
                 continue
-            if music.level.count(level) > 1: # 同曲有相同等级
-                lv[music.id] = { 
-                    index: create_ra_music(music, index)
-                    for index, _lv in enumerate(music.level) 
-                    if _lv == level 
+            song_id = str(song.song_id)
+            if len(matching) > 1:
+                lv[song_id] = {
+                    difficulty.level_index: create_chart_ref(song, difficulty)
+                    for difficulty in matching
                 }
             else:
-                index = music.level.index(level)
-                lv[music.id] = create_ra_music(music, index)
+                lv[song_id] = create_chart_ref(song, matching[0])
         return dict(lv)
     
-    def by_level_list(self) -> Dict[str, Dict[str, List[RaMusic]]]:
+    def by_level_list(self) -> Dict[str, Dict[str, List[ChartRef]]]:
         
         def level_range(lv: str) -> range:
             if lv == '15':
@@ -132,30 +133,27 @@ class MusicList(List[Music]):
         _level = {
             lv: {f"{lv.rstrip('+')}.{i}": [] for i in level_range(lv)} for lv in levelList
         }
-        for music in self:
-            if int(music.id) >= 100000:
+        for song in self:
+            if song.song_id >= 100000:
                 continue
-            for index, ds in enumerate(music.ds):
-                if ds < 7:
+            for difficulty in song.difficulties:
+                if difficulty.level_value < 7:
                     continue
-                ra = RaMusic(
-                    id=music.id,
-                    ds=ds,
-                    lv=str(index),
-                    lvp=music.level[index],
-                    type=music.type
+                ra = ChartRef(
+                    id=str(song.song_id),
+                    ds=difficulty.level_value,
+                    lv=str(difficulty.level_index),
+                    lvp=difficulty.level,
+                    type=song.type,
                 )
-                _level[music.level[index]][str(ds)].append(ra)
+                _level[difficulty.level][str(difficulty.level_value)].append(ra)
         return _level
     
-    def by_id_list(self, music_id_list: List[int]) -> Optional[List[Music]]:
-        musicList = []
-        for music in self:
-            if int(music.id) in music_id_list:
-                musicList.append(music)
-        return musicList
+    def by_id_list(self, music_id_list: List[int]) -> List[Song]:
+        targets = {int(song_id) for song_id in music_id_list}
+        return [song for song in self if song.song_id in targets]
     
-    def random(self) -> Music:
+    def random(self) -> Song:
         return random.choice(self)
 
     def filter(
@@ -171,44 +169,52 @@ class MusicList(List[Music]):
         type: Optional[Union[str, List[str]]] = ...,
         diff: List[int] = ...,
         version: Union[str, List[str]] = ...
-    ) -> 'MusicList':
-        new_list = MusicList()
-        for music in self:
+    ) -> 'SongList':
+        new_list = SongList()
+        for song in self:
             diff2 = diff
-            music = deepcopy(music)
-            ret, diff2 = cross(music.level, level, diff2)
+            song = deepcopy(song)
+            levels = [difficulty.level for difficulty in song.difficulties]
+            level_values = [difficulty.level_value for difficulty in song.difficulties]
+            ret, diff2 = cross(levels, level, diff2)
             if not ret:
                 continue
-            ret, diff2 = cross(music.ds, ds, diff2)
+            ret, diff2 = cross(level_values, ds, diff2)
             if not ret:
                 continue
-            ret, diff2 = search_charts(music.charts, charter_search, diff2)
+            ret, diff2 = search_difficulties(song.difficulties, charter_search, diff2)
             if not ret:
                 continue
-            if not in_or_equal(music.basic_info.genre, genre):
+            if not in_or_equal(song.genre, genre):
                 continue
-            if not in_or_equal(music.type, type):
+            if not in_or_equal(song.type, type):
                 continue
-            if not in_or_equal(music.basic_info.bpm, bpm):
+            if not in_or_equal(song.bpm, bpm):
                 continue
-            if not in_or_equal(music.basic_info.version, version):
+            if not in_or_equal(song.version_str, version):
                 continue
-            if title_search is not Ellipsis and title_search.lower() not in music.title.lower():
+            if title_search is not Ellipsis and title_search.lower() not in song.song_name.lower():
                 continue
-            if artist_search is not Ellipsis and artist_search.lower() not in music.basic_info.artist.lower():
+            if artist_search is not Ellipsis and artist_search.lower() not in song.artist.lower():
                 continue
-            music.diff = diff2
-            new_list.append(music)
+            song.selected_difficulties = diff2
+            new_list.append(song)
         return new_list
 
 
-def search_charts(checker: List[Chart], elem: str, diff: List[int]) -> Tuple[bool, List[int]]:
+def search_difficulties(
+    checker: List[Difficulties],
+    elem: str,
+    diff: List[int],
+) -> Tuple[bool, List[int]]:
     ret = False
     diff_ret = []
     if not elem or elem is Ellipsis:
         return True, diff
     for _j in (range(len(checker)) if diff is Ellipsis else diff):
-        if elem.lower() in checker[_j].charter.lower():
+        if _j >= len(checker):
+            continue
+        if elem.lower() in checker[_j].note_designer.lower():
             diff_ret.append(_j)
             ret = True
     return ret, diff_ret
@@ -262,7 +268,7 @@ def _parse_stats_map(chart_stats: dict) -> Dict[str, List[Optional[Stats]]]:
     return result
 
 
-async def _load_diving_fish() -> Tuple[List[Music], Dict[str, List[Optional[Stats]]]]:
+async def _load_diving_fish() -> Tuple[List[DivingFishSong], Dict[str, List[Optional[Stats]]]]:
     """拉取水鱼曲库与谱面统计（失败则回退本地缓存）。"""
     try:
         try:
@@ -286,10 +292,10 @@ async def _load_diving_fish() -> Tuple[List[Music], Dict[str, List[Optional[Stat
         log.error(charterror)
         raise FileNotFoundError
 
-    df_list: List[Music] = []
+    df_list: List[DivingFishSong] = []
     for music in music_data:
         try:
-            df_list.append(Music.model_validate(music))
+            df_list.append(DivingFishSong.model_validate(music))
         except Exception as e:
             log.error(f'解析水鱼曲目失败 id={music.get("id")}: {e}')
     return df_list, _parse_stats_map(chart_stats)
@@ -317,8 +323,8 @@ async def _load_lxns_songs() -> Optional[LXSongs]:
         return None
 
 
-async def get_music_list() -> Tuple[MusicList, Dict[str, float], List[Song]]:
-    """获取并合并曲库，同时返回兼容 MusicList 与规范 Song 列表。"""
+async def get_song_list() -> Tuple[SongList, Dict[str, float]]:
+    """获取并合并曲库，返回规范 SongList 与定数字典。"""
     df_list, stats_map = await _load_diving_fish()
     lxns_list = await _load_lxns_songs()
 
@@ -327,11 +333,9 @@ async def get_music_list() -> Tuple[MusicList, Dict[str, float], List[Song]]:
         lxns_list=lxns_list,
         stats_map=stats_map,
     )
-    total_list = MusicList()
-    for song in songs:
-        total_list.append(song_to_music(song))
+    total_list = SongList(songs)
     log.info(f'曲库合并完成：{len(total_list)} 首')
-    return total_list, level_value_map, songs
+    return total_list, level_value_map
 
 
 async def _load_lxns_aliases():
@@ -395,7 +399,7 @@ async def get_music_alias_list() -> AliasList:
         if not _a.get('Name'):
             music = mai.total_list.by_id(_a['SongID'])
             if music:
-                _a['Name'] = music.title
+                _a['Name'] = music.song_name
         total_alias_list.append(Alias.model_validate(_a))
 
     log.info(f'别名合并完成：{len(total_alias_list)} 首')
@@ -450,37 +454,33 @@ async def delete_local_alias(id: str, alias_name: str) -> bool:
         return False
 
 
-class MaiMusic:
+class MaiSongRepository:
     
-    total_list: MusicList
+    total_list: SongList
     """曲目数据"""
     total_alias_list: AliasList
     """别名数据"""
     total_plate_id_list: Dict[str, List[int]]
     """牌子ID列表数据"""
-    total_level_data: Dict[str, Dict[str, List[RaMusic]]]
+    total_level_data: Dict[str, Dict[str, List[ChartRef]]]
     """等级列表数据"""
     total_level_value_map: Dict[str, float]
     """定数字典，key 为 `song_id-level_index`，例如 `11451-3`"""
-    total_song_list: List[Song]
-    """合并后的规范曲目数据；旧 MusicList 仅用于尚未迁移的接口。"""
-    total_song_map: Dict[int, Song]
-    """规范曲目数据的 ID 索引。"""
     hot_music_ids: List = []
     """游玩次数超过1w次的曲目数据"""
-    guess_data: List[Music]
+    guess_data: List[Song]
     """猜歌数据"""
 
     def __init__(self) -> None:
         """封装所有曲目信息以及猜歌数据，便于更新"""
         self.total_level_value_map = {}
-        self.total_song_list = []
-        self.total_song_map = {}
+        self.total_list = SongList()
+        self._song_map: Dict[int, Song] = {}
 
     def get_song(self, song_id: Union[str, int]) -> Optional[Song]:
         """按 ID 获取规范 Song。"""
         try:
-            return self.total_song_map.get(int(song_id))
+            return self._song_map.get(int(song_id))
         except (TypeError, ValueError):
             return None
 
@@ -502,14 +502,10 @@ class MaiMusic:
             None,
         )
 
-    async def get_music(self) -> None:
+    async def get_songs(self) -> None:
         """获取所有曲目数据（水鱼 + 落雪合并）"""
-        (
-            self.total_list,
-            self.total_level_value_map,
-            self.total_song_list,
-        ) = await get_music_list()
-        self.total_song_map = {song.song_id: song for song in self.total_song_list}
+        self.total_list, self.total_level_value_map = await get_song_list()
+        self._song_map = {song.song_id: song for song in self.total_list}
         self.total_level_data = self.total_list.by_level_list()
 
     async def get_music_alias(self) -> None:
@@ -522,7 +518,7 @@ class MaiMusic:
 
     async def update(self) -> None:
         """刷新曲库、别名、牌子及猜歌数据。"""
-        await self.get_music()
+        await self.get_songs()
         await self.get_music_alias()
         await self.get_plate_json()
         self.guess()
@@ -530,18 +526,20 @@ class MaiMusic:
     def guess(self):
         """初始化猜歌数据"""
         self.hot_music_ids.clear()
-        for music in self.total_list:
-            if music.stats:
-                count = 0
-                for stats in music.stats:
-                    if stats:
-                        count += stats.cnt if stats.cnt else 0
-                if count > 10000:
-                    self.hot_music_ids.append(music.id)
-        self.guess_data = list(filter(lambda x: x.id in self.hot_music_ids, self.total_list))
+        for song in self.total_list:
+            count = sum(
+                difficulty.stats.cnt or 0
+                for difficulty in song.difficulties
+                if difficulty.stats
+            )
+            if count > 10000:
+                self.hot_music_ids.append(song.song_id)
+        self.guess_data = [
+            song for song in self.total_list if song.song_id in self.hot_music_ids
+        ]
 
 
-mai = MaiMusic()
+mai = MaiSongRepository()
 
 
 class Guess:
@@ -611,9 +609,9 @@ class Guess:
         top_left_x = chosen_index % valid_regions.shape[1]
         return top_left_x, top_left_y
 
-    def pic(self, music: Music) -> Image.Image:
+    def pic(self, music: Song) -> Image.Image:
         """裁切曲绘"""
-        im = Image.open(music_picture(music.id))
+        im = Image.open(music_picture(music.song_id))
         w, h = im.size
         weights = self.calculate_frequency_weights(im)
         scale = random.uniform(0.15, 0.4)  # 裁剪尺寸范围 可在此修改
@@ -629,13 +627,13 @@ class Guess:
             raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
         music = random.choice(mai.guess_data)
         pic = self.pic(music)
-        alias_list = mai.total_alias_list.by_id(music.id)
+        alias_list = mai.total_alias_list.by_id(music.song_id)
         if not alias_list or len(alias_list) == 0:
             # 如果没有别名数据，使用歌曲ID和标题作为答案
-            answer = [str(music.id), music.title]
+            answer = [str(music.song_id), music.song_name]
         else:
-            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.id), music.title]
-            answer.append(str(music.id))
+            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.song_id), music.song_name]
+            answer.append(str(music.song_id))
         return GuessPicData(music=music, img=image_to_base64(pic), answer=answer, end=False)
 
     def guessData(self) -> GuessDefaultData:
@@ -643,23 +641,25 @@ class Guess:
         if not mai.guess_data:
             raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
         music = random.choice(mai.guess_data)
+        expert = music.difficulties[2]
+        master = music.difficulties[3]
         guess_options = random.sample([
-            f'的 Expert 难度是 {music.level[2]}',
-            f'的 Master 难度是 {music.level[3]}',
-            f'的分类是 {music.basic_info.genre}',
-            f'的版本是 {music.basic_info.version}',
-            f'的艺术家是 {music.basic_info.artist}',
+            f'的 Expert 难度是 {expert.level}',
+            f'的 Master 难度是 {master.level}',
+            f'的分类是 {music.genre}',
+            f'的版本是 {music.version_str}',
+            f'的艺术家是 {music.artist}',
             f'{"不" if music.type == "SD" else ""}是 DX 谱面',
-            f'{"没" if len(music.ds) == 4 else ""}有白谱',
-            f'的 BPM 是 {music.basic_info.bpm}'
+            f'{"没" if len(music.difficulties) == 4 else ""}有白谱',
+            f'的 BPM 是 {music.bpm}'
         ], 6)
-        alias_list = mai.total_alias_list.by_id(music.id)
+        alias_list = mai.total_alias_list.by_id(music.song_id)
         if not alias_list or len(alias_list) == 0:
             # 如果没有别名数据，使用歌曲ID和标题作为答案
-            answer = [str(music.id), music.title]
+            answer = [str(music.song_id), music.song_name]
         else:
-            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.id), music.title]
-            answer.append(str(music.id))
+            answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.song_id), music.song_name]
+            answer.append(str(music.song_id))
         pic = self.pic(music)
         return GuessDefaultData(
             music=music, 

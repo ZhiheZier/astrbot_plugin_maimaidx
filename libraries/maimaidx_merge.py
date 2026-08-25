@@ -1,19 +1,20 @@
-"""统一曲库：水鱼 + 落雪合并为 Song，再转回插件现有 Music 以复用渲染。"""
+"""将水鱼与落雪曲库合并为统一 Song。"""
 
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .. import DX_CN_VERSION, merge_alias_file, merge_music_file
 from .maimaidx_model import (
-    BasicInfo,
-    Chart,
-    Music,
+    Difficulties,
+    DivingFishSong,
+    Notes,
     Notes1,
     Notes2,
+    Song,
     Stats,
 )
 from .tool import writefile
@@ -85,45 +86,6 @@ class LXVersion(BaseModel):
 class LXSongs(BaseModel):
     songs: list[LXSong] = []
     versions: list[LXVersion] = []
-
-
-# ---------------------------------------------------------------------------
-# 统一域模型 Song
-# ---------------------------------------------------------------------------
-class Notes(BaseModel):
-    total: int = 0
-    tap: int = 0
-    hold: int = 0
-    slide: int = 0
-    touch: int = 0
-    brk: int = 0
-
-
-class Difficulties(BaseModel):
-    level_index: int
-    level: str
-    level_value: float
-    note_designer: str = ''
-    notes: Notes
-    dx_score: int = 0
-    stats: Optional[Stats] = None
-
-
-class Song(BaseModel):
-    song_id: int
-    song_name: str
-    artist: str = ''
-    genre: str = ''
-    bpm: float = 0
-    version_str: str = ''
-    version_int: int = 0
-    type: Literal['SD', 'DX'] = 'SD'
-    isnew: bool = False
-    difficulties: list[Difficulties] = []
-    cids: list[int] = []
-    kanji: Optional[str] = None
-    description: Optional[str] = None
-    is_buddy: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +163,7 @@ def append_missing_difficulty(song: Song, diffs: list[SongDifficulty]) -> None:
 
 async def merge_music_data(
     *,
-    diving_fish_list: list[Music],
+    diving_fish_list: list[DivingFishSong],
     lxns_list: Optional[LXSongs],
     stats_map: dict[str, list[Optional[Stats]]],
 ) -> tuple[list[Song], dict[str, float]]:
@@ -375,48 +337,6 @@ async def merge_music_data(
     result = sorted(song_map.values(), key=lambda x: x.song_id)
     await writefile(merge_music_file, [s.model_dump() for s in result])
     return result, level_value_map
-
-
-def _domain_notes_to_chart(notes: Notes) -> Union[Notes1, Notes2]:
-    if notes.touch:
-        return Notes2(notes.tap, notes.hold, notes.slide, notes.touch, notes.brk)
-    return Notes1(notes.tap, notes.hold, notes.slide, notes.brk)
-
-
-def song_to_music(song: Song) -> Music:
-    """Song → 现有 Music，渲染层可继续使用原字段。"""
-    charts = [
-        Chart(
-            notes=_domain_notes_to_chart(d.notes),
-            charter=d.note_designer or '',
-        )
-        for d in song.difficulties
-    ]
-    n = len(song.difficulties)
-    return Music(
-        id=str(song.song_id),
-        title=song.song_name,
-        type=song.type,
-        ds=[d.level_value for d in song.difficulties],
-        level=[d.level for d in song.difficulties],
-        cids=song.cids if song.cids else [0] * n,
-        charts=charts,
-        basic_info=BasicInfo.model_validate(
-            {
-                'title': song.song_name,
-                'artist': song.artist,
-                'genre': song.genre,
-                'bpm': int(song.bpm),
-                'from': song.version_str,
-                'is_new': song.isnew,
-            }
-        ),
-        stats=[d.stats for d in song.difficulties],
-        version_int=song.version_int,
-        kanji=song.kanji,
-        description=song.description,
-        is_buddy=song.is_buddy,
-    )
 
 
 # ---------------------------------------------------------------------------

@@ -26,6 +26,10 @@ PLATE_TABLE_PATTERN = re.compile(
     r'([極极将舞神者]舞?)$'
 )
 TABLE_REQUEST_PATTERN = re.compile(r'^/?(.+?)完成表\s*([12])?$')
+PLATE_PROGRESS_PATTERN = re.compile(
+    r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])'
+    r'([極极将舞神者]舞?)进度(.*)$'
+)
 
 
 def parse_table_request(message: str):
@@ -47,6 +51,21 @@ def parse_plate_table_args(args: str, page=None):
     if version not in ['舞', '霸'] and page is not None:
         return None
     return version, plan, page or 1
+
+
+def parse_plate_progress_request(message: str):
+    """解析牌子进度指令，兼容“进度”和“进度表”后缀。"""
+    match = PLATE_PROGRESS_PATTERN.fullmatch(message.strip())
+    if not match:
+        return None
+    version, plan, trailing = match.groups()
+    if trailing == '表':
+        username = ''
+    elif trailing.startswith('表') and len(trailing) > 1 and trailing[1].isspace():
+        username = trailing[1:].strip()
+    else:
+        username = trailing.strip()
+    return version, plan, username
 
 
 async def update_table_handler(event: AstrMessageEvent, superusers: list = None):
@@ -210,21 +229,15 @@ async def plate_process_handler(event: AstrMessageEvent):
     if at_qqid:
         qqid = at_qqid
     
-    # 匹配正则表达式
-    match = re.match(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])([極极将舞神者]舞?)进度\s?(.+)?', message_str)
-    if not match:
+    request = parse_plate_progress_request(message_str)
+    if request is None:
         return  # 不匹配则不处理
-    
-    username = ''
-    ver = match.group(1)
-    plan = match.group(2)
+    ver, plan, username = request
     
     if f'{ver}{plan}' == '真将':
         yield event.plain_result('真系没有真将哦')
         return
     
-    if match.group(3):
-        username = match.group(3).strip()
     if username:
         qqid = None
 

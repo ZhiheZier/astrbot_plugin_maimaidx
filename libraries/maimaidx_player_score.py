@@ -2,7 +2,7 @@ import random
 import time
 import traceback
 from collections import defaultdict
-from typing import Callable, DefaultDict
+from typing import DefaultDict
 
 import pyecharts.options as opts
 from pyecharts.charts import Pie
@@ -19,32 +19,23 @@ from .maimai_best_50 import (
 from .maimaidx_user import Theme, userstore
 from .maimaidx_api_data import *
 from .maimaidx_lxns import LxnsError
-from .maimaidx_model import PlanInfo, PlayInfoDefault, PlayInfoDev, RaMusic
-from .maimaidx_music import Music, mai
+from .maimaidx_model import ChartRef, PlanInfo, PlayInfoDefault, PlayInfoDev, Song
+from .maimaidx_music import mai
 from .maimaidx_source import get_plate, get_player_b50_userinfo, get_player_records
 from .tool import run_chrome_to_base64
 
-Filter = Tuple[
-    List[PlayInfoDefault],
-    List[PlayInfoDefault],
-    List[PlayInfoDefault],
-    List[PlayInfoDefault],
-    List[PlayInfoDefault]
-]
-Condition = Callable[[PlayInfoDefault], bool]
-
-
-async def music_global_data(music: Music, level_index: int) -> MessageSegment:
+async def music_global_data(music: Song, level_index: int) -> MessageSegment:
     """
     绘制曲目游玩详情
     
     Params:
-        `music`: :class:Music
+        `music`: :class:Song
         `level_index`: 难度
     Returns:
         `MessageSegment`
     """
-    stats = music.stats[level_index]
+    difficulty = music.difficulties[level_index]
+    stats = difficulty.stats
     fc_data_pair = [list(z) for z in zip([c.upper() if c else 'Not FC' for c in [''] + comboRank], stats.fc_dist)]
     acc_data_pair = [list(z) for z in zip([s.upper() for s in scoreRank], stats.dist)]
 
@@ -81,7 +72,7 @@ async def music_global_data(music: Music, level_index: int) -> MessageSegment:
         },
     )
     titleopts = opts.TitleOpts(
-        title=f'{music.id} {music.title} 「{diffs[level_index]}」',
+        title=f'{music.song_id} {music.song_name} 「{diffs[level_index]}」',
         pos_left='center',
         pos_top='20',
         title_textstyle_opts=opts.TextStyleOpts(color='#2c343c'),
@@ -114,7 +105,7 @@ class DrawScore(ScoreBaseImage):
         for h in range((self._im.size[1] // 358) + 1):
             self._im.alpha_composite(self.pattern_bg, (0, (358 + 7) * h))
 
-    def whilepic(self, data: List[RaMusic], y: int = 200):
+    def whilepic(self, data: List[ChartRef], y: int = 200):
         """
         循环绘制谱面
         
@@ -206,7 +197,7 @@ class DrawScore(ScoreBaseImage):
         completed_y: int,
         unfinished: Union[List[PlayInfoDefault], List[PlayInfoDev]],
         unfinished_y: int,
-        notstarted: List[RaMusic],
+        notstarted: List[ChartRef],
         plan: str,
         completed_len: int
     ) -> Image.Image:
@@ -246,7 +237,7 @@ class DrawScore(ScoreBaseImage):
     def draw_category(
         self, 
         category: str, 
-        data: Union[List[PlayInfoDefault], List[PlayInfoDev], List[RaMusic]],
+        data: Union[List[PlayInfoDefault], List[PlayInfoDev], List[ChartRef]],
         page: int = 1, 
         end_page: int = 1
     ) -> Image.Image:
@@ -349,27 +340,28 @@ def get_rise_score_list(
     version = list(plate_to_dx_version.values())[-1:] if type == 'DX' else list(plate_to_dx_version.values())[:-2]
     musiclist = mai.total_list.filter(level=level, ds=ds, version=version)
     for _m in musiclist:
-        if (song_id := int(_m.id)) in ignore:
+        if (song_id := _m.song_id) in ignore:
             continue
         if song_id >= 100000:
             continue
-        for index in _m.diff:
+        for index in _m.selected_difficulties:
+            difficulty = _m.difficulties[index]
             for r in achievementList[-4:]:
-                basera, rate = computeRa(_m.ds[index], r, israte=True)
+                basera, rate = computeRa(difficulty.level_value, r, israte=True)
                 if basera <= ra:
                     continue
                 if score and basera - int(score) < ra:
                     continue
                 if song_id in old_records and index in old_records[song_id]:
-                    oldra, oldrate = computeRa(_m.ds[index], old_records[song_id][index], israte=True)
+                    oldra, oldrate = computeRa(difficulty.level_value, old_records[song_id][index], israte=True)
                     if oldra >= basera:
                         continue
                     ss = RiseScore(
                         song_id=song_id,
-                        title=_m.title,
+                        title=_m.song_name,
                         type=_m.type,
                         level_index=index,
-                        ds=_m.ds[index],
+                        ds=difficulty.level_value,
                         ra=basera,
                         rate=rate,
                         achievements=r,
@@ -380,10 +372,10 @@ def get_rise_score_list(
                 else:
                     ss = RiseScore(
                         song_id=song_id,
-                        title=_m.title,
+                        title=_m.song_name,
                         type=_m.type,
                         level_index=index,
-                        ds=_m.ds[index],
+                        ds=difficulty.level_value,
                         ra=basera,
                         rate=rate,
                         achievements=r
@@ -460,36 +452,6 @@ async def rise_score_data(
     return msg
 
 
-def plate_message(
-    result: str, 
-    plan: str, 
-    music_list: List[PlayInfoDefault], 
-    played: List[Tuple[int, int]]
-) -> Union[MessageSegment, str]:
-    """
-    Params:
-        `result`: 结果
-        `plan`: 目标
-        `music_list`: 谱面列表
-        `played`: 已游玩谱面
-    Returns:
-        `Union[MessageSegment, str]`
-    """
-    for n, m in enumerate(music_list):
-        self_record = ''
-        if (m.song_id, m.level_index) in played:
-            if plan in ['将', '者']:
-                self_record = f'{m.achievements}%'
-            if plan in ['極', '极', '神']:
-                self_record = m.fc
-            if plan in '舞舞':
-                self_record = m.fs
-        result += f'No.{n + 1:02d} {f"「{m.song_id}」":>7} {f"「{diffs[m.level_index]}」":>11} 「{m.ds}」 {m.title}  {self_record}\n'
-    if len(music_list) > 10:
-        result = MessageSegment.image(image_to_base64(text_to_image(result.strip())))
-    return result
-
-
 async def player_plate_data(
     qqid: int, 
     username: str, 
@@ -509,8 +471,11 @@ async def player_plate_data(
     """
     if version in platecn:
         version = platecn[version]
-    ver, _ver = version_map.get(version, ([plate_to_dx_version.get(version)], version))
-    
+    ver, version_name = version_map.get(
+        version,
+        ([plate_to_dx_version.get(version)], version),
+    )
+
     try:
         verlist = await get_plate(qqid=qqid, username=username, version=ver)
     except (
@@ -523,99 +488,34 @@ async def player_plate_data(
         LxnsError,
     ) as e:
         return str(e)
-    
-    if plan in ['将', '者']:
-        achievement = 100 if plan == '将' else 80
-        callable_: Condition = lambda x: x.achievements < achievement
-    elif plan in ['極', '极']:
-        callable_: Condition = lambda x: not x.fc
-    elif plan == '舞舞':
-        callable_: Condition = lambda x: x.fs not in ['fsd', 'fsdp']
-    elif plan  == '神':
-        callable_: Condition = lambda x: x.fc not in ['ap', 'app']
-    else:
-        raise ValueError
-    
-    unfinished_model_list: Filter = ([], [], [], [], [])
-    unfinished: List[Tuple[int, int]] = []
-    played: List[Tuple[int, int]] = []
-    remaster: List[int] = []
-    
-    # 已游玩未完成曲目
-    if _ver not in mai.total_plate_id_list:
+
+    if version in ['舞', '霸']:
+        version_name = '舞'
+    if version_name not in mai.total_plate_id_list:
         return f'「{version}」牌子数据尚未更新，暂时无法查询该牌子进度'
-    plate_id_list = mai.total_plate_id_list[_ver]
-    if version in ['舞', '霸']:
-        remaster = mai.total_plate_id_list['舞ReMASTER']
-        for music in verlist:
-            if music.song_id not in plate_id_list:
-                continue
-            if music.level_index == 4 and music.song_id not in remaster:
-                continue
-            if callable_(music):
-                unfinished.append((music.song_id, music.level_index))
-            played.append((music.song_id, music.level_index))
-    else:
-        for music in verlist:
-            if music.song_id not in plate_id_list:
-                continue
-            if callable_(music):
-                unfinished.append((music.song_id, music.level_index))
-            played.append((music.song_id, music.level_index))
-    
-    # 未游玩未完成曲目
-    for music in mai.total_list:
-        if int(music.id) not in plate_id_list:
-            continue
-        info = PlayInfoDefault(
-            achievements=0,
-            level='',
-            level_index=0,
-            title=music.title,
-            type=music.type,
-            id=int(music.id)
+
+    from .maimaidx_plate_progress import build_plate_progress, draw_plate_progress
+
+    plate_ids = mai.total_plate_id_list[version_name]
+    songs = mai.total_list.by_id_list(plate_ids)
+    if not songs:
+        return f'「{version}」牌子曲目数据为空，请先更新曲库和牌子数据'
+    remaster_ids = (
+        mai.total_plate_id_list.get('舞ReMASTER', [])
+        if version in ['舞', '霸']
+        else []
+    )
+    try:
+        progress = build_plate_progress(
+            songs,
+            verlist,
+            plan,
+            remaster_ids=remaster_ids,
         )
-        range_ = range(5 if version in ['舞', '霸'] and int(music.id) in remaster else 4)
-        for level_index in range_:
-            if (m := (info.song_id, level_index)) not in played or m in unfinished:
-                _info = info.model_copy()
-                _info.level = music.level[level_index]
-                _info.ds = music.ds[level_index]
-                _info.level_index = level_index
-                unfinished_model_list[level_index].append(_info)
-
-    basic, advanced, expert, master, re_master = unfinished_model_list
-    
-    ramain = basic + advanced + expert + master + re_master
-    ramain.sort(key=lambda x: x.ds, reverse=True)
-    difficult = [_m for _m in ramain if _m.ds > 13.6]
-
-    appellation = username if username else '您'
-    result = dedent(f'''\
-        {appellation}的「{version}{plan}」剩余进度如下：
-        Basic剩余「{len(basic)}」首
-        Advanced剩余「{len(advanced)}」首
-        Expert剩余「{len(expert)}」首
-        Master剩余「{len(master)}」首
-    ''')
-    if version in ['舞', '霸']:
-        result += f'Re:Master剩余「{len(re_master)}」首\n'
-    
-    if len(difficult) > 0:
-        if len(difficult) < 60:
-            result += '剩余定数大于13.6的曲目：\n'
-            result = plate_message(result, plan, difficult, played)
-        else:
-            result += f'还有{len(difficult)}首大于13.6定数的曲目，加油推分捏！\n'
-    elif len(ramain) > 0:
-        if len(ramain) < 60:
-            result += '剩余曲目：\n'
-            result = plate_message(result, plan, ramain, played)
-        else:
-            result += '已经没有定数大于13.6的曲目了，加油清谱捏！\n'
-    else:
-        result = f'已经没有剩余的的曲目了，恭喜{appellation}完成「{version}{plan}」！'
-    return result
+        return draw_plate_progress(progress, version, plan)
+    except Exception as error:
+        log.error(traceback.format_exc())
+        return f'牌子进度绘图失败：{type(error).__name__}'
 
 
 async def level_process_data(
@@ -671,8 +571,8 @@ async def level_process_data(
         
         for _d in obj:
             if isinstance(_d, PlayInfoDefault):
-                _m = mai.total_list.by_id(_d.song_id)
-                ds: float = _m.ds[_d.level_index]
+                difficulty = mai.get_difficulty(_d.song_id, _d.level_index)
+                ds: float = difficulty.level_value
                 a: float = _d.achievements
                 ra, rate = computeRa(ds, a, israte=True)
                 _d.ra = ra
@@ -690,14 +590,14 @@ async def level_process_data(
                 else:
                     _p.unfinished = _d
 
-        notplayed: List[RaMusic] = []
+        notplayed: List[ChartRef] = []
         completed: Union[List[PlayInfoDefault], List[PlayInfoDev]] = []
         unfinished: Union[List[PlayInfoDefault], List[PlayInfoDev]] = []
         for m in music:
             play = music[m]
             if isinstance(play, Dict):
                 for index, p in play.items():
-                    if isinstance(p, RaMusic):
+                    if isinstance(p, ChartRef):
                         notplayed.append(p)
                     elif p.completed:
                         completed.append(p.completed)

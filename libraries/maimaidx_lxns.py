@@ -20,6 +20,7 @@ from .maimaidx_merge import LXSongs
 from .maimaidx_model import ChartInfo, PlayInfoDefault, PlayInfoDev, UserInfo
 from .maimaidx_play_result import (
     Best50,
+    Collection,
     Player,
     best50_to_userinfo,
     lxns_score_to_played,
@@ -89,6 +90,11 @@ class LxnsPlayer(BaseModel):
     course_rank: int = 0
     class_rank: int = 0
     star: int = 0
+    trophy: Optional[Collection] = None
+    icon: Optional[Collection] = None
+    name_plate: Optional[Collection] = None
+    frame: Optional[Collection] = None
+    upload_time: Optional[str] = None
 
 
 class LxnsScore(BaseModel):
@@ -298,6 +304,11 @@ def lxns_best50_to_best50(player: LxnsPlayer, best50: LxnsBest50) -> tuple[Playe
             friend_code=player.friend_code,
             class_rank=player.class_rank,
             star=player.star,
+            trophy=player.trophy,
+            icon=player.icon,
+            name_plate=player.name_plate,
+            frame=player.frame,
+            upload_time=player.upload_time,
         ),
         Best50(
             sd_total=best50.standard_total or sum(p.rating for p in sd),

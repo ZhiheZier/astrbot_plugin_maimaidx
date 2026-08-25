@@ -1,10 +1,10 @@
 from collections import namedtuple
-from typing import Any, List, Optional, Union
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
 
-##### Music
+##### Songs
 class Stats(BaseModel):
     
     cnt: Optional[float] = None
@@ -21,7 +21,7 @@ Notes1 = namedtuple('Notes', ['tap', 'hold', 'slide', 'brk'])
 Notes2 = namedtuple('Notes', ['tap', 'hold', 'slide', 'touch', 'brk'])
 
 
-class Chart(BaseModel):
+class DivingFishChart(BaseModel):
     
     notes: Union[Notes1, Notes2]
     charter: str = None
@@ -39,7 +39,7 @@ class Chart(BaseModel):
         return v
 
 
-class BasicInfo(BaseModel):
+class DivingFishBasicInfo(BaseModel):
     
     title: str
     artist: str
@@ -50,26 +50,63 @@ class BasicInfo(BaseModel):
     is_new: bool
 
 
-class Music(BaseModel):
+class DivingFishSong(BaseModel):
     
     id: str
     title: str
     type: str
     ds: List[float]
     level: List[str]
-    cids: List[int] = []
-    charts: List[Chart]
-    basic_info: BasicInfo
-    stats: Optional[List[Optional[Stats]]] = []
-    diff: Optional[List[int]] = []
-    # 合并曲库扩展字段（来自落雪 / Song）
+    cids: List[int] = Field(default_factory=list)
+    charts: List[DivingFishChart]
+    basic_info: DivingFishBasicInfo
+    stats: Optional[List[Optional[Stats]]] = Field(default_factory=list)
+
+
+class Notes(BaseModel):
+    """统一谱面物量。"""
+
+    total: int = 0
+    tap: int = 0
+    hold: int = 0
+    slide: int = 0
+    touch: int = 0
+    brk: int = 0
+
+
+class Difficulties(BaseModel):
+    """统一谱面难度。"""
+
+    level_index: int
+    level: str
+    level_value: float
+    note_designer: str = ''
+    notes: Notes
+    dx_score: int = 0
+    stats: Optional[Stats] = None
+
+
+class Song(BaseModel):
+    """水鱼与落雪合并后的统一曲目模型。"""
+
+    song_id: int
+    song_name: str
+    artist: str = ''
+    genre: str = ''
+    bpm: float = 0
+    version_str: str = ''
     version_int: int = 0
+    type: Literal['SD', 'DX'] = 'SD'
+    isnew: bool = False
+    difficulties: List[Difficulties] = Field(default_factory=list)
+    cids: List[int] = Field(default_factory=list)
     kanji: Optional[str] = None
     description: Optional[str] = None
     is_buddy: Optional[bool] = None
+    selected_difficulties: List[int] = Field(default_factory=list, exclude=True)
 
 
-class RaMusic(BaseModel):
+class ChartRef(BaseModel):
     
     id: str
     ds: float
@@ -144,7 +181,7 @@ class PushAliasStatus(BaseModel):
 ##### Guess
 class GuessData(BaseModel):
     
-    music: Music
+    music: Song
     img: str
     answer: List[str]
     end: bool = False

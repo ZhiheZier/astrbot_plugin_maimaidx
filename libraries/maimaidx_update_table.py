@@ -11,7 +11,8 @@ from .image import (
     tricolor_gradient_prism_plus,
 )
 from .maimai_best_50 import *
-from .maimaidx_music import Music, mai
+from .maimaidx_model import Song
+from .maimaidx_music import mai
 
 
 async def update_rating_table() -> str:
@@ -102,7 +103,7 @@ async def update_plate_table() -> str:
     """更新完成表"""
     try:
         version = list(_ for _ in plate_to_dx_version.keys())[1:]
-        rlv: Dict[str, List[Music]] = {}
+        rlv: Dict[str, List[Song]] = {}
         for _ in list(reversed(levelList)):
             rlv[_] = []
         if maiApi.config.saveinmem and not ScoreBaseImage.aurora_bg:
@@ -119,7 +120,7 @@ async def update_plate_table() -> str:
 
         async def draw_table(
             name: str,
-            ralv: Dict[str, List[Music]],
+            ralv: Dict[str, List[Song]],
             *,
             page: Optional[int] = None,
             remaster_ids: Optional[set[str]] = None,
@@ -142,7 +143,7 @@ async def update_plate_table() -> str:
             separator = maimaidir / 'separator.png'
             if separator.exists():
                 im.alpha_composite(Image.open(separator).convert('RGBA'), (100, 400))
-            im = generate_frosted_card(im, (50, 444, 1350, height - 120))
+            im = generate_frosted_card(im, (50, 444, 1350, current_y))
 
             dr = ImageDraw.Draw(im)
             fn = DrawText(dr, FOTNEWRODIN)
@@ -165,9 +166,13 @@ async def update_plate_table() -> str:
                 if not songs:
                     continue
                 songs.sort(
-                    key=lambda music: music.ds[
-                        4 if remaster_ids and music.id in remaster_ids and len(music.ds) > 4 else 3
-                    ],
+                    key=lambda music: music.difficulties[
+                        4
+                        if remaster_ids
+                        and str(music.song_id) in remaster_ids
+                        and len(music.difficulties) > 4
+                        else 3
+                    ].level_value,
                     reverse=True,
                 )
                 fn.draw(72, start_y + 40, 40, level, sbi.text_color, 'lm', 4, (255, 255, 255, 255))
@@ -177,11 +182,11 @@ async def update_plate_table() -> str:
                     max_row = max(max_row, row)
                     x = 180 + col * 96
                     cover_y = start_y + row * 96
-                    im.alpha_composite(Image.open(music_picture(music.id)).resize((80, 80)), (x, cover_y))
-                    is_remaster = bool(remaster_ids and music.id in remaster_ids)
+                    im.alpha_composite(Image.open(music_picture(music.song_id)).resize((80, 80)), (x, cover_y))
+                    is_remaster = bool(remaster_ids and str(music.song_id) in remaster_ids)
                     im.alpha_composite(remaster_border if is_remaster else plate_border, (x - 5, cover_y - 5))
                     color = (138, 0, 226, 255) if is_remaster else (255, 255, 255, 255)
-                    tb.draw(x + 56, cover_y + 4, 16, music.id, color, 'mm')
+                    tb.draw(x + 56, cover_y + 4, 16, music.song_id, color, 'mm')
                 start_y += (max_row + 1) * 96 + 30
 
             by = BytesIO()
@@ -202,7 +207,7 @@ async def update_plate_table() -> str:
             ralv = copy.deepcopy(rlv)
 
             for m in music:
-                ralv[m.level[3]].append(m)
+                ralv[m.difficulties[3].level].append(m)
             await draw_table(_v, ralv)
             log.info(f'{_v}代牌子更新完成')
 
@@ -213,8 +218,13 @@ async def update_plate_table() -> str:
         if wu_ids:
             wu_levels = copy.deepcopy(rlv)
             for music in mai.total_list.by_id_list(wu_ids):
-                index = 4 if music.id in wu_remaster_ids and len(music.level) > 4 else 3
-                wu_levels[music.level[index]].append(music)
+                index = (
+                    4
+                    if str(music.song_id) in wu_remaster_ids
+                    and len(music.difficulties) > 4
+                    else 3
+                )
+                wu_levels[music.difficulties[index].level].append(music)
             keys = list(wu_levels)
             split_index = keys.index('13') if '13' in keys else len(keys)
             pages = (keys[:split_index], keys[split_index:])

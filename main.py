@@ -17,7 +17,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import sse_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.1")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.2")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -245,7 +245,7 @@ class MaimaiDXPlugin(Star):
         """负责加载所有maimai相关数据（歌曲、别名等）"""
         try:
             log.info('正在获取maimai所有曲目信息')
-            await mai.get_music()
+            await mai.get_songs()
             log.info(f'歌曲数据获取完成，数量: {len(mai.total_list) if hasattr(mai, "total_list") and mai.total_list else 0}')
             
             log.info('正在获取maimai牌子数据')
@@ -897,7 +897,7 @@ class MaimaiDXPlugin(Star):
         async for result in rise_score_handler(event):
             yield result
 
-    @filter.regex(r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜])([極极将舞神者]舞?)进度\s?(.+)?$')
+    @filter.regex(r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])([極极将舞神者]舞?)进度.*$')
     async def plate_process(self, event: AstrMessageEvent):
         """牌子进度命令"""
         group_id = event.message_obj.group_id

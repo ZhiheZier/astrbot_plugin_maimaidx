@@ -115,7 +115,7 @@ async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
         yield event.plain_result('仅允许管理员执行此操作')
         return
     
-    await mai.get_music()
+    await mai.get_songs()
     await mai.get_music_alias()
     yield event.plain_result('maimai数据更新完成')
 
@@ -165,19 +165,19 @@ async def mai_today_handler(event: AstrMessageEvent):
         elif wm_value[i] == 0:
             msg += f'忌 {FORTUNE[i]}\n'
     music = mai.total_list[h % len(mai.total_list)]
-    ds = '/'.join([str(_) for _ in music.ds])
+    ds = '/'.join(str(difficulty.level_value) for difficulty in music.difficulties)
     # 动态获取 BOTNAME，确保获取最新值
     from .. import get_botname
     botname = get_botname()
     msg += f'{botname} Bot提醒您：打机时不要大力拍打或滑动哦\n今日推荐歌曲：\n'
-    msg += f'ID.{music.id} - {music.title}\n'
+    msg += f'ID.{music.song_id} - {music.song_name}\n'
     msg += ds
     
     # 构建消息链：文本 + 图片
     chain = [Comp.Plain(msg)]
     
     # 添加图片
-    music_img_path = music_picture(music.id)
+    music_img_path = music_picture(music.song_id)
     if music_img_path.exists():
         chain.append(Comp.Image.fromFileSystem(str(music_img_path)))
     
@@ -216,7 +216,7 @@ async def mai_what_handler(event: AstrMessageEvent):
                     ds = round(_ra / 22.4, 1)
                     musiclist = mai.total_list.filter(ds=(ds, ds + 1))
                     for _m in musiclist:
-                        if int(_m.id) in ignore:
+                        if _m.song_id in ignore:
                             musiclist.remove(_m)
                     music = musiclist.random()
             except (UserNotFoundError, UserDisabledQueryError):

@@ -653,5 +653,18 @@ class MaimaiAPI:
                 return None
             return await res.read()
 
+    async def online_asset(self, asset_type: str, file_name: str) -> Optional[bytes]:
+        """从上游素材站获取头像或姓名框素材。"""
+        url = f'https://www.yuzuchan.moe/assets/maimaidx/{asset_type}/{file_name}'
+        try:
+            async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+                async with session.get(url) as res:
+                    if res.status != 200:
+                        return None
+                    content = await res.read()
+                    return content or None
+        except (ClientError, asyncio.TimeoutError):
+            return None
+
 
 maiApi = MaimaiAPI()

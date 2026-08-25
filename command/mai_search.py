@@ -1,23 +1,22 @@
 import re
-from re import Match
 from textwrap import dedent
-from typing import List, Tuple
+from typing import List
 
 import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import SONGS_PER_PAGE, diffs, log, is_reply_enabled
+from .. import is_reply_enabled
 from ..command.mai_base import append_theme_source_tip, convert_message_segment_to_chain
-from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import *
 from ..libraries.maimaidx_model import AliasStatus
-from ..libraries.maimaidx_music import guess, mai
+from ..libraries.maimaidx_music import SongList, guess, mai
 from ..libraries.maimaidx_music_info import draw_music_info
+from ..libraries.maimaidx_song_list import draw_song_list
 
 
-def song_level(ds1: float, ds2: float) -> List[Tuple[str, str, float, str]]:
+def song_level(ds1: float, ds2: float) -> SongList:
     """
     查询定数范围内的乐曲
     
@@ -27,14 +26,20 @@ def song_level(ds1: float, ds2: float) -> List[Tuple[str, str, float, str]]:
     Return:
         `result`: 查询结果
     """
-    result: List[Tuple[str, str, float, str]] = []
     music_data = mai.total_list.filter(ds=(ds1, ds2))
-    for music in sorted(music_data, key=lambda x: int(x.id)):
-        if int(music.id) >= 100000:
-            continue
-        for i in music.diff:
-            result.append((music.id, music.title, music.ds[i], diffs[i]))
-    return result
+    return SongList(
+        music
+        for music in sorted(music_data, key=lambda song: song.song_id)
+        if music.song_id < 100000
+    )
+
+
+def song_list_chain(event: AstrMessageEvent, songs, page: int, title: str):
+    image = draw_song_list(songs, page, title=title)
+    chain = convert_message_segment_to_chain(image)
+    if is_reply_enabled():
+        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+    return chain
 
 
 async def search_music_handler(event: AstrMessageEvent):
@@ -53,10 +58,15 @@ async def search_music_handler(event: AstrMessageEvent):
     else:
         name = message_str
     
-    page = 1
     if not name:
         yield event.plain_result('请输入关键词')
         return
+
+    page = 1
+    parts = name.split()
+    if len(parts) >= 2 and parts[-1].isdigit():
+        page = int(parts[-1])
+        name = ' '.join(parts[:-1])
     
     result = mai.total_list.filter(title_search=name)
     if len(result) == 0:
@@ -71,30 +81,8 @@ async def search_music_handler(event: AstrMessageEvent):
         yield event.chain_result(chain)
         return
         
-    search_result = ''
-    result.sort(key=lambda i: int(i.id))
-    for i, music in enumerate(result):
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            search_result += f'{f"「{music.id}」":<7} {music.title}\n'
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    img = text_to_image(search_result)
-    img_base64 = image_to_base64(img)
-    import tempfile
-    import base64
-    if img_base64.startswith('base64://'):
-        img_base64 = img_base64[9:]
-    img_data = base64.b64decode(img_base64)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-        temp_file.write(img_data)
-        temp_file_path = temp_file.name
-    chain = [Comp.Image.fromFileSystem(temp_file_path)]
-    if is_reply_enabled():
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-    yield event.chain_result(chain)
+    result.sort(key=lambda song: song.song_id)
+    yield event.chain_result(song_list_chain(event, result, page, '曲目搜索'))
 
 
 async def search_base_handler(event: AstrMessageEvent):
@@ -143,34 +131,12 @@ async def search_base_handler(event: AstrMessageEvent):
         result = song_level(float(ds1), float(ds2))
     except ValueError:
         yield event.plain_result('命令格式错误，请使用纯数字定数，如 13 或 13.7')
+        return
     if not result:
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    search_result = ''
-    for i, _result in enumerate(result):
-        id, title, ds, diff = _result
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            search_result += f'{f"「{id}」":<7}{f"「{diff}」":<11}{f"「{ds}」"} {title}\n'
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    img = text_to_image(search_result)
-    img_base64 = image_to_base64(img)
-    import tempfile
-    import base64
-    if img_base64.startswith('base64://'):
-        img_base64 = img_base64[9:]
-    img_data = base64.b64decode(img_base64)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-        temp_file.write(img_data)
-        temp_file_path = temp_file.name
-    chain = [Comp.Image.fromFileSystem(temp_file_path)]
-    if is_reply_enabled():
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-    yield event.chain_result(chain)
+    yield event.chain_result(song_list_chain(event, result, page, '定数搜索'))
 
 
 async def search_bpm_handler(event: AstrMessageEvent):
@@ -216,32 +182,8 @@ async def search_bpm_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    search_result = ''
-    page = max(min(page, len(result) // SONGS_PER_PAGE + 1), 1)
-    result.sort(key=lambda x: int(x.basic_info.bpm))
-    
-    for i, m in enumerate(result):
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            search_result += f'{f"「{m.id}」":<7}{f"「BPM {m.basic_info.bpm}」":<9} {m.title} \n'
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    img = text_to_image(search_result)
-    img_base64 = image_to_base64(img)
-    import tempfile
-    import base64
-    if img_base64.startswith('base64://'):
-        img_base64 = img_base64[9:]
-    img_data = base64.b64decode(img_base64)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-        temp_file.write(img_data)
-        temp_file_path = temp_file.name
-    chain = [Comp.Image.fromFileSystem(temp_file_path)]
-    if is_reply_enabled():
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-    yield event.chain_result(chain)
+    result.sort(key=lambda song: song.bpm)
+    yield event.chain_result(song_list_chain(event, result, page, 'BPM 搜索'))
 
 
 async def search_artist_handler(event: AstrMessageEvent):
@@ -286,30 +228,7 @@ async def search_artist_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    search_result = ''
-    page = max(min(page, len(result) // SONGS_PER_PAGE + 1), 1)
-    for i, m in enumerate(result):
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            search_result += f'{f"「{m.id}」":<7}{f"「{m.basic_info.artist}」"} - {m.title}\n'
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    img = text_to_image(search_result)
-    img_base64 = image_to_base64(img)
-    import tempfile
-    import base64
-    if img_base64.startswith('base64://'):
-        img_base64 = img_base64[9:]
-    img_data = base64.b64decode(img_base64)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-        temp_file.write(img_data)
-        temp_file_path = temp_file.name
-    chain = [Comp.Image.fromFileSystem(temp_file_path)]
-    if is_reply_enabled():
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-    yield event.chain_result(chain)
+    yield event.chain_result(song_list_chain(event, result, page, '曲师搜索'))
 
 
 async def search_charter_handler(event: AstrMessageEvent):
@@ -354,37 +273,7 @@ async def search_charter_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    search_result = ''
-    page = max(min(page, len(result) // SONGS_PER_PAGE + 1), 1)
-    for i, m in enumerate(result):
-        if (page - 1) * SONGS_PER_PAGE <= i < page * SONGS_PER_PAGE:
-            diff_charter = zip([diffs[d] for d in m.diff], [m.charts[d].charter for d in m.diff])
-            diff_parts = [
-                f"{f'「{d}」':<9}{f'「{c}」'}"
-                for d, c in diff_charter
-            ]
-            diff_str = " ".join(diff_parts)
-            line = f"{f'「{m.id}」':<7}{diff_str} {m.title}\n"
-            search_result += line
-    search_result += (
-        f'第「{page}」页，'
-        f'共「{len(result) // SONGS_PER_PAGE + 1}」页。'
-        '请使用「id xxxxx」查询指定曲目。'
-    )
-    img = text_to_image(search_result)
-    img_base64 = image_to_base64(img)
-    import tempfile
-    import base64
-    if img_base64.startswith('base64://'):
-        img_base64 = img_base64[9:]
-    img_data = base64.b64decode(img_base64)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-        temp_file.write(img_data)
-        temp_file_path = temp_file.name
-    chain = [Comp.Image.fromFileSystem(temp_file_path)]
-    if is_reply_enabled():
-        chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
-    yield event.chain_result(chain)
+    yield event.chain_result(song_list_chain(event, result, page, '谱师搜索'))
 
 
 async def search_alias_song_handler(event: AstrMessageEvent):
@@ -489,8 +378,8 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         return
     elif len(result) < 50:
         msg = f'未找到别名为「{name}」的歌曲，但找到「{len(result)}」个相似标题的曲目：\n'
-        for music in sorted(result, key=lambda x: int(x.id)):
-            msg += f'{f"「{music.id}」":<7} {music.title}\n'
+        for music in sorted(result, key=lambda song: song.song_id):
+            msg += f'{f"「{music.song_id}」":<7} {music.song_name}\n'
         msg += '请使用「id xxxxx」查询指定曲目。'
         yield event.plain_result(msg.strip())
         return

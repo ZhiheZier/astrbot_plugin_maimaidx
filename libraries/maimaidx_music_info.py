@@ -4,7 +4,8 @@ from .. import MessageSegment, get_botname
 from .image import draw_text_with_font_fallback
 from .maimai_best_50 import *
 from .maimaidx_lxns import LxnsError
-from .maimaidx_music import Music, mai
+from .maimaidx_model import Song
+from .maimaidx_music import mai
 
 
 def newbestscore(song_id: str, lv: int, value: int, bestlist: List[ChartInfo]) -> int:
@@ -24,8 +25,16 @@ def get_best_rating(ds: float) -> List[int]:
     return sorted(ra, reverse=True)
 
 
+def format_fitting(fit_diff: Optional[float]) -> str:
+    return f'擬 - {fit_diff:.2f}' if fit_diff is not None else '-'
+
+
+def format_rating_gain(value: int, gain: Optional[int]) -> Union[int, str]:
+    return value if not gain else f'{value}(↑{gain})'
+
+
 async def draw_music_info(
-    music: Music, 
+    music: Song,
     qqid: Optional[int] = None, 
     user: Optional[UserInfo] = None
 ) -> MessageSegment:
@@ -53,7 +62,7 @@ async def draw_music_info(
                 player = await get_player_b50_userinfo(qqid=qqid)
             else:
                 player = user
-            if music.basic_info.version == list(plate_to_dx_version.values())[-1]:
+            if music.version_str == list(plate_to_dx_version.values())[-1]:
                 bestlist = player.charts.dx
                 isfull = bool(len(bestlist) == 15)
             else:
@@ -67,7 +76,7 @@ async def draw_music_info(
         calc = False
 
     # 宴会場曲目走专用模板
-    if music.basic_info.genre == '宴会場':
+    if music.genre == '宴会場':
         return await draw_music_banquet_info(music)
 
     im = Image.open(themed_path(theme, 'chart_info.png')).convert('RGBA')
@@ -79,60 +88,65 @@ async def draw_music_info(
     default_color = theme.color
 
     im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (65, 25))
-    if music.basic_info.is_new:
+    if music.isnew:
         im.alpha_composite(Image.open(maimaidir / 'UI_CMN_TabTitle_NewSong.png').resize((249, 120)), (842, 100))
-    songbg = Image.open(music_picture(music.id)).resize((242, 242))
+    songbg = Image.open(music_picture(music.song_id)).resize((242, 242))
     im.alpha_composite(songbg, (133, 197))
-    im.alpha_composite(Image.open(maimaidir / f'{music.basic_info.version}.png').resize((182, 90)), (800, 370))
+    im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((182, 90)), (800, 370))
     im.alpha_composite(Image.open(maimaidir / f'{music.type}.png').resize((80, 30)), (295, 410))
 
-    title = music.title
+    title = music.song_name
     if coloumWidth(title) > 40:
         title = changeColumnWidth(title, 39) + '...'
     fn.draw(405, 220, 28, title, default_color, 'lm')
-    artist = music.basic_info.artist
+    artist = music.artist
     if coloumWidth(artist) > 50:
         artist = changeColumnWidth(artist, 49) + '...'
     fn.draw(407, 265, 20, artist, default_color, 'lm')
-    fn.draw(460, 345, 24, music.basic_info.bpm, default_color, 'lm')
-    fn.draw(405, 435, 22, f'ID {music.id}', default_color, 'lm')
-    mr.draw(665, 435, 24, music.basic_info.genre, default_color, 'mm')
+    fn.draw(460, 345, 24, music.bpm, default_color, 'lm')
+    fn.draw(405, 435, 22, f'ID {music.song_id}', default_color, 'lm')
+    mr.draw(665, 435, 24, music.genre, default_color, 'mm')
 
-    for num, v in enumerate(music.charts):
+    for num, difficulty in enumerate(music.difficulties):
         if num == 4:
             color = (255, 255, 255, 255)
         else:
             color = (255, 255, 255, 255)
         spacing = 70 * num
-        fn.draw(120, 590 + spacing, 22, f'{music.level[num]}({music.ds[num]})', color, 'mm')
-        fitting = f'{round(music.stats[num].fit_diff, 2):.2f}' if music.stats and music.stats[num] else '-'
+        fn.draw(120, 590 + spacing, 22, f'{difficulty.level}({difficulty.level_value})', color, 'mm')
+        fitting = format_fitting(
+            difficulty.stats.fit_diff if difficulty.stats else None
+        )
         fn.draw(120, 613 + spacing, 15, fitting, (255, 255, 255, 255), 'mm')
-        charter = music.charts[num].charter
+        charter = difficulty.note_designer
         if coloumWidth(charter) > 19:
             charter = changeColumnWidth(charter, 18) + '...'
         mr.draw(310, 590 + spacing, 20, charter, default_color, 'mm')
-        notes = list(music.charts[num].notes)
-        note_values = [sum(notes)] + list(notes)
-        if len(notes) == 4:
-            note_values.insert(4, '-')
+        notes = difficulty.notes
+        note_values = [
+            notes.total,
+            notes.tap,
+            notes.hold,
+            notes.slide,
+            notes.touch if music.type == 'DX' else '-',
+            notes.brk,
+        ]
         for n in range(6):
             fn.draw(480 + 122 * n, 590 + spacing, 25, note_values[n] if n < len(note_values) else '-', default_color, 'mm')
         if num > 1:
-            ra = get_best_rating(music.ds[num])
+            ra = get_best_rating(difficulty.level_value)
             for _n, value in enumerate(ra):
                 size = 22
                 if not calc:
                     rating = value
                 elif not isfull:
                     size = 17
-                    rating = f'{value}(+{value})'
+                    rating = format_rating_gain(value, value)
                 elif value > bestlist[-1].ra:
-                    new = newbestscore(music.id, num, value, bestlist)
-                    if new == 0:
-                        rating = value
-                    else:
+                    new = newbestscore(str(music.song_id), num, value, bestlist)
+                    rating = format_rating_gain(value, new)
+                    if new:
                         size = 17
-                        rating = f'{value}(+{new})'
                 else:
                     rating = value
                 fn.draw(295 + 125 * _n, 1017 + 46 * (num - 2), size, rating, default_color, 'mm')
@@ -144,7 +158,7 @@ async def draw_music_info(
     return MessageSegment.image(image_to_base64(im))
 
 
-async def draw_music_banquet_info(music: Music) -> MessageSegment:
+async def draw_music_banquet_info(music: Song) -> MessageSegment:
     """绘制宴会場谱面信息"""
     from .maimaidx_user import Theme
 
@@ -173,34 +187,39 @@ async def draw_music_banquet_info(music: Music) -> MessageSegment:
     # logo
     im.alpha_composite(Image.open(themed_path(Theme.PRISM_PLUS, 'logo.png')).resize((249, 120)), (10, 35))
     # new
-    if music.basic_info.is_new:
+    if music.isnew:
         im.alpha_composite(Image.open(maimaidir / 'UI_CMN_TabTitle_NewSong.png').resize((249, 120)), (950, 165))
     # cover
-    im.alpha_composite(Image.open(music_picture(music.id)).resize((242, 242)), (133, 246))
+    im.alpha_composite(Image.open(music_picture(music.song_id)).resize((242, 242)), (133, 246))
     # version
-    im.alpha_composite(Image.open(maimaidir / f'{music.basic_info.version}.png').resize((182, 90)), (800, 415))
+    im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((182, 90)), (800, 415))
 
     fn.draw(216, p_y - 28, 18, music.kanji or '', anchor='mm')
-    title = music.title
+    title = music.song_name
     if coloumWidth(title) > 36:
         title = changeColumnWidth(title, 35) + '...'
     fn.draw(405, 265, 28, title, anchor='lm', stroke_width=3, stroke_fill=stroke_color)
-    artist = music.basic_info.artist
+    artist = music.artist
     if coloumWidth(artist) > 50:
         artist = changeColumnWidth(artist, 49) + '...'
     fn.draw(407, 320, 20, artist, anchor='lm', stroke_width=3, stroke_fill=stroke_color)
-    fn.draw(460, 393, 24, music.basic_info.bpm, anchor='lm', stroke_width=3, stroke_fill=stroke_color)
-    fn.draw(405, 475, 22, f'ID {music.id}', anchor='lm', stroke_width=3, stroke_fill=stroke_color)
-    fn.draw(680, 475, 22, music.basic_info.genre, anchor='mm', stroke_width=3, stroke_fill=stroke_color)
+    fn.draw(460, 393, 24, music.bpm, anchor='lm', stroke_width=3, stroke_fill=stroke_color)
+    fn.draw(405, 475, 22, f'ID {music.song_id}', anchor='lm', stroke_width=3, stroke_fill=stroke_color)
+    fn.draw(680, 475, 22, music.genre, anchor='mm', stroke_width=3, stroke_fill=stroke_color)
     fn.draw(595, 595, 25, music.description or '', anchor='mm')
-    fn.draw(180, p_y + 28, 24, f'Lv. {music.level[0]}', anchor='mm', stroke_width=3, stroke_fill=stroke_color)
+    fn.draw(180, p_y + 28, 24, f'Lv. {music.difficulties[0].level}', anchor='mm', stroke_width=3, stroke_fill=stroke_color)
 
     note_fields = ('total', 'tap', 'hold', 'slide', 'touch', 'brk')
-    for idx, chart in enumerate(music.charts):
-        notes = list(chart.notes)
-        note_vals = [sum(notes)] + notes
-        if len(notes) == 4:
-            note_vals.insert(4, '-')
+    for idx, difficulty in enumerate(music.difficulties):
+        notes = difficulty.notes
+        note_vals = [
+            notes.total,
+            notes.tap,
+            notes.hold,
+            notes.slide,
+            notes.touch if music.type == 'DX' else '-',
+            notes.brk,
+        ]
         for n, field in enumerate(note_fields):
             fn.draw(
                 330 + 140 * n, base_y + step_y * idx, 25,
@@ -235,7 +254,9 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
             raise MusicNotPlayError
 
         music = mai.total_list.by_id(music_id)
-        diff: List[Union[None, PlayInfoDev, PlayInfoDefault]] = [None for _ in music.ds]
+        diff: List[Union[None, PlayInfoDev, PlayInfoDefault]] = [
+            None for _ in music.difficulties
+        ]
         for _d in data:
             if _d.level_index < len(diff):
                 diff[_d.level_index] = _d
@@ -259,21 +280,21 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (0, 34))
         cover = Image.open(music_picture(music_id))
         im.alpha_composite(cover.resize((300, 300)), (100, 260))
-        im.alpha_composite(Image.open(maimaidir / f'info_{category[music.basic_info.genre]}.png'), (100, 260))
-        im.alpha_composite(Image.open(maimaidir / f'{music.basic_info.version}.png').resize((183, 90)), (295, 205))
+        im.alpha_composite(Image.open(maimaidir / f'info_{category[music.genre]}.png'), (100, 260))
+        im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((183, 90)), (295, 205))
         im.alpha_composite(Image.open(maimaidir / f'{music.type}.png').resize((55, 20)), (350, 560))
         
         color = theme.color
-        artist = music.basic_info.artist
+        artist = music.artist
         if coloumWidth(artist) > 58:
             artist = changeColumnWidth(artist, 57) + '...'
         mr.draw(255, 595, 12, artist, color, 'mm')
-        title = music.title
+        title = music.song_name
         if coloumWidth(title) > 38:
             title = changeColumnWidth(title, 37) + '...'
         mr.draw(255, 622, 18, title, color, 'mm')
-        tb.draw(160, 720, 22, music.id, color, 'mm')
-        tb.draw(380, 720, 22, music.basic_info.bpm, color, 'mm')
+        tb.draw(160, 720, 22, music.song_id, color, 'mm')
+        tb.draw(380, 720, 22, music.bpm, color, 'mm')
         tb.draw(1140, 737, 18, f'Data from {get_service(qqid).value}', color, 'rm')
 
         y = 100
@@ -283,7 +304,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
                 im.alpha_composite(Image.open(themed_path(theme, 'ra_dx.png')).resize((102, 44)), (850, 272 + y * num))
                 if dev:
                     dxscore = info.dxScore
-                    _dxscore = sum(music.charts[num].notes) * 3
+                    _dxscore = music.difficulties[num].dx_score
                     dxnum = dxScore(dxscore / _dxscore * 100)
                     rating, rate = info.ra, score_Rank_l[info.rate]
                     if dxnum != 0:
@@ -293,7 +314,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
                         )
                     tb.draw(916, 304 + y * num, 13, f'{dxscore}/{_dxscore}', color, 'mm')
                 else:
-                    rating, rate = computeRa(music.ds[num], info.achievements, israte=True)
+                    rating, rate = computeRa(music.difficulties[num].level_value, info.achievements, israte=True)
                     
                 im.alpha_composite(Image.open(maimaidir / 'fcfs.png'), (965, 265 + y * num))
                 if info.fc:
@@ -313,10 +334,10 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
                 )
 
                 tb.draw(510, 292 + y * num, 42, f'{info.achievements:.4f}%', color, 'lm')
-                tb.draw(685, 248 + y * num, 25, music.ds[num], anchor='mm')
+                tb.draw(685, 248 + y * num, 25, music.difficulties[num].level_value, anchor='mm')
                 tb.draw(915, 283 + y * num, 18, rating, color, 'mm')
             else:
-                tb.draw(685, 248 + y * num, 25, music.ds[num], anchor='mm')
+                tb.draw(685, 248 + y * num, 25, music.difficulties[num].level_value, anchor='mm')
                 mr.draw(800, 302 + y * num, 30, '未游玩', color, 'mm')
         if len(diff) == 4:
             mr.draw(800, 302 + y * 4, 30, '没有该难度', color, 'mm')
@@ -506,231 +527,6 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
     return msg
 
 
-async def _draw_plate_table_legacy(qqid: int, version: str, plan: str) -> Union[MessageSegment, str]:
-    """
-    绘制完成表
-    
-    Params:
-        `qqid`: QQID
-        `version`: 版本
-        `plan`: 计划
-    Returns:
-        `Union[MessageSegment, str]`
-    """
-    try:
-        if version in platecn:
-            version = platecn[version]
-        ver, _ver = version_map.get(version, ([plate_to_dx_version[version]], version))
-
-        if _ver not in mai.total_plate_id_list:
-            return f'「{version}」牌子数据尚未更新，暂时无法查询该牌子完成表'
-        music_id_list = mai.total_plate_id_list[_ver]
-        music = mai.total_list.by_id_list(music_id_list)
-        plate_total_num = len(music_id_list)
-        playerdata: List[PlayInfoDefault] = []
-        
-        from .maimaidx_source import get_plate
-        obj = await get_plate(qqid=qqid, version=ver)
-        for _d in obj:
-            if _d.song_id not in music_id_list:
-                continue
-            _music = mai.total_list.by_id(_d.song_id)
-            _d.table_level = _music.level
-            _d.ds = _music.ds[_d.level_index]
-            playerdata.append(_d)
-
-        ra: Dict[str, Dict[str, List[Optional[PlayInfoDefault]]]] = {}
-        """
-        {
-            "14+": {
-                "365": [None, None, None, PlayInfoDefault, None],
-                ...
-            },
-            "14": {
-                ...
-            }
-        }
-        """
-        music.sort(key=lambda x: x.ds[3], reverse=True)
-        number = 4 if version not in ['霸', '舞'] else 5
-        for _m in music:
-            if _m.level[3] not in ra:
-                ra[_m.level[3]] = {}
-            ra[_m.level[3]][_m.id] = [None for _ in range(number)]
-        for _d in playerdata:
-            if number == 4 and _d.level_index == 4:
-                continue
-            ra[_d.table_level[3]][str(_d.song_id)][_d.level_index] = _d
-        
-        finished_bg = [Image.open(maimaidir / f't_{_}.png') for _ in range(5)]
-        unfinished_bg = Image.open(maimaidir / 'unfinished_2.png')
-        complete_bg = Image.open(maimaidir / 'complete_2.png')
-        progress_big = Image.open(maimaidir / 'progress_big.png')
-        progress_bg_img = Image.open(maimaidir / 'plate_progress.png') if (maimaidir / 'plate_progress.png').exists() else None
-        progress_small_img = Image.open(maimaidir / 'progress_small.png') if (maimaidir / 'progress_small.png').exists() else None
-
-        im = Image.open(platedir / f'{version}.png')
-        draw = ImageDraw.Draw(im)
-        mr = DrawText(draw, SIYUAN)
-        fn = DrawText(draw, FOTNEWRODIN)
-        default_color = (124, 129, 255, 255)
-        
-        # 进度面板背景
-        if progress_bg_img:
-            im.alpha_composite(progress_bg_img, (175, 20))
-        plate_title = normalize_plate_filename(f'{version}{"極" if plan == "极" else plan}')
-        plate_title_path = plate_version_dir / f'{plate_title}.png'
-        if not plate_title_path.exists():
-            plate_title_path = plate_version_dir / f'{version}{"極" if plan == "极" else plan}.png'
-        if plate_title_path.exists():
-            im.alpha_composite(Image.open(plate_title_path).resize((1000, 161)), (200, 45))
-        else:
-            log.warning(f'未找到牌子标题素材：{plate_title}')
-        
-        lv: List[set[int]] = [set() for _ in range(number)]
-        finished_songs: set[int] = set()
-        START_Y = 490
-        if plan == '极' or plan == '極':
-            for level in reversed(levelList):
-                if level not in ra:
-                    continue
-                songs = ra[level]
-                max_row = 0
-                for num, _id in enumerate(songs):
-                    row, col = divmod(num, 12)
-                    max_row = max(max_row, row)
-                    x = 180 + col * 96
-                    cover_y = START_Y + row * 96
-                    f: List[int] = []
-                    for n, play in enumerate(ra[level][_id]):
-                        if play is None or not play.fc: continue
-                        if n == 3:
-                            finished_songs.add(int(_id))
-                            im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
-                            fc = Image.open(maimaidir / f'UI_CHR_PlayBonus_{fcl[play.fc]}.png').resize((60, 60))
-                            im.alpha_composite(fc, (x + 10, cover_y + 12))
-                        lv[n].add(play.song_id)
-                        f.append(n)
-                    for n in f:
-                        im.alpha_composite(finished_bg[n], (x + 4 + 19 * n, cover_y + 63))
-                START_Y += (max_row + 1) * 96 + 30
-        if plan == '将':
-            for level in reversed(levelList):
-                if level not in ra:
-                    continue
-                songs = ra[level]
-                max_row = 0
-                for num, _id in enumerate(songs):
-                    row, col = divmod(num, 12)
-                    max_row = max(max_row, row)
-                    x = 180 + col * 96
-                    cover_y = START_Y + row * 96
-                    f: List[int] = []
-                    for n, play in enumerate(ra[level][_id]):
-                        if play is None or play.achievements < 100: continue
-                        if n == 3:
-                            finished_songs.add(int(_id))
-                            im.alpha_composite(complete_bg if play.achievements >= 100 else unfinished_bg, (x + 1, cover_y + 1))
-                            rate = computeRa(play.ds, play.achievements, onlyrate=True)
-                            rank = Image.open(themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')).resize((80, 36))
-                            im.alpha_composite(rank, (x, cover_y + 22))
-                        lv[n].add(play.song_id)
-                        f.append(n)
-                    for n in f:
-                        im.alpha_composite(finished_bg[n], (x + 4 + 19 * n, cover_y + 63))
-                START_Y += (max_row + 1) * 96 + 30
-        if plan == '神':
-            _fc = ['ap', 'app']
-            for level in reversed(levelList):
-                if level not in ra:
-                    continue
-                songs = ra[level]
-                max_row = 0
-                for num, _id in enumerate(songs):
-                    row, col = divmod(num, 12)
-                    max_row = max(max_row, row)
-                    x = 180 + col * 96
-                    cover_y = START_Y + row * 96
-                    f: List[int] = []
-                    for n, play in enumerate(ra[level][_id]):
-                        if play is None or play.fc not in _fc: continue
-                        if n == 3:
-                            finished_songs.add(int(_id))
-                            im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
-                            ap = Image.open(maimaidir / f'UI_CHR_PlayBonus_{fcl[play.fc]}.png').resize((60, 60))
-                            im.alpha_composite(ap, (x + 10, cover_y + 12))
-                        lv[n].add(play.song_id)
-                        f.append(n)
-                    for n in f:
-                        im.alpha_composite(finished_bg[n], (x + 4 + 19 * n, cover_y + 63))
-                START_Y += (max_row + 1) * 96 + 30
-        if plan == '舞舞':
-            fs = ['fsd', 'fdx', 'fsdp', 'fdxp']
-            for level in reversed(levelList):
-                if level not in ra:
-                    continue
-                songs = ra[level]
-                max_row = 0
-                for num, _id in enumerate(songs):
-                    row, col = divmod(num, 12)
-                    max_row = max(max_row, row)
-                    x = 180 + col * 96
-                    cover_y = START_Y + row * 96
-                    f: List[int] = []
-                    for n, play in enumerate(ra[level][_id]):
-                        if play is None or play.fs not in fs: continue
-                        if n == 3:
-                            finished_songs.add(int(_id))
-                            im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
-                            fsd = Image.open(maimaidir / f'UI_CHR_PlayBonus_{fsl[play.fs]}.png').resize((60, 60))
-                            im.alpha_composite(fsd, (x + 10, cover_y + 12))
-                        lv[n].add(play.song_id)
-                        f.append(n)
-                    for n in f:
-                        im.alpha_composite(finished_bg[n], (x + 4 + 19 * n, cover_y + 63))
-                START_Y += (max_row + 1) * 96 + 30
-        
-        # 进度条与统计面板
-        complete_count = len(finished_songs)
-        progress = complete_count / plate_total_num if plate_total_num > 0 else 0
-        if progress != 0:
-            bar = progress_big.crop((0, 0, int(993 * progress), 92))
-            im.alpha_composite(bar, (204, 219))
-        complete_text = 'COMPLETED!!!' if complete_count == plate_total_num else f'{complete_count}/{plate_total_num}'
-        fn.draw(700, 240, 30, complete_text, default_color, 'mm', 3, (255, 255, 255, 255))
-        fn.draw(1190, 240, 30, f'{round(progress * 100, 2)}%', default_color, 'rm', 3, (255, 255, 255, 255))
-        
-        stats_color = ScoreBaseImage.id_color.copy()
-        stats_start_x, stats_gap_x, stats_start_y = 320, 253, 300
-        for _l in range(number):
-            x_pos = stats_start_x + _l * stats_gap_x
-            complete_sum_group = len(lv[_l])
-            plate_count = plate_total_num
-            progress_group = complete_sum_group / plate_count if plate_count > 0 else 0
-            if progress_group != 0 and progress_small_img:
-                bar_small = progress_small_img.crop((0, 0, int(230 * progress_group), 46))
-                im.alpha_composite(bar_small, (x_pos - 115, 326))
-            fn.draw(x_pos, stats_start_y, 40, complete_sum_group, stats_color[_l], 'mm', 4, (255, 255, 255, 255))
-            fn.draw(x_pos + 115, stats_start_y + 20, 14, f'/{plate_count}', stats_color[_l], 'rd', 3, (255, 255, 255, 255))
-            fn.draw(x_pos + 115, 343, 20, f'{round(progress_group * 100, 2)}%', default_color, 'rm', 2, (255, 255, 255, 255))
-        
-        msg = MessageSegment.image(image_to_base64(im))
-    except (
-        UserNotFoundError,
-        UserNotExistsError,
-        UserDisabledQueryError,
-        TokenError,
-        TokenDisableError,
-        TokenNotFoundError,
-        LxnsError,
-    ) as e:
-        msg = str(e)
-    except Exception as e:
-        log.error(traceback.format_exc())
-        msg = f'未知错误：{type(e)}\n请联系Bot管理员'
-    return msg
-
-
 async def draw_plate_table(
     qqid: int,
     version: str,
@@ -745,7 +541,13 @@ async def draw_plate_table(
         if is_wu and page not in (1, 2):
             return '舞系和霸者完成表仅支持第 1、2 页'
 
-        ver, version_name = version_map.get(version, ([plate_to_dx_version[version]], version))
+        version_info = version_map.get(version)
+        if version_info is None:
+            dx_version = plate_to_dx_version.get(version)
+            if dx_version is None:
+                return f'不支持「{version}」版本的完成表'
+            version_info = ([dx_version], version)
+        ver, version_name = version_info
         if is_wu:
             version_name = '舞'
         if version_name not in mai.total_plate_id_list:
@@ -760,17 +562,24 @@ async def draw_plate_table(
         )
         plate_total_num = len(music_id_list)
 
-        def display_index(item: Music) -> int:
-            return 4 if item.id in remaster_ids and len(item.level) > 4 else 3
+        def display_index(item: Song) -> int:
+            return 4 if str(item.song_id) in remaster_ids and len(item.difficulties) > 4 else 3
 
-        music.sort(key=lambda item: item.ds[display_index(item)], reverse=True)
-        level_by_id = {item.id: item.level[display_index(item)] for item in music}
+        music.sort(
+            key=lambda item: item.difficulties[display_index(item)].level_value,
+            reverse=True,
+        )
+        level_by_id = {
+            str(item.song_id): item.difficulties[display_index(item)].level
+            for item in music
+        }
         result_map: Dict[str, Dict[str, List[Optional[PlayInfoDefault]]]] = {
             level: {} for level in reversed(levelList)
         }
         for item in music:
-            slot_count = 5 if item.id in remaster_ids else 4
-            result_map[level_by_id[item.id]][item.id] = [None] * slot_count
+            song_id = str(item.song_id)
+            slot_count = 5 if song_id in remaster_ids else 4
+            result_map[level_by_id[song_id]][song_id] = [None] * slot_count
 
         from .maimaidx_source import get_plate
 
@@ -784,8 +593,8 @@ async def draw_plate_table(
             if play.level_index >= len(slots):
                 continue
             item = mai.total_list.by_id(song_id)
-            play.table_level = item.level
-            play.ds = item.ds[play.level_index]
+            play.table_level = [difficulty.level for difficulty in item.difficulties]
+            play.ds = item.difficulties[play.level_index].level_value
             slots[play.level_index] = play
 
         display_levels = list(result_map)

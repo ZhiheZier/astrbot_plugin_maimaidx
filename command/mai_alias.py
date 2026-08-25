@@ -482,7 +482,7 @@ async def push_alias(push: PushAliasStatus, context=None):
             =================
             {status.Tag}：
             ID：{song_id}
-            标题：{music.title}
+            标题：{music.song_name}
             别名：{status.ApplyAlias}
             浏览{public_addr}查看详情
         ''').strip()

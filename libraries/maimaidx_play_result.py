@@ -93,14 +93,26 @@ class Best50(BaseModel):
     dx: List[PlayedResult] = []
 
 
+class Collection(BaseModel):
+    id: int
+    name: str = ''
+    color: Optional[str] = None
+    description: Optional[str] = None
+    genre: Optional[str] = None
+
+
 class Player(BaseModel):
     name: str = ''
     rating: int = 0
     course_rank: int = 0
-    name_plate: Optional[str] = None
+    name_plate: Optional[Union[Collection, str]] = None
     friend_code: int = 0
     class_rank: int = 0
     star: int = 0
+    trophy: Optional[Collection] = None
+    icon: Optional[Collection] = None
+    frame: Optional[Collection] = None
+    upload_time: Optional[str] = None
 
 
 def dx_star_from_percentage(percentage: float) -> int:
@@ -136,9 +148,6 @@ def lookup_level_value(song_id: int, level_index: int) -> float:
     if getattr(mai, 'total_level_value_map', None):
         if key in mai.total_level_value_map:
             return mai.total_level_value_map[key]
-    music = mai.total_list.by_id(str(song_id)) if getattr(mai, 'total_list', None) else None
-    if music and music.ds and len(music.ds) > level_index:
-        return music.ds[level_index]
     return 0.0
 
 
@@ -148,12 +157,8 @@ def lookup_meta(song_id: int, level_index: int) -> tuple[float, str, str]:
     difficulty = mai.get_difficulty(song_id, level_index)
     if song is not None and difficulty is not None:
         return difficulty.level_value, difficulty.level, song.song_name
-    music = mai.total_list.by_id(str(song_id)) if getattr(mai, 'total_list', None) else None
     ds = lookup_level_value(song_id, level_index)
-    if music and music.ds and len(music.ds) > level_index:
-        level = music.level[level_index] if level_index < len(music.level) else ''
-        return ds or music.ds[level_index], level, music.title
-    return ds, '', ''
+    return ds, '', song.song_name if song else ''
 
 
 def df_song_id_from_lxns(lxns_id: int, song_type: str) -> int:
@@ -332,7 +337,7 @@ def best50_to_userinfo(player: Player, best50: Best50) -> UserInfo:
     return UserInfo(
         additional_rating=player.course_rank,
         nickname=player.name,
-        plate=player.name_plate,
+        plate=player.name_plate if isinstance(player.name_plate, str) else None,
         rating=player.rating,
         username=None,
         charts=Data(

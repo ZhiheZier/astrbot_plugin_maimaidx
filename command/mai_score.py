@@ -202,7 +202,7 @@ async def minfo_handler(event: AstrMessageEvent):
     if mai.total_list.by_id(args):
         songs = args
     elif by_t := mai.total_list.by_title(args):
-        songs = by_t.id
+        songs = str(by_t.song_id)
     else:
         if not hasattr(mai, 'total_alias_list') or not mai.total_alias_list:
             yield event.plain_result('别名数据未加载，请稍后再试或联系管理员')
@@ -259,7 +259,7 @@ async def ginfo_handler(event: AstrMessageEvent):
     if mai.total_list.by_id(args):
         id = args
     elif by_t := mai.total_list.by_title(args):
-        id = by_t.id
+        id = str(by_t.song_id)
     else:
         if not hasattr(mai, 'total_alias_list') or not mai.total_alias_list:
             yield event.plain_result('别名数据未加载，请稍后再试或联系管理员')
@@ -278,16 +278,14 @@ async def ginfo_handler(event: AstrMessageEvent):
             id = str(alias[0].SongID)
 
     music = mai.total_list.by_id(id)
-    if not music.stats:
-        yield event.plain_result('该乐曲还没有统计信息')
-        return
-    if len(music.ds) == 4 and level_index == 4:
+    difficulty = mai.get_difficulty(id, level_index)
+    if difficulty is None:
         yield event.plain_result('该乐曲没有这个等级')
         return
-    if not music.stats[level_index]:
+    if not difficulty.stats:
         yield event.plain_result('该等级没有统计信息')
         return
-    stats = music.stats[level_index]
+    stats = difficulty.stats
     info = dedent(f'''\
         游玩次数：{round(stats.cnt)}
         拟合难度：{stats.fit_diff:.2f}
@@ -344,30 +342,48 @@ async def score_handler(event: AstrMessageEvent):
         chain = [Comp.Image.fromFileSystem(temp_file_path)]
         yield event.chain_result(chain)
     else:
+        result = re.fullmatch(
+            r'([绿黄红紫白])\s*([0-9]+)\s+([0-9]+(?:\.[0-9]+)?)',
+            args,
+        )
+        if not result:
+            yield event.plain_result('格式错误，输入"分数线 帮助"以查看帮助信息')
+            return
+
+        level_labels = ['绿', '黄', '红', '紫', '白']
+        level_labels2 = ['Basic', 'Advanced', 'Expert', 'Master', 'Re:MASTER']
+        level_index = level_labels.index(result.group(1))
+        chart_id = result.group(2)
+        line = float(result.group(3))
+        if not 0 < line < 101:
+            yield event.plain_result('分数线应大于 0 且小于 101')
+            return
+
+        music = mai.total_list.by_id(chart_id)
+        if music is None:
+            yield event.plain_result(f'未找到 ID 为「{chart_id}」的歌曲')
+            return
+        if level_index >= len(music.difficulties):
+            yield event.plain_result('该乐曲没有这个难度')
+            return
+
+        chart = music.difficulties[level_index]
+        if chart.notes.brk <= 0:
+            yield event.plain_result('该谱面没有 BREAK，无法计算 BREAK 50落换算')
+            return
+
         try:
-            result = re.search(r'([绿黄红紫白])\s?([0-9]+)', args)
-            if not result:
-                raise ValueError
-            level_labels = ['绿', '黄', '红', '紫', '白']
-            level_labels2 = ['Basic', 'Advanced', 'Expert', 'Master', 'Re:MASTER']
-            level_index = level_labels.index(result.group(1))
-            chart_id = result.group(2)
-            line = float(pro[-1])
-            music = mai.total_list.by_id(chart_id)
-            chart = music.charts[level_index]
             tap = int(chart.notes.tap)
             slide = int(chart.notes.slide)
             hold = int(chart.notes.hold)
-            touch = int(chart.notes.touch) if len(chart.notes) == 5 else 0
+            touch = int(chart.notes.touch)
             brk = int(chart.notes.brk)
             total_score = tap * 500 + slide * 1500 + hold * 1000 + touch * 500 + brk * 2500
             break_bonus = 0.01 / brk
             break_50_reduce = total_score * break_bonus / 4
             reduce = 101 - line
-            if reduce <= 0 or reduce >= 101:
-                raise ValueError
             msg = dedent(f'''\
-                {music.title}「{level_labels2[level_index]}」
+                {music.song_name}「{level_labels2[level_index]}」
                 分数线「{line}%」
                 允许的最多「TAP」「GREAT」数量为 
                 「{(total_score * reduce / 10000):.2f}」(每个-{10000 / total_score:.4f}%),
@@ -375,9 +391,8 @@ async def score_handler(event: AstrMessageEvent):
                 等价于「{(break_50_reduce / 100):.3f}」个「TAP」「GREAT」(-{break_50_reduce / total_score * 100:.4f}%)
             ''').strip()
             yield event.plain_result(msg)
-        except (AttributeError, ValueError) as e:
-            log.exception(e)
-            yield event.plain_result('格式错误，输入"分数线 帮助"以查看帮助信息')
+        except (TypeError, ValueError):
+            yield event.plain_result('谱面物量数据异常，暂时无法计算分数线')
 
 async def mai_score_calculate_handler(event: AstrMessageEvent):
     """计算指定定数和达成率的分数"""
