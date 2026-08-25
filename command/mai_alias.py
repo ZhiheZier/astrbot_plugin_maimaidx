@@ -520,6 +520,17 @@ async def push_alias(push: PushAliasStatus, context=None):
             continue
 
 
+def parse_alias_pushes(data: dict) -> List[PushAliasStatus]:
+    """Parse actionable alias events and ignore server-side status snapshots."""
+    raw_status = data.get('status', data.get('Status'))
+    if isinstance(raw_status, list):
+        log.debug(
+            f'收到别名状态列表，共 {len(raw_status)} 条；该消息不属于推送事件，已忽略'
+        )
+        return []
+    return [PushAliasStatus.model_validate(data)]
+
+
 async def ws_alias_server(context=None):
     """
     别名推送 WebSocket 服务器
@@ -548,8 +559,8 @@ async def ws_alias_server(context=None):
                             continue
                         try:
                             newdata = json.loads(data)
-                            status = PushAliasStatus.model_validate(newdata)
-                            await push_alias(status, context)
+                            for status in parse_alias_pushes(newdata):
+                                await push_alias(status, context)
                         except json.JSONDecodeError as e:
                             # 如果不是已知的控制消息，才记录警告
                             if data not in ['ping', 'pong', 'Hello']:

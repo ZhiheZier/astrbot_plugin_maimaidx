@@ -24,6 +24,7 @@ class MaimaiDXPlugin(Star):
         self.config = config or {}
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
+        self.alias_ws_task = None
         
         # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
@@ -143,6 +144,17 @@ class MaimaiDXPlugin(Star):
             log.error(traceback.format_exc())
             log.warning('初始化失败，但继续加载插件，部分功能可能不可用')
 
+    async def terminate(self):
+        """停止插件创建的后台任务。"""
+        if self.alias_ws_task and not self.alias_ws_task.done():
+            self.alias_ws_task.cancel()
+            try:
+                await self.alias_ws_task
+            except asyncio.CancelledError:
+                pass
+        if self.scheduler.running:
+            self.scheduler.shutdown(wait=False)
+
     def _load_disabled_groups(self):
         """加载禁用群组列表"""
         try:
@@ -221,7 +233,8 @@ class MaimaiDXPlugin(Star):
         if maiApi.config.maimaidxaliaspush:
             log.info('别名推送为「开启」状态')
             # 启动别名推送 WebSocket 服务器
-            asyncio.ensure_future(ws_alias_server(self.context))
+            if not self.alias_ws_task or self.alias_ws_task.done():
+                self.alias_ws_task = asyncio.create_task(ws_alias_server(self.context))
         else:
             log.info('别名推送为「关闭」状态')
 
