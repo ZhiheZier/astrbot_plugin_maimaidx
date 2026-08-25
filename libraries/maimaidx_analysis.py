@@ -123,15 +123,8 @@ class WaterAnalysis:
 
 def fitted_level_value(record: PlayedResult) -> Optional[float]:
     """读取谱面的原始高精度拟合定数；不存在时返回 None。"""
-    music_list = getattr(mai, 'total_list', None)
-    if not music_list:
-        return None
-    music = music_list.by_id(str(record.song_id))
-    if not music or not music.stats:
-        return None
-    if not 0 <= record.level_index < len(music.stats):
-        return None
-    stats = music.stats[record.level_index]
+    difficulty = mai.get_difficulty(record.song_id, record.level_index)
+    stats = difficulty.stats if difficulty else None
     if not stats or stats.fit_diff is None:
         return None
     return float(stats.fit_diff)

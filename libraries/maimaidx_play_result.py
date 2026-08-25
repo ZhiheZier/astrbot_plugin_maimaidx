@@ -129,6 +129,9 @@ def dx_star_from_scores(dx_score: int, max_dx_score: int) -> Optional[int]:
 # 曲库定数字典查找
 # ---------------------------------------------------------------------------
 def lookup_level_value(song_id: int, level_index: int) -> float:
+    difficulty = mai.get_difficulty(song_id, level_index)
+    if difficulty is not None:
+        return difficulty.level_value
     key = f'{song_id}-{level_index}'
     if getattr(mai, 'total_level_value_map', None):
         if key in mai.total_level_value_map:
@@ -141,6 +144,10 @@ def lookup_level_value(song_id: int, level_index: int) -> float:
 
 def lookup_meta(song_id: int, level_index: int) -> tuple[float, str, str]:
     """返回 (level_value, level, title)。"""
+    song = mai.get_song(song_id)
+    difficulty = mai.get_difficulty(song_id, level_index)
+    if song is not None and difficulty is not None:
+        return difficulty.level_value, difficulty.level, song.song_name
     music = mai.total_list.by_id(str(song_id)) if getattr(mai, 'total_list', None) else None
     ds = lookup_level_value(song_id, level_index)
     if music and music.ds and len(music.ds) > level_index:

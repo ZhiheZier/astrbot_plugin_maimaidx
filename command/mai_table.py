@@ -21,6 +21,34 @@ from ..libraries.maimaidx_player_score import (
 from ..libraries.maimaidx_update_table import update_plate_table, update_rating_table
 
 
+PLATE_TABLE_PATTERN = re.compile(
+    r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜彩])'
+    r'([極极将舞神者]舞?)$'
+)
+TABLE_REQUEST_PATTERN = re.compile(r'^/?(.+?)完成表\s*([12])?$')
+
+
+def parse_table_request(message: str):
+    """拆分完成表命令主体和位于命令末尾的可选页码。"""
+    match = TABLE_REQUEST_PATTERN.fullmatch(message.strip())
+    if not match:
+        return None
+    args, page = match.groups()
+    return args.strip(), int(page) if page else None
+
+
+def parse_plate_table_args(args: str, page=None):
+    """解析版本牌完成表参数，页码仅用于舞系和霸者。"""
+    match = PLATE_TABLE_PATTERN.fullmatch(args)
+    if not match:
+        return None
+    version, plan = match.groups()
+    version = platecn.get(version, version)
+    if version not in ['舞', '霸'] and page is not None:
+        return None
+    return version, plan, page or 1
+
+
 async def update_table_handler(event: AstrMessageEvent, superusers: list = None):
     """更新定数表命令处理"""
     sender_id = event.get_sender_id()
@@ -71,8 +99,11 @@ async def table_pfm_handler(event: AstrMessageEvent):
     """完成表命令处理"""
     qqid = event.get_sender_id()
     message_str = event.message_str.strip()
-    # 移除后缀
-    args = message_str.replace('完成表', '').strip()
+    request = parse_table_request(message_str)
+    if request is None:
+        yield event.plain_result('无法识别的表格')
+        return
+    args, page = request
     
     # 检查是否有 @ 消息
     at_qqid = extract_at_qqid(event)
@@ -80,9 +111,12 @@ async def table_pfm_handler(event: AstrMessageEvent):
         qqid = at_qqid
     
     rating = re.search(r'^([0-9]+\+?)(app|fcp|ap|fc)?', args, re.IGNORECASE)
-    plate = re.search(r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜彩])([極极将舞神者]舞?)$', args)
+    plate = parse_plate_table_args(args, page)
     
     if rating:
+        if page is not None:
+            yield event.plain_result('只有「舞」系和「霸者」完成表支持分页')
+            return
         ra = rating.group(1)
         plan = rating.group(2)
         if args in levelList[:5]:
@@ -99,17 +133,11 @@ async def table_pfm_handler(event: AstrMessageEvent):
             yield event.plain_result('无法识别的表格')
             return
     elif plate:
-        ver = plate.group(1)
-        plan = plate.group(2)
-        if ver in platecn:
-            ver = platecn[ver]
-        if ver in ['舞', '霸']:
-            yield event.plain_result('暂不支持查询「舞」系和「霸者」的牌子')
-            return
+        ver, plan, page = plate
         if f'{ver}{plan}' == '真将':
             yield event.plain_result('真系没有真将哦')
             return
-        pic = await draw_plate_table(qqid, ver, plan)
+        pic = await draw_plate_table(qqid, ver, plan, page)
         chain = convert_message_segment_to_chain(pic)
         if is_reply_enabled():
             chain.insert(0, Comp.Reply(id=event.message_obj.message_id))

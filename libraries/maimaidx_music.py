@@ -13,7 +13,14 @@ from .. import *
 from .image import image_to_base64, music_picture
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import *
-from .maimaidx_merge import LXSongs, merge_alias_data, merge_music_data, song_to_music
+from .maimaidx_merge import (
+    Difficulties,
+    LXSongs,
+    Song,
+    merge_alias_data,
+    merge_music_data,
+    song_to_music,
+)
 from .maimaidx_model import *
 from .tool import openfile, writefile
 
@@ -310,8 +317,8 @@ async def _load_lxns_songs() -> Optional[LXSongs]:
         return None
 
 
-async def get_music_list() -> Tuple[MusicList, Dict[str, float]]:
-    """获取并合并曲库，返回 MusicList（兼容原字段）与定数字典。"""
+async def get_music_list() -> Tuple[MusicList, Dict[str, float], List[Song]]:
+    """获取并合并曲库，同时返回兼容 MusicList 与规范 Song 列表。"""
     df_list, stats_map = await _load_diving_fish()
     lxns_list = await _load_lxns_songs()
 
@@ -324,7 +331,7 @@ async def get_music_list() -> Tuple[MusicList, Dict[str, float]]:
     for song in songs:
         total_list.append(song_to_music(song))
     log.info(f'曲库合并完成：{len(total_list)} 首')
-    return total_list, level_value_map
+    return total_list, level_value_map, songs
 
 
 async def _load_lxns_aliases():
@@ -455,6 +462,10 @@ class MaiMusic:
     """等级列表数据"""
     total_level_value_map: Dict[str, float]
     """定数字典，key 为 `song_id-level_index`，例如 `11451-3`"""
+    total_song_list: List[Song]
+    """合并后的规范曲目数据；旧 MusicList 仅用于尚未迁移的接口。"""
+    total_song_map: Dict[int, Song]
+    """规范曲目数据的 ID 索引。"""
     hot_music_ids: List = []
     """游玩次数超过1w次的曲目数据"""
     guess_data: List[Music]
@@ -463,10 +474,42 @@ class MaiMusic:
     def __init__(self) -> None:
         """封装所有曲目信息以及猜歌数据，便于更新"""
         self.total_level_value_map = {}
+        self.total_song_list = []
+        self.total_song_map = {}
+
+    def get_song(self, song_id: Union[str, int]) -> Optional[Song]:
+        """按 ID 获取规范 Song。"""
+        try:
+            return self.total_song_map.get(int(song_id))
+        except (TypeError, ValueError):
+            return None
+
+    def get_difficulty(
+        self,
+        song_id: Union[str, int],
+        level_index: int,
+    ) -> Optional[Difficulties]:
+        """按服务端难度索引获取规范谱面，避免 Master/Re:Master 串位。"""
+        song = self.get_song(song_id)
+        if song is None:
+            return None
+        return next(
+            (
+                difficulty
+                for difficulty in song.difficulties
+                if difficulty.level_index == level_index
+            ),
+            None,
+        )
 
     async def get_music(self) -> None:
         """获取所有曲目数据（水鱼 + 落雪合并）"""
-        self.total_list, self.total_level_value_map = await get_music_list()
+        (
+            self.total_list,
+            self.total_level_value_map,
+            self.total_song_list,
+        ) = await get_music_list()
+        self.total_song_map = {song.song_id: song for song in self.total_song_list}
         self.total_level_data = self.total_list.by_level_list()
 
     async def get_music_alias(self) -> None:
@@ -477,8 +520,16 @@ class MaiMusic:
         """获取所有牌子数据"""
         self.total_plate_id_list = await maiApi.get_plate_json()
 
+    async def update(self) -> None:
+        """刷新曲库、别名、牌子及猜歌数据。"""
+        await self.get_music()
+        await self.get_music_alias()
+        await self.get_plate_json()
+        self.guess()
+
     def guess(self):
         """初始化猜歌数据"""
+        self.hot_music_ids.clear()
         for music in self.total_list:
             if music.stats:
                 count = 0

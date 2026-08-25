@@ -122,11 +122,23 @@ class Reviewed(StatusBase):
     Name: str
 
 
+class AliasPushStatus(BaseModel):
+    model_config = {"populate_by_name": True}
+
+    SongID: int = Field(alias="song_id")
+    ApplyAlias: str = Field(alias="apply_alias")
+    Tag: str = Field(alias="tag")
+    Name: str = Field(alias="name")
+    Time: str = Field(alias="created_at")
+    AgreeVotes: Optional[int] = Field(default=0, alias="agree_votes")
+    Votes: int = Field(alias="votes")
+
+
 class PushAliasStatus(BaseModel):
     model_config = {"populate_by_name": True}
 
     Type: str = Field(alias="type")
-    Status: Union[AliasStatus, Approved, Reviewed] = Field(alias="status")
+    Status: List[AliasPushStatus] = Field(alias="status")
 
 
 ##### Guess

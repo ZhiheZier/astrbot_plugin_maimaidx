@@ -171,6 +171,18 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(data['scope'], 'prober.records.read')
 
+    async def test_starting_binding_discards_cached_token(self):
+        subject = self.api._divingfish_subject(qqid=12345678)
+        self.api._oauth_tokens[subject] = ('old-token', float('inf'))
+        with patch.object(
+            self.api,
+            '_request_divingfish_oauth',
+            AsyncMock(return_value={'device_code': 'device-code'}),
+        ):
+            await self.api.start_divingfish_binding(12345678)
+
+        self.assertNotIn(subject, self.api._oauth_tokens)
+
     async def test_binding_poll_reports_success_and_caches_token(self):
         request = AsyncMock(
             side_effect=[

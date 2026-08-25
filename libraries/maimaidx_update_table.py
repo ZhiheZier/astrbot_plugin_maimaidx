@@ -102,8 +102,6 @@ async def update_plate_table() -> str:
     """更新完成表"""
     try:
         version = list(_ for _ in plate_to_dx_version.keys())[1:]
-        # version.append('霸')
-        # version.append('舞')
         rlv: Dict[str, List[Music]] = {}
         for _ in list(reversed(levelList)):
             rlv[_] = []
@@ -112,22 +110,20 @@ async def update_plate_table() -> str:
         sbi = ScoreBaseImage if maiApi.config.saveinmem else ScoreBaseImage()
         # 完成表封面边框
         plate_border = Image.open(maimaidir / 'border_table_base.png').convert('RGBA')
-        for _v in version:
-            if _v in platecn:
-                _v = platecn[_v]
-            ver, _ver = version_map.get(_v, ([plate_to_dx_version.get(_v)], _v))
-            
-            music_id_list = mai.total_plate_id_list.get(_ver)
-            if not music_id_list:
-                log.warning(f'牌子「{_v}」的完成表数据（{_ver}）暂未在服务器提供，已跳过')
-                continue
-            music = mai.total_list.by_id_list(music_id_list)
-            ralv = copy.deepcopy(rlv)
+        remaster_border_path = maimaidir / 'border_table_remaster.png'
+        remaster_border = (
+            Image.open(remaster_border_path).convert('RGBA')
+            if remaster_border_path.exists()
+            else plate_border
+        )
 
-            for m in music:
-                ralv[m.level[3]].append(m)
-
-            # 计算高度（仿原项目：START_Y 490 起，逐组累加）
+        async def draw_table(
+            name: str,
+            ralv: Dict[str, List[Music]],
+            *,
+            page: Optional[int] = None,
+            remaster_ids: Optional[set[str]] = None,
+        ) -> None:
             current_y = 490
             for songs in ralv.values():
                 if not songs:
@@ -137,23 +133,22 @@ async def update_plate_table() -> str:
             height = current_y + 180
 
             im = tricolor_gradient_prism_plus(1400, height)
-            
             im.alpha_composite(sbi.aurora_bg)
             im.alpha_composite(sbi.shines_bg, (11, 6))
             im.alpha_composite(sbi.rainbow_bg, (318, height - 545))
             im.alpha_composite(sbi.rainbow_bottom_bg, (122, height - 305))
             for h in range((height // 358) + 1):
                 im.alpha_composite(sbi.pattern_bg, (0, (358 + 7) * h))
-            # 分隔线
             separator = maimaidir / 'separator.png'
             if separator.exists():
                 im.alpha_composite(Image.open(separator).convert('RGBA'), (100, 400))
-            # 毛玻璃卡片
             im = generate_frosted_card(im, (50, 444, 1350, height - 120))
-            
+
             dr = ImageDraw.Draw(im)
             fn = DrawText(dr, FOTNEWRODIN)
             tb = DrawText(dr, TBFONT)
+            if page is not None:
+                fn.draw(700, height - 140, 40, f'Pages {page}/2', sbi.text_color, 'mm')
             draw_text_with_font_fallback(
                 dr,
                 700,
@@ -164,35 +159,75 @@ async def update_plate_table() -> str:
                 FOTNEWRODIN,
                 SIYUAN,
             )
-            START_Y = 490
-            for r in ralv:
-                songs = ralv[r]
+
+            start_y = 490
+            for level, songs in ralv.items():
                 if not songs:
                     continue
-                if _v in ['霸', '舞']:
-                    songs.sort(key=lambda x: x.ds[-1], reverse=True)
-                else:
-                    songs.sort(key=lambda x: x.ds[3], reverse=True)
-                fn.draw(72, START_Y + 40, 40, r, sbi.text_color, 'lm', 4, (255, 255, 255, 255))
+                songs.sort(
+                    key=lambda music: music.ds[
+                        4 if remaster_ids and music.id in remaster_ids and len(music.ds) > 4 else 3
+                    ],
+                    reverse=True,
+                )
+                fn.draw(72, start_y + 40, 40, level, sbi.text_color, 'lm', 4, (255, 255, 255, 255))
                 max_row = 0
                 for num, music in enumerate(songs):
                     row, col = divmod(num, 12)
                     max_row = max(max_row, row)
                     x = 180 + col * 96
-                    cover_y = START_Y + row * 96
-                    cover = music_picture(music.id)
-                    im.alpha_composite(Image.open(cover).resize((80, 80)), (x, cover_y))
-                    # ID 背景框（使用原项目 border_table_base.png）
-                    im.alpha_composite(plate_border, (x - 5, cover_y - 5))
-                    # 曲目 ID
-                    tb.draw(x + 56, cover_y + 4, 16, music.id, (255, 255, 255, 255), 'mm')
-                START_Y += (max_row + 1) * 96 + 30
+                    cover_y = start_y + row * 96
+                    im.alpha_composite(Image.open(music_picture(music.id)).resize((80, 80)), (x, cover_y))
+                    is_remaster = bool(remaster_ids and music.id in remaster_ids)
+                    im.alpha_composite(remaster_border if is_remaster else plate_border, (x - 5, cover_y - 5))
+                    color = (138, 0, 226, 255) if is_remaster else (255, 255, 255, 255)
+                    tb.draw(x + 56, cover_y + 4, 16, music.id, color, 'mm')
+                start_y += (max_row + 1) * 96 + 30
 
             by = BytesIO()
             im.save(by, 'PNG')
-            async with aiofiles.open(platedir / f'{_v}.png', 'wb') as f:
+            async with aiofiles.open(platedir / f'{name}.png', 'wb') as f:
                 await f.write(by.getbuffer())
+
+        for _v in version:
+            if _v in platecn:
+                _v = platecn[_v]
+            ver, _ver = version_map.get(_v, ([plate_to_dx_version.get(_v)], _v))
+
+            music_id_list = mai.total_plate_id_list.get(_ver)
+            if not music_id_list:
+                log.warning(f'牌子「{_v}」的完成表数据（{_ver}）暂未在服务器提供，已跳过')
+                continue
+            music = mai.total_list.by_id_list(music_id_list)
+            ralv = copy.deepcopy(rlv)
+
+            for m in music:
+                ralv[m.level[3]].append(m)
+            await draw_table(_v, ralv)
             log.info(f'{_v}代牌子更新完成')
+
+        wu_ids = mai.total_plate_id_list.get('舞')
+        wu_remaster_ids = {
+            str(song_id) for song_id in mai.total_plate_id_list.get('舞ReMASTER', [])
+        }
+        if wu_ids:
+            wu_levels = copy.deepcopy(rlv)
+            for music in mai.total_list.by_id_list(wu_ids):
+                index = 4 if music.id in wu_remaster_ids and len(music.level) > 4 else 3
+                wu_levels[music.level[index]].append(music)
+            keys = list(wu_levels)
+            split_index = keys.index('13') if '13' in keys else len(keys)
+            pages = (keys[:split_index], keys[split_index:])
+            for page, page_levels in enumerate(pages, 1):
+                await draw_table(
+                    f'舞-{page}',
+                    {level: wu_levels[level] for level in page_levels},
+                    page=page,
+                    remaster_ids=wu_remaster_ids,
+                )
+            log.info('舞/霸者完成表更新完成')
+        else:
+            log.warning('舞/霸者完成表数据（舞）暂未在服务器提供，已跳过')
         return f'完成表更新完成'
     except Exception as e:
         log.error(traceback.format_exc())

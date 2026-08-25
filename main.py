@@ -14,21 +14,24 @@ from . import Root, log, loga, plate_to_dx_version, platecn, _BOTNAME, init_stat
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
-from .command.mai_alias import ws_alias_server
+from .command.mai_alias import sse_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.0")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.1")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
         self.config = config or {}
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
-        self.alias_ws_task = None
+        self.alias_push_task = None
         
         # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
+        from .libraries.maimaidx_user import userstore
+
+        userstore.reload()
         
         # 获取包模块引用（之后所有路径通过 pkg 动态获取）
         pkg_name = __name__.rsplit('.', 1)[0]
@@ -146,10 +149,10 @@ class MaimaiDXPlugin(Star):
 
     async def terminate(self):
         """停止插件创建的后台任务。"""
-        if self.alias_ws_task and not self.alias_ws_task.done():
-            self.alias_ws_task.cancel()
+        if self.alias_push_task and not self.alias_push_task.done():
+            self.alias_push_task.cancel()
             try:
-                await self.alias_ws_task
+                await self.alias_push_task
             except asyncio.CancelledError:
                 pass
         if self.scheduler.running:
@@ -232,9 +235,9 @@ class MaimaiDXPlugin(Star):
         
         if maiApi.config.maimaidxaliaspush:
             log.info('别名推送为「开启」状态')
-            # 启动别名推送 WebSocket 服务器
-            if not self.alias_ws_task or self.alias_ws_task.done():
-                self.alias_ws_task = asyncio.create_task(ws_alias_server(self.context))
+            # 启动别名推送 SSE 服务器
+            if not self.alias_push_task or self.alias_push_task.done():
+                self.alias_push_task = asyncio.create_task(sse_alias_server(self.context))
         else:
             log.info('别名推送为「关闭」状态')
 
@@ -348,10 +351,9 @@ class MaimaiDXPlugin(Star):
             pass
 
     async def _daily_update(self):
-        """定时任务：每日更新数据"""
+        """定时任务：每日完整更新曲库、别名、牌子及猜歌数据。"""
         try:
-            await mai.get_music()
-            mai.guess()
+            await mai.update()
             log.info('maimaiDX数据更新完毕')
         except Exception as e:
             log.error(f'定时更新数据失败: {e}')
@@ -865,7 +867,7 @@ class MaimaiDXPlugin(Star):
         async for result in rating_table_handler(event):
             yield result
 
-    @filter.regex(r'^/?(?!更新)(.+?)完成表$')
+    @filter.regex(r'^/?(?!更新)(.+?)完成表(?:\s*[12])?\s*$')
     async def table_pfm(self, event: AstrMessageEvent):
         """完成表命令"""
         group_id = event.message_obj.group_id

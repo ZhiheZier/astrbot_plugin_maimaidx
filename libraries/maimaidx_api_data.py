@@ -157,6 +157,8 @@ class MaimaiAPI:
         """创建一次设备码授权，绑定关系由水鱼服务端持久化。"""
         if not self.divingfish_oauth_configured:
             raise DivingFishOAuthConfigError
+        subject = self._divingfish_subject(qqid=external_id)
+        self._oauth_tokens.pop(subject, None)
         return await self._request_divingfish_oauth(
             '/oauth/device_authorization',
             data={

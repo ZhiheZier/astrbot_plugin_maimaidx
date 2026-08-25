@@ -460,8 +460,8 @@ def select_fitted_b50_records(
 
 
 def _is_new_song(song_id: int) -> Optional[bool]:
-    music = mai.total_list.by_id(str(song_id))
-    return music.basic_info.is_new if music else None
+    song = mai.get_song(song_id)
+    return song.isnew if song else None
 
 
 def _dx_star_for_record(record: PlayedResult) -> Optional[int]:
@@ -470,24 +470,18 @@ def _dx_star_for_record(record: PlayedResult) -> Optional[int]:
         record.dx_star > 0 or record.dx_score <= 0
     ):
         return record.dx_star
-    music = mai.total_list.by_id(str(record.song_id))
-    if (
-        not music
-        or record.level_index < 0
-        or record.level_index >= len(music.charts)
-    ):
+    difficulty = mai.get_difficulty(record.song_id, record.level_index)
+    if difficulty is None:
         return None
-    max_dx_score = sum(music.charts[record.level_index].notes) * 3
-    return dx_star_from_scores(record.dx_score, max_dx_score)
+    return dx_star_from_scores(record.dx_score, difficulty.dx_score)
 
 
 def _fitted_level_value(record: PlayedResult) -> Optional[float]:
     """读取谱面拟合定数；暂无统计时回退到官方定数。"""
-    music = mai.total_list.by_id(str(record.song_id))
-    if music and music.stats and 0 <= record.level_index < len(music.stats):
-        stats = music.stats[record.level_index]
-        if stats and stats.fit_diff is not None:
-            return round(stats.fit_diff, 2)
+    difficulty = mai.get_difficulty(record.song_id, record.level_index)
+    stats = difficulty.stats if difficulty else None
+    if stats and stats.fit_diff is not None:
+        return round(stats.fit_diff, 2)
     return record.level_value or None
 
 

@@ -1,40 +1,56 @@
 import unittest
 
-from ..command.mai_alias import parse_alias_pushes
+from ..command.mai_alias import iter_sse, parse_alias_push
 
 
-class AliasPushParsingTest(unittest.TestCase):
-    def test_parses_legacy_single_event(self):
-        pushes = parse_alias_pushes({
+class AliasPushParsingTest(unittest.IsolatedAsyncioTestCase):
+    def test_parses_batched_apply_event(self):
+        push = parse_alias_push({
             'type': 'Apply',
-            'status': {
-                'SongID': 11772,
-                'ApplyUID': 3353863748,
-                'ApplyAlias': '人狂热',
-                'Tag': 'JU0DE',
-                'Name': '人マニア',
-                'Time': '2026-08-25 17:07:58',
-                'AgreeVotes': 0,
-                'Votes': 5,
-            },
-        })
-
-        self.assertEqual(len(pushes), 1)
-        self.assertEqual(pushes[0].Type, 'Apply')
-        self.assertEqual(pushes[0].Status.ApplyAlias, '人狂热')
-
-    def test_ignores_new_status_list_message(self):
-        pushes = parse_alias_pushes({
-            'type': 'Status',
             'status': [
                 {
+                    'song_id': 11772,
                     'apply_alias': '人狂热',
+                    'tag': 'JU0DE',
+                    'name': '人マニア',
+                    'created_at': '2026-08-25 17:07:58',
+                    'agree_votes': 0,
+                    'votes': 5,
                     'status': 'ongoing',
                 },
             ],
         })
 
-        self.assertEqual(pushes, [])
+        self.assertIsNotNone(push)
+        self.assertEqual(push.Type, 'Apply')
+        self.assertEqual(len(push.Status), 1)
+        self.assertEqual(push.Status[0].ApplyAlias, '人狂热')
+
+    def test_ignores_non_apply_event(self):
+        self.assertIsNone(parse_alias_push({'type': 'End', 'status': []}))
+
+    async def test_parses_sse_event_metadata_and_multiline_data(self):
+        async def lines():
+            for line in (
+                b'id: event-12\n',
+                b'retry: 5000\n',
+                b'event: alias\n',
+                b'data: {"type":"Apply",\n',
+                b'data: "status":[]}\n',
+                b'\n',
+            ):
+                yield line
+
+        messages = [message async for message in iter_sse(lines())]
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].event, 'alias')
+        self.assertEqual(messages[0].event_id, 'event-12')
+        self.assertEqual(messages[0].retry, 5000)
+        self.assertEqual(
+            messages[0].data,
+            '{"type":"Apply",\n"status":[]}',
+        )
 
 
 if __name__ == '__main__':

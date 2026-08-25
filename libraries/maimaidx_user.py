@@ -1,10 +1,13 @@
+import asyncio
 import json
+import os
 from enum import Enum
+from pathlib import Path
 from typing import Dict, Optional
 
 from pydantic import BaseModel
 
-from .. import log, user_file
+from .. import log
 
 class ServiceName(str, Enum):
     """查分数据源"""
@@ -67,16 +70,28 @@ class User(BaseModel):
 class UserStore:
     """基于 JSON 文件的用户数据存储，避免引入数据库依赖"""
 
-    def __init__(self) -> None:
+    def __init__(self, path: Optional[Path] = None) -> None:
         self._data: Dict[str, User] = {}
+        self._path = path
+        self._lock = asyncio.Lock()
         self._load()
 
+    @property
+    def path(self) -> Path:
+        if self._path is not None:
+            return self._path
+        # init_static_dir 会在插件启动时更新持久化目录，因此这里动态取值。
+        from .. import user_file
+
+        return user_file
+
     def _load(self) -> None:
-        if not user_file.exists():
+        if not self.path.exists():
             self._data = {}
             return
         try:
-            raw = json.load(open(user_file, 'r', encoding='utf-8'))
+            with self.path.open('r', encoding='utf-8') as file:
+                raw = json.load(file)
             self._data = {}
             for qq, info in raw.items():
                 try:
@@ -88,14 +103,30 @@ class UserStore:
             log.error(f'加载用户数据失败: {e}')
             self._data = {}
 
-    async def _save(self) -> None:
+    def reload(self) -> None:
+        """持久化目录初始化后重新载入用户数据。"""
+        self._load()
+
+    async def _save_unlocked(self) -> None:
         from .tool import writefile
 
         dump = {
             qq: user.model_dump(exclude={'qqid'}, mode='json')
             for qq, user in self._data.items()
         }
-        await writefile(user_file, dump)
+        path = self.path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = path.with_name(f'.{path.name}.tmp')
+        try:
+            await writefile(temp_path, dump)
+            await asyncio.to_thread(os.replace, temp_path, path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    async def _save(self) -> None:
+        async with self._lock:
+            await self._save_unlocked()
 
     def get(self, qqid: int) -> User:
         """获取用户配置，不存在时返回默认（数据源为水鱼）"""
@@ -117,29 +148,31 @@ class UserStore:
         refresh_token: Optional[str] = None,
         theme: Optional[Theme] = None,
     ) -> User:
-        key = str(qqid)
-        user = self._data.get(key) or User(qqid=int(qqid))
-        if friend_code is not None:
-            user.friend_code = friend_code
-        if service is not None:
-            user.service = service
-        if access_token is not None:
-            user.access_token = access_token
-        if refresh_token is not None:
-            user.refresh_token = refresh_token
-        if theme is not None:
-            user.theme = theme
-        self._data[key] = user
-        await self._save()
-        return user
+        async with self._lock:
+            key = str(qqid)
+            user = self._data.get(key) or User(qqid=int(qqid))
+            if friend_code is not None:
+                user.friend_code = friend_code
+            if service is not None:
+                user.service = service
+            if access_token is not None:
+                user.access_token = access_token
+            if refresh_token is not None:
+                user.refresh_token = refresh_token
+            if theme is not None:
+                user.theme = theme
+            self._data[key] = user
+            await self._save_unlocked()
+            return user
 
     async def delete(self, qqid: int) -> bool:
-        key = str(qqid)
-        if key in self._data:
-            del self._data[key]
-            await self._save()
-            return True
-        return False
+        async with self._lock:
+            key = str(qqid)
+            if key in self._data:
+                del self._data[key]
+                await self._save_unlocked()
+                return True
+            return False
 
 
 userstore = UserStore()
