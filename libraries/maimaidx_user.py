@@ -3,7 +3,7 @@ import json
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 
 from pydantic import BaseModel
 
@@ -59,7 +59,7 @@ class Theme(str, Enum):
 class User(BaseModel):
     """用户配置"""
 
-    qqid: int
+    qqid: str
     friend_code: Optional[int] = None
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
@@ -95,7 +95,7 @@ class UserStore:
             self._data = {}
             for qq, info in raw.items():
                 try:
-                    self._data[str(qq)] = User.model_validate({**info, 'qqid': int(qq)})
+                    self._data[str(qq)] = User.model_validate({**info, 'qqid': str(qq)})
                 except Exception:
                     # 兼容脏数据，跳过单条
                     continue
@@ -128,19 +128,19 @@ class UserStore:
         async with self._lock:
             await self._save_unlocked()
 
-    def get(self, qqid: int) -> User:
+    def get(self, qqid: Union[int, str]) -> User:
         """获取用户配置，不存在时返回默认（数据源为水鱼）"""
         key = str(qqid)
         if key in self._data:
             return self._data[key]
-        return User(qqid=int(qqid))
+        return User(qqid=key)
 
-    def exists(self, qqid: int) -> bool:
+    def exists(self, qqid: Union[int, str]) -> bool:
         return str(qqid) in self._data
 
     async def update(
         self,
-        qqid: int,
+        qqid: Union[int, str],
         *,
         friend_code: Optional[int] = None,
         service: Optional[ServiceName] = None,
@@ -150,7 +150,7 @@ class UserStore:
     ) -> User:
         async with self._lock:
             key = str(qqid)
-            user = self._data.get(key) or User(qqid=int(qqid))
+            user = self._data.get(key) or User(qqid=key)
             if friend_code is not None:
                 user.friend_code = friend_code
             if service is not None:
@@ -165,7 +165,7 @@ class UserStore:
             await self._save_unlocked()
             return user
 
-    async def delete(self, qqid: int) -> bool:
+    async def delete(self, qqid: Union[int, str]) -> bool:
         async with self._lock:
             key = str(qqid)
             if key in self._data:

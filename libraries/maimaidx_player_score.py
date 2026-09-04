@@ -430,7 +430,7 @@ async def rise_score_data(
         height = h * 140 + 110 + 150
         image = tricolor_gradient(1400, height)
         
-        theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+        theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
         ds = DrawScore(image, theme)
         im = ds.draw_rise(sd, sd_low_score, dx, dx_low_score).crop((200, 0, 1200, height))
         
@@ -623,7 +623,7 @@ async def level_process_data(
             nlen = len(notplayed[:100])
             notstarted_y = (nlen // 20 + (0 if nlen % 20 == 0 else 1)) * 65 + 140
             image = tricolor_gradient(1400, 150 + completed_y + unfinished_y + notstarted_y)
-            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
             dp = DrawScore(image, theme)
             im = dp.draw_plan(completed, completed_y, unfinished, unfinished_y, notplayed, plan, completed_len)
         elif category == 'completed' or category == 'unfinished':
@@ -635,14 +635,14 @@ async def level_process_data(
             topage = len(data[(page - 1) * 80: page * 80])
             plc = (topage // 5 + (0 if topage % 5 == 0 else 1)) * 109
             image = tricolor_gradient(1400, 240 + plc + 120)
-            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
             dp = DrawScore(image, theme)
             im = dp.draw_category(category, data, page, end_page_num)
         else:
             lennotstarted = len(notplayed)
             pln = (lennotstarted // 20 + (0 if lennotstarted % 20 == 0 else 1)) * 65
             image = tricolor_gradient(1400, 240 + pln + 120)
-            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
             dp = DrawScore(image, theme)
             im = dp.draw_category(category, notplayed)
         
@@ -711,7 +711,7 @@ async def level_achievement_list_data(
         
         image = tricolor_gradient(1400, 150 + plc)
 
-        theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+        theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
         sc = DrawScore(image, theme)
         im = sc.draw_scorelist(rating, newdata, page, end_page_num)
         msg = MessageSegment.image(image_to_base64(im))

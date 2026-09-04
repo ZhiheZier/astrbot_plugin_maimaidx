@@ -43,10 +43,7 @@ def get_service(
         return ServiceName.DIVINGFISH
     if qqid is None:
         return ServiceName.DIVINGFISH
-    try:
-        return userstore.get(int(qqid)).service
-    except (ValueError, TypeError):
-        return ServiceName.DIVINGFISH
+    return userstore.get(qqid).service
 
 
 def is_lxns(qqid: Optional[Union[int, str]], username: Optional[str] = None) -> bool:
@@ -57,8 +54,14 @@ async def _friend_code(user: User) -> int:
     """获取用户好友码（优先缓存，否则按 QQ 查询并缓存）"""
     if user.friend_code:
         return user.friend_code
-    api = LxnsAPI(qqid=user.qqid)
-    player = await api.player_by_qq(user.qqid)
+    try:
+        numeric_qq = int(user.qqid)
+    except (TypeError, ValueError) as exc:
+        raise LxnsFeatureUnavailable(
+            '当前平台用户标识不是 QQ 号，请先使用「绑定落雪」完成 OAuth 授权'
+        ) from exc
+    api = LxnsAPI(qqid=numeric_qq)
+    player = await api.player_by_qq(numeric_qq)
     if player.friend_code:
         await userstore.update(user.qqid, friend_code=player.friend_code)
     return player.friend_code
@@ -428,6 +431,8 @@ def select_fitted_b50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
+        if record.song_id >= 100000:
+            continue
         fitted_level_value = fitted_level_value_of(record)
         if fitted_level_value is None or fitted_level_value <= 0:
             continue
@@ -650,11 +655,24 @@ async def get_music_record(
 async def _lxns_best50_raw(
     qqid: Union[int, str], *, all_perfect: bool = False
 ) -> Tuple[Player, Best50]:
-    user = userstore.get(int(qqid))
-    api = LxnsAPI(qqid=user.qqid, access_token=user.access_token)
-    if user.access_token and not all_perfect:
+    user = userstore.get(qqid)
+    api = LxnsAPI(
+        qqid=user.qqid,
+        access_token=user.access_token,
+        refresh_token=user.refresh_token,
+    )
+    if user.access_token:
         player = await api.player_personal()
-        best50 = await api.bests_personal()
+        if not all_perfect:
+            best50 = await api.bests_personal()
+        else:
+            if not maiApi.config.lxns_dev_token:
+                raise LxnsFeatureUnavailable(
+                    'ap50 需要 BOT 管理员配置落雪开发者 Token'
+                )
+            best50 = await api.bests_by_friend_code(
+                await _friend_code(user), ap=True
+            )
     else:
         if not maiApi.config.lxns_dev_token:
             raise LxnsFeatureUnavailable(
@@ -663,7 +681,7 @@ async def _lxns_best50_raw(
                 else 'BOT 管理员未配置落雪开发者 Token，无法按 QQ 查询'
             )
         fc = await _friend_code(user)
-        player = await api.player_by_qq(user.qqid)
+        player = await api.player_by_qq(int(user.qqid))
         best50 = await api.bests_by_friend_code(fc, ap=all_perfect)
     return lxns_best50_to_best50(player, best50)
 
@@ -671,8 +689,12 @@ async def _lxns_best50_raw(
 async def _lxns_records_raw(
     qqid: Union[int, str], *, exact: bool = False
 ) -> List[PlayedResult]:
-    user = userstore.get(int(qqid))
-    api = LxnsAPI(qqid=user.qqid, access_token=user.access_token)
+    user = userstore.get(qqid)
+    api = LxnsAPI(
+        qqid=user.qqid,
+        access_token=user.access_token,
+        refresh_token=user.refresh_token,
+    )
     if user.access_token:
         scores = await api.all_scores_personal()
         return lxns_scores_to_played(scores)
@@ -702,8 +724,12 @@ async def lxns_plate(qqid: Union[int, str], *, exact: bool = False) -> List[Play
 
 
 async def lxns_music_record(qqid: Union[int, str], music_id: Union[int, str]) -> List[PlayInfoDev]:
-    user = userstore.get(int(qqid))
-    api = LxnsAPI(qqid=user.qqid, access_token=user.access_token)
+    user = userstore.get(qqid)
+    api = LxnsAPI(
+        qqid=user.qqid,
+        access_token=user.access_token,
+        refresh_token=user.refresh_token,
+    )
     df_id = int(music_id)
     if df_id >= 100000:
         song_type, lxns_id = 'utage', df_id

@@ -166,6 +166,20 @@ class FittedBest50SelectionTest(unittest.TestCase):
         self.assertEqual(records[0].level_value, 13.0)
         self.assertEqual(records[0].rating, 999)
 
+    def test_excludes_utage_records(self):
+        normal = make_record(1, 100, achievements=100.0)
+        utage = make_record(100001, 9999, achievements=100.5)
+
+        best50 = select_fitted_b50_records(
+            [utage, normal],
+            lambda _song_id: False,
+            lambda record: 14.0 if record.song_id == 100001 else 13.0,
+            lambda level_value, _achievements: int(level_value * 100),
+        )
+
+        self.assertEqual([record.song_id for record in best50.sd], [1])
+        self.assertEqual(best50.sd_total, 1300)
+
 
 class ApPlusBest50SelectionTest(unittest.TestCase):
     def test_selects_player_app_records_only_with_35_and_15_caps(self):

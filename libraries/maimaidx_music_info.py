@@ -53,7 +53,7 @@ async def draw_music_info(
     calc = True
     isfull = True
     bestlist: List[ChartInfo] = []
-    theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+    theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
     try:
         if qqid:
             if user is None:
@@ -247,7 +247,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
     from .maimaidx_source import get_music_record, get_service
     from .maimaidx_user import userstore
 
-    theme = userstore.get(int(qqid)).theme
+    theme = userstore.get(qqid).theme
     try:
         data = await get_music_record(qqid, music_id)
         if not data:

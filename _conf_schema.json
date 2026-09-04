@@ -73,7 +73,7 @@
   },
   "lx_client_id": {
     "description": "落雪 OAuth 应用 client_id",
-    "hint": "可选。OAuth 权限范围请选择前三项，不包括「读取个人 API 秘钥」。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
+    "hint": "可选。OAuth 权限仅需选择 read_player。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
     "type": "string",
     "default": ""
   },
@@ -85,7 +85,7 @@
   },
   "lx_redirect_uri": {
     "description": "落雪 OAuth 回调地址",
-    "hint": "可选。需与落雪 OAuth 应用登记的回调地址一致，回调页面应能展示授权码。",
+    "hint": "可选。推荐在落雪开发者面板选择“无回调地址”并填写 urn:ietf:wg:oauth:2.0:oob；留空时插件也会自动使用该地址。请勿填写完整的 OAuth 授权链接。",
     "type": "string",
     "default": ""
   }

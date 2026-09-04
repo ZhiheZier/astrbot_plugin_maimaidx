@@ -10,7 +10,9 @@
 - OAuth 模式：用户授权后可获取包含精确达成率的全部成绩，功能完整。
 """
 
-from typing import List, Optional
+import asyncio
+from typing import List, Optional, Union
+from urllib.parse import parse_qs, urlparse
 
 from aiohttp import ClientSession, ClientTimeout
 from pydantic import BaseModel
@@ -35,6 +37,25 @@ DEV_BASE = f'{LXNS_BASE}/api/v0/maimai'
 USER_BASE = f'{LXNS_BASE}/api/v0/user/maimai/player'
 OAUTH_TOKEN_URL = f'{LXNS_BASE}/api/v0/oauth/token'
 AUTHORIZE_URL = f'{LXNS_BASE}/oauth/authorize'
+OAUTH_OOB_REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob'
+
+
+def oauth_redirect_uri() -> str:
+    """Return the registered callback URI, tolerating a pasted authorize URL."""
+    configured = str(maiApi.config.lx_redirect_uri or '').strip()
+    if not configured:
+        return OAUTH_OOB_REDIRECT_URI
+
+    parsed = urlparse(configured)
+    if (
+        parsed.scheme in ('http', 'https')
+        and parsed.netloc == 'maimai.lxns.net'
+        and parsed.path.rstrip('/') == '/oauth/authorize'
+    ):
+        nested = parse_qs(parsed.query).get('redirect_uri')
+        if nested and nested[0]:
+            return nested[0]
+    return configured
 
 # rate -> 代表达成率（各评级下界），用于开发者模式下由简化成绩推导达成率阈值
 RATE_TO_ACHIEVEMENTS = {
@@ -123,15 +144,19 @@ class LxnsBest50(BaseModel):
 # HTTP 客户端
 # ---------------------------------------------------------------------------
 class LxnsAPI:
+    _refresh_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(
         self,
         *,
-        qqid: Optional[int] = None,
+        qqid: Optional[Union[int, str]] = None,
         access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
         friend_code: Optional[int] = None,
     ) -> None:
         self.qqid = qqid
         self.access_token = access_token
+        self.refresh_token = refresh_token
         self.friend_code = friend_code
 
     @staticmethod
@@ -147,7 +172,13 @@ class LxnsAPI:
         return {'Authorization': f'Bearer {self.access_token}'}
 
     async def _request(
-        self, method: str, url: str, *, headers: dict, **kwargs
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict,
+        _retry_oauth: bool = True,
+        **kwargs,
     ) -> dict:
         async with ClientSession(timeout=ClientTimeout(total=30)) as session:
             async with session.request(method, url, headers=headers, **kwargs) as res:
@@ -158,6 +189,24 @@ class LxnsAPI:
                 if res.status == 200:
                     return data
                 if res.status == 401:
+                    bearer = headers.get('Authorization')
+                    if (
+                        _retry_oauth
+                        and self.access_token
+                        and bearer == f'Bearer {self.access_token}'
+                        and await self._refresh_oauth_token(self.access_token)
+                    ):
+                        retry_headers = {
+                            **headers,
+                            'Authorization': f'Bearer {self.access_token}',
+                        }
+                        return await self._request(
+                            method,
+                            url,
+                            headers=retry_headers,
+                            _retry_oauth=False,
+                            **kwargs,
+                        )
                     raise LxnsFeatureUnavailable('落雪授权失效，请重新绑定')
                 if res.status == 404:
                     raise LxnsNotBindError
@@ -167,6 +216,35 @@ class LxnsAPI:
                     raise LxnsError('落雪：请求过于频繁，请稍后再试')
                 raise LxnsError(f'落雪请求错误：HTTP {res.status}')
 
+    async def _refresh_oauth_token(self, expired_access_token: str) -> bool:
+        if self.qqid is None or not self.refresh_token:
+            return False
+
+        from .maimaidx_user import userstore
+
+        key = str(self.qqid)
+        lock = self._refresh_locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            stored = userstore.get(self.qqid)
+            if (
+                stored.access_token
+                and stored.access_token != expired_access_token
+                and stored.refresh_token
+            ):
+                self.access_token = stored.access_token
+                self.refresh_token = stored.refresh_token
+                return True
+
+            token = await self.oauth_refresh_token(self.refresh_token)
+            self.access_token = token.access_token
+            self.refresh_token = token.refresh_token
+            await userstore.update(
+                self.qqid,
+                access_token=token.access_token,
+                refresh_token=token.refresh_token,
+            )
+            return True
+
     # ---- OAuth ----
     async def oauth_fetch_token(self, code: str) -> LxnsToken:
         json = {
@@ -174,7 +252,7 @@ class LxnsAPI:
             'client_secret': maiApi.config.lx_client_secret,
             'grant_type': 'authorization_code',
             'code': code,
-            'redirect_uri': maiApi.config.lx_redirect_uri,
+            'redirect_uri': oauth_redirect_uri(),
         }
         data = await self._request('POST', OAUTH_TOKEN_URL, headers={}, json=json)
         return LxnsToken.model_validate(data.get('data', data))

@@ -762,7 +762,7 @@ async def generate(
             qqid = None
             theme = Theme.PRISM_PLUS
         else:
-            theme = userstore.get(int(qqid)).theme if qqid else Theme.PRISM_PLUS
+            theme = userstore.get(qqid).theme if qqid else Theme.PRISM_PLUS
         player, best50 = await get_best50(
             qqid=qqid,
             username=username,

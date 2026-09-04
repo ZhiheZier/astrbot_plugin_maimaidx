@@ -30,6 +30,24 @@ class UserStoreTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(persisted['10001']['friend_code'], 123456789)
             self.assertEqual(persisted['10002']['friend_code'], 987654321)
 
+    async def test_nonnumeric_platform_id_is_persisted(self):
+        openid = 'ABCDEF0123456789ABCDEF0123456789'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'user_data.json'
+            store = UserStore(path)
+
+            await store.update(
+                openid,
+                friend_code=123456789,
+                service=ServiceName.LXNS,
+            )
+
+            reloaded = UserStore(path)
+            user = reloaded.get(openid)
+            self.assertEqual(user.qqid, openid)
+            self.assertEqual(user.friend_code, 123456789)
+            self.assertEqual(user.service, ServiceName.LXNS)
+
 
 if __name__ == '__main__':
     unittest.main()

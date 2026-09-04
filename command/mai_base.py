@@ -1,6 +1,7 @@
 import random
 import re
 from re import Match
+from urllib.parse import urlencode
 from PIL import Image
 import astrbot.api.message_components as Comp
 
@@ -316,18 +317,22 @@ _SOURCE_ALIAS = {
 def _lxns_configured() -> bool:
     """落雪是否可用（配置了开发者 Token 或 OAuth 应用）"""
     cfg = maiApi.config
-    return bool(cfg.lxns_dev_token) or bool(cfg.lx_client_id and cfg.lx_redirect_uri)
+    return bool(cfg.lxns_dev_token) or bool(
+        cfg.lx_client_id and cfg.lx_client_secret
+    )
 
 
 def _authorize_url() -> str:
+    from ..libraries.maimaidx_lxns import oauth_redirect_uri
+
     cfg = maiApi.config
-    return (
-        'https://maimai.lxns.net/oauth/authorize'
-        '?response_type=code'
-        f'&client_id={cfg.lx_client_id}'
-        f'&redirect_uri={cfg.lx_redirect_uri}'
-        '&scope=read_player+read_user_profile+write_player'
-    )
+    params = {
+        'response_type': 'code',
+        'client_id': cfg.lx_client_id,
+        'redirect_uri': oauth_redirect_uri(),
+        'scope': 'read_player',
+    }
+    return f'https://maimai.lxns.net/oauth/authorize?{urlencode(params)}'
 
 
 async def source_handler(event: AstrMessageEvent):
@@ -337,8 +342,8 @@ async def source_handler(event: AstrMessageEvent):
     args = event.message_str.strip().replace('数据源', '', 1).strip().lower()
     if not args:
         try:
-            current = userstore.get(int(event.get_sender_id())).service.label
-        except (ValueError, TypeError):
+            current = userstore.get(event.get_sender_id()).service.label
+        except TypeError:
             current = ServiceName.DIVINGFISH.label
         yield event.plain_result(
             f'当前数据源：「{current}」\n'
@@ -354,13 +359,13 @@ async def source_handler(event: AstrMessageEvent):
 
     qqid = event.get_sender_id()
     if source_ == ServiceName.LXNS and not _lxns_configured():
-        await userstore.update(int(qqid), service=ServiceName.DIVINGFISH)
+        await userstore.update(qqid, service=ServiceName.DIVINGFISH)
         yield event.plain_result(
             LXNS_ERROR + '。为防止无法查询成绩，已强制将数据源切换为水鱼查分器。'
         )
         return
 
-    await userstore.update(int(qqid), service=source_)
+    await userstore.update(qqid, service=source_)
     tip = ''
     if source_ == ServiceName.LXNS:
         tip = (
@@ -381,8 +386,8 @@ async def theme_handler(event: AstrMessageEvent):
             break
     if not args:
         try:
-            current = userstore.get(int(event.get_sender_id())).theme.value
-        except (ValueError, TypeError):
+            current = userstore.get(event.get_sender_id()).theme.value
+        except TypeError:
             current = Theme.PRISM_PLUS.value
         yield event.plain_result(
             f'当前主题：「{current}」\n可使用「主题 序号」进行切换：\n{Theme.get_help()}'
@@ -393,14 +398,14 @@ async def theme_handler(event: AstrMessageEvent):
     if theme_ is None:
         yield event.plain_result(f'未找到该主题：\n{Theme.get_help()}')
         return
-    await userstore.update(int(event.get_sender_id()), theme=theme_)
+    await userstore.update(event.get_sender_id(), theme=theme_)
     yield event.plain_result(f'主题已切换为：「{theme_.value}」')
 
 
 async def bind_lxns_handler(event: AstrMessageEvent):
     """绑定落雪/lxbind 引导 OAuth 授权"""
     cfg = maiApi.config
-    if not cfg.lx_client_id or not cfg.lx_redirect_uri:
+    if not cfg.lx_client_id or not cfg.lx_client_secret:
         yield event.plain_result(
             LXNS_ERROR + '，无法进行 OAuth 绑定授权。\n'
             '（如管理员已配置开发者 Token，你只需在落雪绑定 QQ 号后使用「数据源 落雪」即可）'
@@ -479,18 +484,19 @@ async def authcode_handler(event: AstrMessageEvent):
         return
 
     cfg = maiApi.config
-    if not cfg.lx_client_id or not cfg.lx_client_secret or not cfg.lx_redirect_uri:
+    if not cfg.lx_client_id or not cfg.lx_client_secret:
         yield event.plain_result(LXNS_ERROR + '，无法完成 OAuth 绑定。')
         return
 
     qqid = event.get_sender_id()
     try:
-        api = LxnsAPI(qqid=int(qqid))
+        api = LxnsAPI(qqid=qqid)
         token = await api.oauth_fetch_token(code)
         api.access_token = token.access_token
+        api.refresh_token = token.refresh_token
         player = await api.player_personal()
         await userstore.update(
-            int(qqid),
+            qqid,
             access_token=token.access_token,
             refresh_token=token.refresh_token,
             friend_code=player.friend_code,

@@ -17,7 +17,7 @@ from .libraries.maimaidx_music import mai
 from .command.mai_alias import sse_alias_server
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.2")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.3")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -86,8 +86,14 @@ class MaimaiDXPlugin(Star):
                 setattr(maiApi.config, _key, _val)
         if maiApi.config.lxns_dev_token:
             log.info('已配置落雪开发者 Token')
-        if maiApi.config.lx_client_id and maiApi.config.lx_redirect_uri:
+        if maiApi.config.lx_client_id and maiApi.config.lx_client_secret:
             log.info('已配置落雪 OAuth 应用')
+            redirect_uri = str(maiApi.config.lx_redirect_uri or '')
+            if redirect_uri.startswith('https://maimai.lxns.net/oauth/authorize?'):
+                log.warning(
+                    'lx_redirect_uri 填写了完整的落雪授权链接，插件将自动提取其中的回调地址；'
+                    '建议将该配置改为 urn:ietf:wg:oauth:2.0:oob'
+                )
         if maiApi.divingfish_oauth_configured:
             log.info('已配置水鱼 OAuth 应用')
         else:

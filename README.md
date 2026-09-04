@@ -124,11 +124,11 @@ apt install fonts-wqy-microhei
 
 **落雪查分器（Lxns-Network，可选，用于支持第二数据源）**
 - `lxns_dev_token`: 落雪查分器开发者 Token。填写后用户即可用「数据源 落雪」按 QQ 号查询（需用户提前在落雪绑定 QQ 号，并在「隐私设置」中允许第三方读取成绩）。支持 b50 / ap50 / 单曲成绩 / 完成表 / 进度 等功能
-- `lx_client_id`: 落雪 OAuth 应用的 client_id（可选，OAuth 权限范围请选择前三项，不含「读取个人 API 秘钥」）
+- `lx_client_id`: 落雪 OAuth 应用的 client_id（可选，OAuth 权限仅需选择 `read_player`）
 - `lx_client_secret`: 落雪 OAuth 应用的 client_secret（可选）
-- `lx_redirect_uri`: 落雪 OAuth 回调地址（可选，需与落雪 OAuth 应用登记的回调地址一致）
+- `lx_redirect_uri`: 落雪 OAuth 回调地址（可选）。推荐在落雪开发者面板选择“无回调地址”并填写 `urn:ietf:wg:oauth:2.0:oob`；留空时插件也会自动使用该地址。请勿填写完整的 OAuth 授权链接
 
-> 说明：仅配置 `lxns_dev_token` 即可让用户按 QQ 号查询落雪成绩；若额外配置 OAuth 应用（`lx_client_id` 等），用户可通过「绑定落雪」进行授权，获取含**精确达成率**的完整成绩，从而支持「分数列表」「我要上分」等功能。
+> 说明：仅配置 `lxns_dev_token` 即可让用户按 QQ 号查询落雪成绩；若额外配置 OAuth 应用（`lx_client_id` 与 `lx_client_secret`），用户可通过「绑定落雪」进行授权，获取含**精确达成率**的完整成绩，从而支持「分数列表」「我要上分」等功能。选择“无回调地址”后，落雪会在授权成功页直接显示授权码；插件使用的回调 URI 为 `urn:ietf:wg:oauth:2.0:oob`。插件会在 Access Token 失效时自动刷新并保存落雪返回的新令牌。详见[落雪 OAuth 接入指南](https://maimai.lxns.net/docs/oauth-guide)。
 
 ### 5. 配置管理员
 
