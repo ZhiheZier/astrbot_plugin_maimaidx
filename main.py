@@ -15,9 +15,10 @@ from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
 from .command.mai_alias import sse_alias_server
+from .command.mai_base import get_plain_message_text
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.3")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.4")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -391,7 +392,7 @@ class MaimaiDXPlugin(Star):
             return
         
         gid = str(group_id)
-        message_str = event.message_str.strip()
+        message_str = get_plain_message_text(event)
         
         if message_str == '开启舞萌功能':
             if gid in self.disabled_groups:
@@ -600,7 +601,7 @@ class MaimaiDXPlugin(Star):
             return
         star_map = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5}
         match = re.match(
-            r'^/?([一二三四五])星(?i:b50)', event.message_str.strip()
+            r'^/?([一二三四五])星(?i:b50)', get_plain_message_text(event)
         )
         if not match:
             return
@@ -668,7 +669,7 @@ class MaimaiDXPlugin(Star):
             return
         match = re.match(
             r'^/?([白紫红黄绿])谱(?i:b50)',
-            event.message_str.strip(),
+            get_plain_message_text(event),
         )
         if not match:
             return
@@ -1041,7 +1042,7 @@ class MaimaiDXPlugin(Star):
             return
 
         gid = str(group_id)
-        action = event.message_str.strip().lstrip('/')
+        action = get_plain_message_text(event).lstrip('/')
         if action.startswith('关闭'):
             if gid not in self.arcade_enabled_groups:
                 yield event.plain_result('本群排卡功能已经是关闭状态')

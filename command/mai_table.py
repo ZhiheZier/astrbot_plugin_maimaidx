@@ -6,7 +6,11 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import comboRank, combo_rank, levelList, log, platecn, scoreRank, syncRank, is_reply_enabled
-from ..command.mai_base import convert_message_segment_to_chain, extract_at_qqid
+from ..command.mai_base import (
+    convert_message_segment_to_chain,
+    extract_at_qqid,
+    get_plain_message_text,
+)
 from ..libraries.maimaidx_music_info import (
     draw_plate_table,
     draw_rating,
@@ -96,7 +100,7 @@ async def rating_table_handler(event: AstrMessageEvent):
     """定数表命令处理"""
     from .. import ratingdir
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除后缀
     args = message_str.replace('定数表', '').strip()
     
@@ -117,7 +121,7 @@ async def rating_table_handler(event: AstrMessageEvent):
 async def table_pfm_handler(event: AstrMessageEvent):
     """完成表命令处理"""
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     request = parse_table_request(message_str)
     if request is None:
         yield event.plain_result('无法识别的表格')
@@ -183,7 +187,7 @@ async def plate_condition_handler(event: AstrMessageEvent):
 async def rise_score_handler(event: AstrMessageEvent):
     """我要在x+上x分命令处理"""
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     
     # 检查是否有 @ 消息
     at_qqid = extract_at_qqid(event)
@@ -222,7 +226,7 @@ async def rise_score_handler(event: AstrMessageEvent):
 async def plate_process_handler(event: AstrMessageEvent):
     """牌子进度命令处理"""
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     
     # 检查是否有 @ 消息
     at_qqid = extract_at_qqid(event)
@@ -251,7 +255,7 @@ async def plate_process_handler(event: AstrMessageEvent):
 async def level_process_handler(event: AstrMessageEvent):
     """等级进度命令处理"""
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     
     # 检查是否有 @ 消息
     at_qqid = extract_at_qqid(event)
@@ -311,7 +315,7 @@ async def level_process_handler(event: AstrMessageEvent):
 async def level_achievement_list_handler(event: AstrMessageEvent):
     """分数列表命令处理"""
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     
     # 检查是否有 @ 消息
     at_qqid = extract_at_qqid(event)

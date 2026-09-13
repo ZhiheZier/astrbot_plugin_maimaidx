@@ -8,7 +8,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import MessageSegment, loga
-from ..command.mai_base import convert_message_segment_to_chain
+from ..command.mai_base import convert_message_segment_to_chain, get_plain_message_text
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_arcade import (
     arcade,
@@ -82,7 +82,7 @@ async def add_arcade_handler(event: AstrMessageEvent, superusers: list = None):
         yield event.plain_result('仅允许主人添加机厅\n请使用 来杯咖啡+内容 联系主人')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['添加机厅', '新增机厅']:
         if message_str.startswith(prefix):
@@ -136,7 +136,7 @@ async def delete_arcade_handler(event: AstrMessageEvent, superusers: list = None
         yield event.plain_result('仅允许主人删除机厅\n请使用 来杯咖啡+内容 联系主人')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['删除机厅', '移除机厅']:
         if message_str.startswith(prefix):
@@ -160,7 +160,7 @@ async def delete_arcade_handler(event: AstrMessageEvent, superusers: list = None
 
 async def arcade_alias_handler(event: AstrMessageEvent):
     """添加/删除机厅别名"""
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     is_add = message_str.startswith('添加机厅别名')
     prefix = '添加机厅别名' if is_add else '删除机厅别名'
     
@@ -189,7 +189,7 @@ async def modify_arcade_handler(event: AstrMessageEvent):
         yield event.plain_result('仅允许管理员修改机厅信息')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['修改机厅', '编辑机厅']:
         if message_str.startswith(prefix):
@@ -223,7 +223,7 @@ async def subscribe_arcade_handler(event: AstrMessageEvent):
         yield event.plain_result('订阅功能仅在群聊中可用')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 匹配正则表达式
     match = re.match(r'^(订阅机厅|取消订阅机厅|取消订阅)\s(.+)', message_str)
     if not match:
@@ -266,7 +266,7 @@ async def check_subscribe_handler(event: AstrMessageEvent):
 
 async def search_arcade_handler(event: AstrMessageEvent):
     """查找机厅"""
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['查找机厅', '查询机厅', '机厅查找', '机厅查询', '搜素机厅', '机厅搜素']:
         if message_str.startswith(prefix):
@@ -313,7 +313,7 @@ async def arcade_person_handler(event: AstrMessageEvent):
         yield event.plain_result('排卡功能仅在群聊中可用')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     match = re.match(r'^(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?$', message_str)
     if not match:
         return
@@ -381,7 +381,7 @@ async def arcade_query_person_handler(event: AstrMessageEvent):
         yield event.plain_result('查询功能仅在群聊中可用')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除后缀
     for suffix in ['有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', 'jr', '几卡', 'j']:
         if message_str.endswith(suffix):

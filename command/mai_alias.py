@@ -13,7 +13,7 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import SONGS_PER_PAGE, log, public_addr
-from ..command.mai_base import convert_message_segment_to_chain
+from ..command.mai_base import convert_message_segment_to_chain, get_plain_message_text
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import ServerError
@@ -78,7 +78,7 @@ async def alias_switch_on_off_handler(event: AstrMessageEvent, superusers: list 
         group_list = await event.bot.get_group_list()
         group_id = [str(g['group_id']) for g in group_list]
         
-        message_str = event.message_str.strip()
+        message_str = get_plain_message_text(event)
         if message_str == '全局关闭别名推送':
             await alias.alias_global_change(False, group_id)
             yield event.plain_result('已全局关闭maimai别名推送')
@@ -100,7 +100,7 @@ async def alias_local_apply_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['添加本地别名', '添加本地别称']:
         if message_str.startswith(prefix):
@@ -148,7 +148,7 @@ async def alias_local_delete_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
 
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['删除本地别名', '删除本地别称', '移除本地别名', '移除本地别称']:
         if message_str.startswith(prefix):
@@ -193,7 +193,7 @@ async def alias_apply_handler(event: AstrMessageEvent):
         return
     
     try:
-        message_str = event.message_str.strip()
+        message_str = get_plain_message_text(event)
         # 移除命令前缀
         for prefix in ['添加别名', '增加别名', '增添别名', '添加别称']:
             if message_str.startswith(prefix):
@@ -233,7 +233,7 @@ async def alias_apply_handler(event: AstrMessageEvent):
 async def alias_agree_handler(event: AstrMessageEvent):
     """同意别名命令处理"""
     try:
-        message_str = event.message_str.strip()
+        message_str = get_plain_message_text(event)
         # 移除命令前缀
         for prefix in ['同意别名', '同意别称']:
             if message_str.startswith(prefix):
@@ -255,7 +255,7 @@ async def alias_agree_handler(event: AstrMessageEvent):
 async def alias_status_handler(event: AstrMessageEvent):
     """当前投票命令处理"""
     try:
-        message_str = event.message_str.strip()
+        message_str = get_plain_message_text(event)
         # 移除命令前缀
         for prefix in ['当前投票', '当前别名投票', '当前别称投票']:
             if message_str.startswith(prefix):
@@ -309,7 +309,7 @@ async def alias_song_handler(event: AstrMessageEvent):
         yield event.plain_result('别名数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 匹配正则表达式
     match = re.match(r'^(id)?\s?(.+)\s?有什么别[名称]$', message_str, re.IGNORECASE)
     if not match:
@@ -364,7 +364,7 @@ async def alias_switch_handler(event: AstrMessageEvent):
         yield event.plain_result('别名推送开关功能仅在群聊中可用')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除后缀
     for suffix in ['别名推送', '别称推送']:
         if message_str.endswith(suffix):

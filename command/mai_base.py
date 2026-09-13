@@ -27,11 +27,13 @@ def extract_at_qqid(event: AstrMessageEvent):
     Returns:
         被 @ 的 QQ ID（字符串），如果没有 @ 消息则返回 None
     """
-    if not event.message_obj or not event.message_obj.message:
+    message_obj = getattr(event, 'message_obj', None)
+    components = getattr(message_obj, 'message', None)
+    if not components:
         return None
     
     # 遍历消息链，查找 At 组件
-    for component in event.message_obj.message:
+    for component in components:
         # 检查是否是 At 组件
         # Comp.At 组件可能有 qq 属性，或者通过 type 和 data 访问
         if hasattr(component, 'qq'):
@@ -51,6 +53,20 @@ def extract_at_qqid(event: AstrMessageEvent):
                     return str(qq_id)
     
     return None
+
+
+def get_plain_message_text(event: AstrMessageEvent) -> str:
+    """Return user-entered plain text without At or other message segments."""
+    message_obj = getattr(event, 'message_obj', None)
+    components = getattr(message_obj, 'message', None)
+    if components is None:
+        return getattr(event, 'message_str', '').strip()
+
+    return ''.join(
+        component.text
+        for component in components
+        if isinstance(component, Comp.Plain)
+    ).strip()
 
 
 # 查分图成功返回后的提示（主题 / 数据源）
@@ -192,7 +208,7 @@ async def mai_what_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str
+    message_str = get_plain_message_text(event)
     match = re.search(r'.*mai.*什么(.+)?', message_str, re.IGNORECASE)
     
     music = mai.total_list.random()
@@ -236,7 +252,7 @@ async def random_song_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str
+    message_str = get_plain_message_text(event)
     match = re.match(r'^[来随给]个((?:dx|sd|标准))?([绿黄红紫白]?)([0-9]+\+?)$', message_str)
     
     try:
@@ -271,7 +287,7 @@ async def random_song_handler(event: AstrMessageEvent):
 
 async def rating_ranking_handler(event: AstrMessageEvent):
     """查看排名/查看排行"""
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     args = message_str.replace('查看排名', '').replace('查看排行', '').strip()
     
@@ -339,7 +355,7 @@ async def source_handler(event: AstrMessageEvent):
     """数据源 切换查分器"""
     from ..libraries.maimaidx_user import ServiceName, userstore
 
-    args = event.message_str.strip().replace('数据源', '', 1).strip().lower()
+    args = get_plain_message_text(event).replace('数据源', '', 1).strip().lower()
     if not args:
         try:
             current = userstore.get(event.get_sender_id()).service.label
@@ -379,7 +395,7 @@ async def theme_handler(event: AstrMessageEvent):
     """主题 切换成绩图主题"""
     from ..libraries.maimaidx_user import Theme, userstore
 
-    args = event.message_str.strip()
+    args = get_plain_message_text(event)
     for p in ('主题', 'theme'):
         if args.lower().startswith(p):
             args = args[len(p):].strip()
@@ -473,7 +489,7 @@ async def authcode_handler(event: AstrMessageEvent):
     from ..libraries.maimaidx_lxns import LxnsAPI, LxnsError
     from ..libraries.maimaidx_user import ServiceName, userstore
 
-    args = event.message_str.strip()
+    args = get_plain_message_text(event)
     for p in ('授权码', 'code'):
         if args.lower().startswith(p):
             args = args[len(p):].strip()

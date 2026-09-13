@@ -7,7 +7,11 @@ import astrbot.api.message_components as Comp
 from astrbot.api.event import AstrMessageEvent
 
 from .. import is_reply_enabled
-from ..command.mai_base import append_theme_source_tip, convert_message_segment_to_chain
+from ..command.mai_base import (
+    append_theme_source_tip,
+    convert_message_segment_to_chain,
+    get_plain_message_text,
+)
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_error import *
 from ..libraries.maimaidx_model import AliasStatus
@@ -49,7 +53,7 @@ async def search_music_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['查歌', 'search']:
         if message_str.lower().startswith(prefix.lower()):
@@ -92,7 +96,7 @@ async def search_base_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['定数查歌', 'search base']:
         if message_str.lower().startswith(prefix.lower()):
@@ -152,7 +156,7 @@ async def search_bpm_handler(event: AstrMessageEvent):
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['bpm查歌', 'search bpm']:
         if message_str.lower().startswith(prefix.lower()):
@@ -199,7 +203,7 @@ async def search_artist_handler(event: AstrMessageEvent):
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['曲师查歌', 'search artist']:
         if message_str.lower().startswith(prefix.lower()):
@@ -244,7 +248,7 @@ async def search_charter_handler(event: AstrMessageEvent):
         yield event.plain_result('本群正在猜歌，不要作弊哦~')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     for prefix in ['谱师查歌', 'search charter']:
         if message_str.lower().startswith(prefix.lower()):
@@ -283,7 +287,7 @@ async def search_alias_song_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip().lower()
+    message_str = get_plain_message_text(event).lower()
     # 移除后缀
     for suffix in ['是什么歌', '是啥歌']:
         if message_str.endswith(suffix):
@@ -395,7 +399,7 @@ async def query_chart_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 匹配 id xxxxx 格式
     match = re.match(r'^id\s?([0-9]+)$', message_str, re.IGNORECASE)
     if not match:

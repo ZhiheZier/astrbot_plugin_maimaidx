@@ -9,7 +9,7 @@ from astrbot.api.event import AstrMessageEvent
 from astrbot.core.star.filter.event_message_type import EventMessageType
 
 from .. import log
-from ..command.mai_base import convert_message_segment_to_chain
+from ..command.mai_base import convert_message_segment_to_chain, get_plain_message_text
 from ..libraries.maimaidx_music import guess
 from ..libraries.maimaidx_music_info import draw_music_info
 
@@ -307,7 +307,7 @@ async def guess_music_solve_handler(event: AstrMessageEvent):
     if gid not in guess.Group:
         return  # 该群没有进行中的猜歌
     
-    ans = event.message_str.strip().lower()
+    ans = get_plain_message_text(event).lower()
     if not ans:
         return
     
@@ -356,7 +356,7 @@ async def guess_on_off_handler(event: AstrMessageEvent):
         return
     
     gid = str(group_id)
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     
     # 判断是开启还是关闭
     if message_str.endswith('开启mai猜歌'):
@@ -367,4 +367,3 @@ async def guess_on_off_handler(event: AstrMessageEvent):
         msg = '指令错误，请使用「开启mai猜歌」或「关闭mai猜歌」'
     
     yield event.plain_result(msg)
-

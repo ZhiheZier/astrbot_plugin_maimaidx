@@ -12,6 +12,7 @@ from ..command.mai_base import (
     append_theme_source_tip,
     convert_message_segment_to_chain,
     extract_at_qqid,
+    get_plain_message_text,
 )
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimai_best_50 import generate
@@ -46,10 +47,11 @@ async def best50_handler(
         return
     
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     # 检查是否有 @ 消息
-    if '@' not in message_str:
+    at_qqid = extract_at_qqid(event)
+    if not at_qqid:
         if all_songs:
             cleaned = re.sub(
                 ALL_SONGS_B50_COMMAND_PATTERN,
@@ -94,10 +96,8 @@ async def best50_handler(
             qqid = int(username)
             username = ''
     else:
-        username = ''   
-        at_qqid = extract_at_qqid(event)
-        if at_qqid:
-            qqid = at_qqid
+        username = ''
+        qqid = at_qqid
     
     result = await generate(
         qqid,
@@ -124,15 +124,14 @@ async def gold_analysis_handler(event: AstrMessageEvent):
         return
 
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
-    if '@' not in message_str:
+    message_str = get_plain_message_text(event)
+    at_qqid = extract_at_qqid(event)
+    if not at_qqid:
         cleaned = re.sub(r'^/?(?:含金量分析|含金量)', '', message_str)
         username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
     else:
         username = ''
-        at_qqid = extract_at_qqid(event)
-        if at_qqid:
-            qqid = at_qqid
+        qqid = at_qqid
 
     from ..libraries.maimaidx_analysis import generate_gold_analysis
 
@@ -150,8 +149,9 @@ async def water_analysis_handler(event: AstrMessageEvent):
         return
 
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip()
-    if '@' not in message_str:
+    message_str = get_plain_message_text(event)
+    at_qqid = extract_at_qqid(event)
+    if not at_qqid:
         cleaned = re.sub(
             r'^/?(?:水分分析|含水量分析|含水量)',
             '',
@@ -160,9 +160,7 @@ async def water_analysis_handler(event: AstrMessageEvent):
         username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
     else:
         username = ''
-        at_qqid = extract_at_qqid(event)
-        if at_qqid:
-            qqid = at_qqid
+        qqid = at_qqid
 
     from ..libraries.maimaidx_analysis import generate_water_analysis
 
@@ -181,7 +179,7 @@ async def minfo_handler(event: AstrMessageEvent):
         return
     
     qqid = event.get_sender_id()
-    message_str = event.message_str.strip().lower()
+    message_str = get_plain_message_text(event).lower()
     # 移除命令前缀
     for prefix in ['minfo', 'info']:
         if message_str.startswith(prefix):
@@ -234,7 +232,7 @@ async def ginfo_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip().lower()
+    message_str = get_plain_message_text(event).lower()
     # 移除命令前缀
     for prefix in ['ginfo']:
         if message_str.startswith(prefix):
@@ -308,7 +306,7 @@ async def score_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 移除命令前缀
     args = message_str.replace('分数线', '').strip()
     pro = args.split()
@@ -396,7 +394,7 @@ async def score_handler(event: AstrMessageEvent):
 
 async def mai_score_calculate_handler(event: AstrMessageEvent):
     """计算指定定数和达成率的分数"""
-    message_str = event.message_str.strip()
+    message_str = get_plain_message_text(event)
     # 1. 匹配字符串提取 a (定数) 和 b (达成率)
     pattern = r'^([0-9]*\.?[0-9]+)的([0-9]*\.?[0-9]+)是多少分$'
     match = re.match(pattern, message_str)
