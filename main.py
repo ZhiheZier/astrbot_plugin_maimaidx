@@ -18,7 +18,7 @@ from .command.mai_alias import sse_alias_server
 from .command.mai_base import get_plain_message_text
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.4")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.5")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)

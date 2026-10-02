@@ -1,11 +1,12 @@
 import copy
 
-from .. import MessageSegment, get_botname
+from .. import MessageSegment, get_botname, merge_music_file
 from .image import draw_text_with_font_fallback
 from .maimai_best_50 import *
 from .maimaidx_lxns import LxnsError
 from .maimaidx_model import Song
 from .maimaidx_music import mai
+from .maimaidx_rating_table_layout import level_15_height, level_15_position
 
 
 def newbestscore(song_id: str, lv: int, value: int, bestlist: List[ChartInfo]) -> int:
@@ -443,6 +444,29 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
         complete_bg = Image.open(maimaidir / 'complete_1.png')
         
         bg = ratingdir / f'{rating}.png'
+        if rating == '15':
+            expected_size = (1400, level_15_height(lvnum))
+            needs_rebuild = not bg.exists()
+            if not needs_rebuild:
+                with Image.open(bg) as current_bg:
+                    needs_rebuild = current_bg.size != expected_size
+            if (
+                not needs_rebuild
+                and merge_music_file.exists()
+                and bg.stat().st_mtime < merge_music_file.stat().st_mtime
+            ):
+                needs_rebuild = True
+            if needs_rebuild:
+                from .maimaidx_update_table import update_level_15_rating_table
+
+                if maiApi.config.saveinmem and not ScoreBaseImage.aurora_bg:
+                    ScoreBaseImage._load_image()
+                base_image = (
+                    ScoreBaseImage
+                    if maiApi.config.saveinmem
+                    else ScoreBaseImage()
+                )
+                await update_level_15_rating_table(base_image)
         
         im = Image.open(bg).convert('RGBA')
         dr = ImageDraw.Draw(im)
@@ -474,34 +498,55 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
             tb.draw(x, stats_second_line_y, 30, statistics[stat_keys[7 + n]],
                     (124, 129, 255, 255), 'mm', 2, (255, 255, 255, 255))
         
-        # 曲绘叠加层
-        START_Y = 450
-        for ra, songs in lvlist.items():
-            if not songs:
-                continue
-            for num, music in enumerate(songs):
-                row, col = divmod(num, 14)
-                x = 140 + col * 85
-                cover_y = START_Y + row * 85
-                if music.id in fromid and music.lv in fromid[music.id]:
-                    if not isfc:
-                        score = fromid[music.id][music.lv]['achievements']
-                        achievements_fc_list.append(score)
-                        rate = computeRa(music.ds, score, onlyrate=True)
-                        rank = Image.open(themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')).resize((78, 35))
-                        if score >= 100:
+        # 曲绘叠加层。15 级与上游一致，使用三列大卡片。
+        if rating == '15':
+            for num, music in enumerate(lvlist.get('15.0', [])):
+                x, cover_y = level_15_position(num)
+                if music.id not in fromid or music.lv not in fromid[music.id]:
+                    continue
+                if not isfc:
+                    score = fromid[music.id][music.lv]['achievements']
+                    achievements_fc_list.append(score)
+                    rate = computeRa(music.ds, score, onlyrate=True)
+                    rank = Image.open(
+                        themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')
+                    )
+                    im.alpha_composite(rank, (x + 55, cover_y + 115))
+                    continue
+                if _fc := fromid[music.id][music.lv]['fc']:
+                    achievements_fc_list.append(combo_rank.index(_fc))
+                    fc = Image.open(
+                        maimaidir / f'UI_CHR_PlayBonus_{fcl[_fc]}.png'
+                    ).resize((200, 200))
+                    im.alpha_composite(fc, (x + 75, cover_y + 80))
+        else:
+            START_Y = 450
+            for ra, songs in lvlist.items():
+                if not songs:
+                    continue
+                for num, music in enumerate(songs):
+                    row, col = divmod(num, 14)
+                    x = 140 + col * 85
+                    cover_y = START_Y + row * 85
+                    if music.id in fromid and music.lv in fromid[music.id]:
+                        if not isfc:
+                            score = fromid[music.id][music.lv]['achievements']
+                            achievements_fc_list.append(score)
+                            rate = computeRa(music.ds, score, onlyrate=True)
+                            rank = Image.open(themed_path(Theme.PRISM_PLUS, f'UI_TTR_Rank_{rate}.png')).resize((78, 35))
+                            if score >= 100:
+                                im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
+                            else:
+                                im.alpha_composite(unfinished_bg, (x + 1, cover_y + 1))
+                            im.alpha_composite(rank, (x, cover_y + 20))
+                            continue
+                        if _fc := fromid[music.id][music.lv]['fc']:
+                            achievements_fc_list.append(combo_rank.index(_fc))
+                            fc = Image.open(maimaidir / f'UI_MSS_MBase_Icon_{fcl[_fc]}.png').resize((50, 50))
                             im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
-                        else:
-                            im.alpha_composite(unfinished_bg, (x + 1, cover_y + 1))
-                        im.alpha_composite(rank, (x, cover_y + 20))
-                        continue
-                    if _fc := fromid[music.id][music.lv]['fc']:
-                        achievements_fc_list.append(combo_rank.index(_fc))
-                        fc = Image.open(maimaidir / f'UI_MSS_MBase_Icon_{fcl[_fc]}.png').resize((50, 50))
-                        im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
-                        im.alpha_composite(fc, (x + 15, cover_y + 13))
-            rows = (len(songs) - 1) // 14 + 1
-            START_Y += rows * 85 + 30
+                            im.alpha_composite(fc, (x + 15, cover_y + 13))
+                rows = (len(songs) - 1) // 14 + 1
+                START_Y += rows * 85 + 30
 
         if len(achievements_fc_list) == lvnum:
             r = calc_achievements_fc(achievements_fc_list, lvnum, isfc)
