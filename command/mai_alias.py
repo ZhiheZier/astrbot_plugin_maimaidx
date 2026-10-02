@@ -12,7 +12,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import SONGS_PER_PAGE, log, public_addr
+from .. import SONGS_PER_PAGE, get_botname, log, public_addr
 from ..command.mai_base import convert_message_segment_to_chain, get_plain_message_text
 from ..libraries.image import image_to_base64, text_to_image
 from ..libraries.maimaidx_api_data import maiApi
@@ -470,31 +470,61 @@ async def push_alias(push: PushAliasStatus, context=None):
         log.error(f'获取群组列表失败: {e}')
         return
     
-    message_chain = []
-    for num, status in enumerate(push.Status):
+    alias_nodes = []
+    for status in push.Status:
         song_id = str(status.SongID)
         music = mai.total_list.by_id(song_id)
         if music is None:
             log.warning(f'别名推送中的曲目不存在: {song_id}')
             continue
         text_msg = dedent(f'''\
-            {'检测到新的别名申请' if num == 0 else '新的别名申请'}
-            =================
             {status.Tag}：
             ID：{song_id}
             标题：{music.song_name}
             别名：{status.ApplyAlias}
-            浏览{public_addr}查看详情
         ''').strip()
         pic = await draw_music_info(music)
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, text_msg + '\n')
-        message_chain.extend(chain)
+        alias_nodes.append(await convert_chain_to_onebot_format(chain))
     
-    if not message_chain:
+    if not alias_nodes:
         return
-    
-    onebot_message = await convert_chain_to_onebot_format(message_chain)
+
+    try:
+        login_info = await bot_client.get_login_info()
+        bot_id = str(login_info.get('user_id', 0))
+    except Exception as e:
+        log.warning(f'获取机器人账号信息失败，将使用默认转发节点账号: {e}')
+        bot_id = '0'
+
+    nickname = get_botname()
+    intro = (
+        '检测到新的别名申请，可使用「同意别名 <Tag>」指令进行投票，'
+        f'点击下方链接查看详情：「{public_addr}」\n'
+        '如果不需要接收推送消息，请使用「关闭别名推送」指令关闭推送'
+    )
+    forward_nodes = [
+        {
+            'type': 'node',
+            'data': {
+                'user_id': bot_id,
+                'nickname': nickname,
+                'content': [{'type': 'text', 'data': {'text': intro}}],
+            },
+        },
+        *[
+            {
+                'type': 'node',
+                'data': {
+                    'user_id': bot_id,
+                    'nickname': nickname,
+                    'content': content,
+                },
+            }
+            for content in alias_nodes
+        ],
+    ]
     for gid in group_ids:
         gid_str = str(gid)
         if maiApi.config.maimaidxaliaswhitelist:
@@ -503,7 +533,10 @@ async def push_alias(push: PushAliasStatus, context=None):
         elif gid_str in alias.push.disable:
             continue
         try:
-            await bot_client.send_group_msg(group_id=gid, message=onebot_message)
+            await bot_client.send_group_forward_msg(
+                group_id=gid,
+                messages=forward_nodes,
+            )
             await asyncio.sleep(5)
         except Exception as e:
             log.warning(f'发送别名推送消息到群 {gid} 失败: {e}')
@@ -521,7 +554,7 @@ async def sse_alias_server(context=None):
     last_event_id = None
     timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=None)
     log.info('正在连接别名推送 SSE 服务器')
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
         while True:
             try:
                 headers = {'Accept': 'text/event-stream'}
