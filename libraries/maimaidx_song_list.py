@@ -75,7 +75,7 @@ def build_difficulty_strip(
     return strip
 
 
-def draw_song_list(
+async def draw_song_list(
     songs: Sequence[Song],
     page: int = 1,
     *,
@@ -128,7 +128,7 @@ def draw_song_list(
         if card_bg:
             image.alpha_composite(card_bg, (x, y))
 
-        cover = _open_rgba(music_picture(song.song_id), (80, 80))
+        cover = _open_rgba(await music_picture(song.song_id), (80, 80))
         version = _open_rgba(maimaidir / f'{song.version_str}.png', (104, 50))
         song_type = _open_rgba(maimaidir / f'{song.type.upper()}.png', (40, 15))
         for asset, pos in (

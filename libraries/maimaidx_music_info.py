@@ -91,7 +91,7 @@ async def draw_music_info(
     im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (65, 25))
     if music.isnew:
         im.alpha_composite(Image.open(maimaidir / 'UI_CMN_TabTitle_NewSong.png').resize((249, 120)), (842, 100))
-    songbg = Image.open(music_picture(music.song_id)).resize((242, 242))
+    songbg = Image.open(await music_picture(music.song_id)).resize((242, 242))
     im.alpha_composite(songbg, (133, 197))
     im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((182, 90)), (800, 370))
     im.alpha_composite(Image.open(maimaidir / f'{music.type}.png').resize((80, 30)), (295, 410))
@@ -191,7 +191,7 @@ async def draw_music_banquet_info(music: Song) -> MessageSegment:
     if music.isnew:
         im.alpha_composite(Image.open(maimaidir / 'UI_CMN_TabTitle_NewSong.png').resize((249, 120)), (950, 165))
     # cover
-    im.alpha_composite(Image.open(music_picture(music.song_id)).resize((242, 242)), (133, 246))
+    im.alpha_composite(Image.open(await music_picture(music.song_id)).resize((242, 242)), (133, 246))
     # version
     im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((182, 90)), (800, 415))
 
@@ -279,7 +279,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         mr = DrawText(dr, SIYUAN)
 
         im.alpha_composite(Image.open(themed_path(theme, 'logo.png')).resize((249, 120)), (0, 34))
-        cover = Image.open(music_picture(music_id))
+        cover = Image.open(await music_picture(music_id))
         im.alpha_composite(cover.resize((300, 300)), (100, 260))
         im.alpha_composite(Image.open(maimaidir / f'info_{category[music.genre]}.png'), (100, 260))
         im.alpha_composite(Image.open(maimaidir / f'{music.version_str}.png').resize((183, 90)), (295, 205))

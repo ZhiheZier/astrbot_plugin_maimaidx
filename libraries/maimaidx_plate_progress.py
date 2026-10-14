@@ -143,7 +143,7 @@ def _display_rows(count: int) -> int:
     return max(1, min(ceil(count / 13), 4))
 
 
-def draw_plate_progress(
+async def draw_plate_progress(
     data: PlateProgressData,
     version: str,
     plan: str,
@@ -227,7 +227,7 @@ def draw_plate_progress(
             row, column = divmod(index, 13)
             x = 84 + column * 96
             y = start_y + row * 96
-            cover = _open_rgba(music_picture(chart.song_id), (80, 80))
+            cover = _open_rgba(await music_picture(chart.song_id), (80, 80))
             if cover:
                 image.alpha_composite(cover, (x, y))
             border = remaster_border if chart.level_index == 4 else id_border

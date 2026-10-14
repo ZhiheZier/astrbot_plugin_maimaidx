@@ -194,7 +194,7 @@ async def mai_today_handler(event: AstrMessageEvent):
     chain = [Comp.Plain(msg)]
     
     # 添加图片
-    music_img_path = music_picture(music.song_id)
+    music_img_path = await music_picture(music.song_id)
     if music_img_path.exists():
         chain.append(Comp.Image.fromFileSystem(str(music_img_path)))
     

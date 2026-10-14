@@ -1,8 +1,9 @@
+import asyncio
 import base64
 from io import BytesIO
 from typing import List, Optional, Set, Tuple, Union
-from urllib.request import Request, urlopen
 
+import aiohttp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 
@@ -10,6 +11,7 @@ from .. import SHANGGUMONO, Path, coverdir, log
 
 # 记录在线下载失败（如 CDN 无此封面）的 ID，避免重复请求
 _missing_covers: Set[int] = set()
+_cover_locks: dict[Path, asyncio.Lock] = {}
 
 
 class DrawText:
@@ -213,7 +215,7 @@ def rounded_corners(
     return new_im
 
 
-def _download_cover(music_id: int) -> Optional[Path]:
+async def _download_cover(music_id: int) -> Optional[Path]:
     """当本地缺少封面且开启在线素材时，从水鱼封面 CDN 下载并缓存。
 
     Params:
@@ -236,28 +238,36 @@ def _download_cover(music_id: int) -> Optional[Path]:
     if target.exists():
         return target
 
-    # 水鱼封面 CDN 使用未补零的 ID
-    url = f'{maiApi.MaiCover}/{cover_id}.png'
-    try:
-        req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urlopen(req, timeout=10) as resp:
-            if getattr(resp, 'status', 200) != 200:
+    lock = _cover_locks.setdefault(target, asyncio.Lock())
+    async with lock:
+        if target.exists():
+            return target
+        if cover_id in _missing_covers:
+            return None
+
+        # 水鱼封面 CDN 使用未补零的 ID；同一封面的并发请求共用缓存。
+        url = f'{maiApi.MaiCover}/{cover_id}.png'
+        try:
+            timeout = aiohttp.ClientTimeout(total=10)
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+                async with session.get(url, headers={'User-Agent': 'Mozilla/5.0'}) as resp:
+                    if resp.status != 200:
+                        _missing_covers.add(cover_id)
+                        return None
+                    content = await resp.read()
+            if not content:
                 _missing_covers.add(cover_id)
                 return None
-            content = resp.read()
-        if not content:
+            coverdir.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+            return target
+        except Exception as e:
             _missing_covers.add(cover_id)
+            log.warning(f'在线下载封面失败（id={music_id} → {cover_id}）：{e}')
             return None
-        coverdir.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
-        return target
-    except Exception as e:
-        _missing_covers.add(cover_id)
-        log.warning(f'在线下载封面失败（id={music_id} → {cover_id}）：{e}')
-        return None
 
 
-def music_picture(music_id: Union[int, str]) -> Path:
+async def music_picture(music_id: Union[int, str]) -> Path:
     """
     获取谱面图片路径。
 
@@ -279,7 +289,7 @@ def music_picture(music_id: Union[int, str]) -> Path:
         return _path
 
     # 本地无封面时，按需在线下载并缓存（受 assets_online 控制）
-    if (_online := _download_cover(music_id)) is not None:
+    if (_online := await _download_cover(music_id)) is not None:
         return _online
 
     fallback = coverdir / '0.png'

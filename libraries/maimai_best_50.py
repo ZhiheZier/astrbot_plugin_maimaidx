@@ -212,7 +212,7 @@ class ScoreBaseImage:
         self.rainbow_bg = Image.open(maimaidir / 'rainbow.png').convert('RGBA')
         self.rainbow_bottom_bg = Image.open(maimaidir / 'rainbow_bottom.png').convert('RGBA')
     
-    def whiledraw(
+    async def whiledraw(
         self, 
         data: Union[List[ChartInfo], List[PlayInfoDefault], List[PlayInfoDev]], 
         best: bool, 
@@ -248,7 +248,7 @@ class ScoreBaseImage:
                 log.warning(f'无效的 level_index: {getattr(info, "level_index", None)} for song {getattr(info, "song_id", "unknown")}')
                 continue
 
-            cover = Image.open(music_picture(info.song_id)).resize((75, 75))
+            cover = Image.open(await music_picture(info.song_id)).resize((75, 75))
             version = Image.open(maimaidir / f'{info.type.upper()}.png').resize((37, 14))
             if info.rate.islower():
                 rank_name = f'UI_TTR_Rank_{score_Rank_l[info.rate]}.png'
@@ -532,10 +532,10 @@ class DrawBest(ScoreBaseImage):
         )
 
         if self.all_songs:
-            self.whiledraw(self.sdBest + self.dxBest, True)
+            await self.whiledraw(self.sdBest + self.dxBest, True)
         else:
-            self.whiledraw(self.sdBest, True)
-            self.whiledraw(self.dxBest, False)
+            await self.whiledraw(self.sdBest, True)
+            await self.whiledraw(self.dxBest, False)
 
         return self._im
 

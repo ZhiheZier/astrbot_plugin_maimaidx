@@ -38,8 +38,8 @@ def song_level(ds1: float, ds2: float) -> SongList:
     )
 
 
-def song_list_chain(event: AstrMessageEvent, songs, page: int, title: str):
-    image = draw_song_list(songs, page, title=title)
+async def song_list_chain(event: AstrMessageEvent, songs, page: int, title: str):
+    image = await draw_song_list(songs, page, title=title)
     chain = convert_message_segment_to_chain(image)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
@@ -86,7 +86,7 @@ async def search_music_handler(event: AstrMessageEvent):
         return
         
     result.sort(key=lambda song: song.song_id)
-    yield event.chain_result(song_list_chain(event, result, page, '曲目搜索'))
+    yield event.chain_result(await song_list_chain(event, result, page, '曲目搜索'))
 
 
 async def search_base_handler(event: AstrMessageEvent):
@@ -140,7 +140,7 @@ async def search_base_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    yield event.chain_result(song_list_chain(event, result, page, '定数搜索'))
+    yield event.chain_result(await song_list_chain(event, result, page, '定数搜索'))
 
 
 async def search_bpm_handler(event: AstrMessageEvent):
@@ -187,7 +187,7 @@ async def search_bpm_handler(event: AstrMessageEvent):
         return
     
     result.sort(key=lambda song: song.bpm)
-    yield event.chain_result(song_list_chain(event, result, page, 'BPM 搜索'))
+    yield event.chain_result(await song_list_chain(event, result, page, 'BPM 搜索'))
 
 
 async def search_artist_handler(event: AstrMessageEvent):
@@ -232,7 +232,7 @@ async def search_artist_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    yield event.chain_result(song_list_chain(event, result, page, '曲师搜索'))
+    yield event.chain_result(await song_list_chain(event, result, page, '曲师搜索'))
 
 
 async def search_charter_handler(event: AstrMessageEvent):
@@ -277,7 +277,7 @@ async def search_charter_handler(event: AstrMessageEvent):
         yield event.plain_result('没有找到这样的乐曲。')
         return
     
-    yield event.chain_result(song_list_chain(event, result, page, '谱师搜索'))
+    yield event.chain_result(await song_list_chain(event, result, page, '谱师搜索'))
 
 
 async def search_alias_song_handler(event: AstrMessageEvent):

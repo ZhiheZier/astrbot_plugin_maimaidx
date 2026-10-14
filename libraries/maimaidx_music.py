@@ -549,6 +549,7 @@ class Guess:
 
     def __init__(self) -> None:
         """猜歌类"""
+        self.starting = set()
         if not guess_file.exists():
             self.switch = GuessSwitch()
         else:
@@ -565,13 +566,26 @@ class Guess:
             except (ValueError, TypeError):
                 self.switch.disable = []
     
-    def start(self, group_id: str):
+    async def start(self, group_id: str):
         """开始猜歌"""
-        self.Group[group_id] = self.guessData()
+        await self._start(group_id, picture_only=False)
 
-    def startpic(self, group_id: str):
+    async def startpic(self, group_id: str):
         """开始猜曲绘"""
-        self.Group[group_id] = self.guesspicdata()
+        await self._start(group_id, picture_only=True)
+
+    async def _start(self, group_id: str, picture_only: bool):
+        # 下载封面时会让出事件循环，先占用本群，避免重复开局。
+        if group_id in self.Group or group_id in self.starting:
+            raise ValueError('该群已有正在进行的猜歌或猜曲绘')
+        self.starting.add(group_id)
+        try:
+            data = await (self.guesspicdata() if picture_only else self.guessData())
+            if group_id not in self.switch.enable:
+                raise ValueError('该群已关闭猜歌功能')
+            self.Group[group_id] = data
+        finally:
+            self.starting.discard(group_id)
         
     def calculate_frequency_weights(self, image: Image.Image) -> np.ndarray:
         """
@@ -609,9 +623,9 @@ class Guess:
         top_left_x = chosen_index % valid_regions.shape[1]
         return top_left_x, top_left_y
 
-    def pic(self, music: Song) -> Image.Image:
+    async def pic(self, music: Song) -> Image.Image:
         """裁切曲绘"""
-        im = Image.open(music_picture(music.song_id))
+        im = Image.open(await music_picture(music.song_id))
         w, h = im.size
         weights = self.calculate_frequency_weights(im)
         scale = random.uniform(0.15, 0.4)  # 裁剪尺寸范围 可在此修改
@@ -621,12 +635,12 @@ class Guess:
         im = im.crop((x, y, x + w2, y + h2))
         return im
 
-    def guesspicdata(self) -> GuessPicData:
+    async def guesspicdata(self) -> GuessPicData:
         """猜曲绘数据"""
         if not mai.guess_data:
             raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
         music = random.choice(mai.guess_data)
-        pic = self.pic(music)
+        pic = await self.pic(music)
         alias_list = mai.total_alias_list.by_id(music.song_id)
         if not alias_list or len(alias_list) == 0:
             # 如果没有别名数据，使用歌曲ID和标题作为答案
@@ -636,7 +650,7 @@ class Guess:
             answer.append(str(music.song_id))
         return GuessPicData(music=music, img=image_to_base64(pic), answer=answer, end=False)
 
-    def guessData(self) -> GuessDefaultData:
+    async def guessData(self) -> GuessDefaultData:
         """猜歌数据"""
         if not mai.guess_data:
             raise ValueError("猜歌数据未初始化，请先调用 mai.guess() 初始化数据")
@@ -660,7 +674,7 @@ class Guess:
         else:
             answer = alias_list[0].Alias.copy() if hasattr(alias_list[0], 'Alias') else [str(music.song_id), music.song_name]
             answer.append(str(music.song_id))
-        pic = self.pic(music)
+        pic = await self.pic(music)
         return GuessDefaultData(
             music=music, 
             img=image_to_base64(pic), 

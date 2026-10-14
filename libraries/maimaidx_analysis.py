@@ -376,7 +376,7 @@ class DrawGoldAnalysis:
             )
         self.draw = ImageDraw.Draw(self.image)
 
-    def _draw_card(
+    async def _draw_card(
         self,
         chart: Union[GoldChart, WaterChart],
         x: int,
@@ -404,7 +404,7 @@ class DrawGoldAnalysis:
         )
         self.image.alpha_composite(card_base, (x, y))
 
-        cover = Image.open(music_picture(record.song_id)).convert('RGBA')
+        cover = Image.open(await music_picture(record.song_id)).convert('RGBA')
         cover = ImageOps.fit(cover, (133, 133), Image.Resampling.LANCZOS)
         self.image.alpha_composite(cover, (x + 16, y + 12))
 
@@ -450,12 +450,12 @@ class DrawGoldAnalysis:
             stroke_fill=(128, 20, 145, 255),
         )
 
-    def render(self) -> Image.Image:
+    async def render(self) -> Image.Image:
         self._draw_summary()
         for index, chart in enumerate(self.analysis.top_charts):
             row, column = divmod(index, 5)
             x = 305 + column * (self.CARD_WIDTH + self.CARD_X_GAP)
-            self._draw_card(chart, x, self.CARD_Y[row])
+            await self._draw_card(chart, x, self.CARD_Y[row])
         return self.image
 
 
@@ -481,7 +481,7 @@ async def generate_gold_analysis(
         analysis = analyze_b50_gold(best50)
         if not analysis.valid_count:
             return '当前 B50 暂无可用的谱面拟合定数'
-        image = DrawGoldAnalysis(player, analysis).render()
+        image = await DrawGoldAnalysis(player, analysis).render()
         return MessageSegment.image(image_to_base64(image))
     except (
         UserNotFoundError,
@@ -511,7 +511,7 @@ async def generate_water_analysis(
         analysis = analyze_b50_water(best50)
         if not analysis.valid_count:
             return '当前 B50 暂无可用的谱面拟合定数'
-        image = DrawWaterAnalysis(player, analysis).render()
+        image = await DrawWaterAnalysis(player, analysis).render()
         return MessageSegment.image(image_to_base64(image))
     except (
         UserNotFoundError,

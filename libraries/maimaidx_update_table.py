@@ -65,7 +65,7 @@ async def update_level_15_rating_table(sbi) -> None:
     )
 
     card = Image.open(maimaidir / 'chart_white.png').convert('RGBA')
-    unknown_cover = Image.open(music_picture(0)).convert('RGBA').resize((330, 330))
+    unknown_cover = Image.open(await music_picture(0)).convert('RGBA').resize((330, 330))
     type_assets = {
         chart_type: Image.open(maimaidir / f'{chart_type}.png').convert('RGBA')
         for chart_type in ('SD', 'DX')
@@ -92,7 +92,7 @@ async def update_level_15_rating_table(sbi) -> None:
 
         chart = charts[index]
         song = mai.get_song(chart.id)
-        cover = Image.open(music_picture(chart.id)).convert('RGBA').resize((330, 330))
+        cover = Image.open(await music_picture(chart.id)).convert('RGBA').resize((330, 330))
         image.alpha_composite(cover, (x + 10, y + 10))
         image.alpha_composite(type_assets[chart.type], (x + 200, y + 345))
         if song is not None:
@@ -164,7 +164,7 @@ async def update_rating_table() -> str:
                     max_row = max(max_row, row)
                     x = 140 + col * 85
                     cover_y = START_Y + row * 85
-                    cover = Image.open(music_picture(music.id)).resize((75, 75))
+                    cover = Image.open(await music_picture(music.id)).resize((75, 75))
                     im.alpha_composite(cover, (x, cover_y))
                     im.alpha_composite(table_diff_bg[int(music.lv)], (x - 5, cover_y - 5))
                     tb.draw(x + 56, cover_y + 4, 13, music.id, sbi.t_color[int(music.lv)], 'mm')
@@ -264,7 +264,7 @@ async def update_plate_table() -> str:
                     max_row = max(max_row, row)
                     x = 180 + col * 96
                     cover_y = start_y + row * 96
-                    im.alpha_composite(Image.open(music_picture(music.song_id)).resize((80, 80)), (x, cover_y))
+                    im.alpha_composite(Image.open(await music_picture(music.song_id)).resize((80, 80)), (x, cover_y))
                     is_remaster = bool(remaster_ids and str(music.song_id) in remaster_ids)
                     im.alpha_composite(remaster_border if is_remaster else plate_border, (x - 5, cover_y - 5))
                     color = (138, 0, 226, 255) if is_remaster else (255, 255, 255, 255)

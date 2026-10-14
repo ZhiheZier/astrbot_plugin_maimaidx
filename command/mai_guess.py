@@ -96,13 +96,13 @@ async def guess_music_handler(event: AstrMessageEvent):
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return
     
-    if gid in guess.Group:
+    if gid in guess.Group or gid in guess.starting:
         yield event.plain_result('该群已有正在进行的猜歌或猜曲绘')
         return
     
     # 开始猜歌
     try:
-        guess.start(gid)
+        await guess.start(gid)
     except Exception as e:
         log.error(f'开始猜歌失败: {e}')
         import traceback
@@ -224,13 +224,13 @@ async def guess_pic_handler(event: AstrMessageEvent):
         yield event.plain_result('该群已关闭猜歌功能，开启请输入 开启mai猜歌')
         return
     
-    if gid in guess.Group:
+    if gid in guess.Group or gid in guess.starting:
         yield event.plain_result('该群已有正在进行的猜歌或猜曲绘')
         return
     
     # 开始猜曲绘
     try:
-        guess.startpic(gid)
+        await guess.startpic(gid)
     except Exception as e:
         log.error(f'开始猜曲绘失败: {e}')
         import traceback
