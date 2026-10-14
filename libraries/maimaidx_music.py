@@ -716,12 +716,15 @@ class GroupAlias:
 
     def __init__(self) -> None:
         """别名推送类"""
+        self.reload()
+
+    def reload(self) -> None:
+        """从当前持久化目录重新读取推送开关。"""
         if not group_alias_file.exists():
             self.push = AliasesPush()
         else:
-            self.push = AliasesPush.model_validate(
-                json.load(open(group_alias_file, 'r', encoding='utf-8'))
-            )
+            with group_alias_file.open('r', encoding='utf-8') as file:
+                self.push = AliasesPush.model_validate(json.load(file))
         # 兼容旧数据：JSON 中可能存成数字，与推送处 str(gid) 比较会永远不匹配
         self.push.enable = self._normalize_group_ids(self.push.enable)
         self.push.disable = self._normalize_group_ids(self.push.disable)
@@ -750,17 +753,9 @@ class GroupAlias:
         await writefile(group_alias_file, self.push.model_dump())
         return '群别名推送功能已关闭'
 
-    async def alias_global_change(self, switch: bool, group_list: List[str]):
+    async def alias_global_change(self, switch: bool):
         """修改全局开关"""
-        group_list = self._normalize_group_ids(group_list)
-        if switch:
-            self.push.disable.clear()
-            self.push.enable.clear()
-            self.push.enable.extend(group_list)
-        else:
-            self.push.enable.clear()
-            self.push.disable.clear()
-            self.push.disable.extend(group_list)
+        self.push.global_enabled = switch
         await writefile(group_alias_file, self.push.model_dump())
 
 

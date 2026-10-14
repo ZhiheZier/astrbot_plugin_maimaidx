@@ -69,22 +69,18 @@ async def update_alias_handler(event: AstrMessageEvent, superusers: list = None)
 async def alias_switch_on_off_handler(event: AstrMessageEvent, superusers: list = None):
     """全局开启/关闭别名推送命令处理"""
     sender_id = event.get_sender_id()
-    if superusers and str(sender_id) not in superusers:
+    if str(sender_id) not in (superusers or []):
         yield event.plain_result('仅允许管理员执行此操作')
         return
     
     try:
-        # 获取所有群组列表
-        group_list = await event.bot.get_group_list()
-        group_id = [str(g['group_id']) for g in group_list]
-        
-        message_str = get_plain_message_text(event)
+        message_str = get_plain_message_text(event).removeprefix('/')
         if message_str == '全局关闭别名推送':
-            await alias.alias_global_change(False, group_id)
+            await alias.alias_global_change(False)
             yield event.plain_result('已全局关闭maimai别名推送')
         elif message_str == '全局开启别名推送':
-            await alias.alias_global_change(True, group_id)
-            yield event.plain_result('已全局开启maimai别名推送')
+            await alias.alias_global_change(True)
+            yield event.plain_result('已全局开启maimai别名推送（仍按各群推送设置发送）')
         else:
             yield event.plain_result('命令格式错误')
     except Exception as e:
@@ -437,6 +433,9 @@ async def push_alias(push: PushAliasStatus, context=None):
     推送别名通知
     context: astrbot 的 Context 对象，用于获取 bot client
     """
+    if not alias.push.global_enabled:
+        return
+
     if not context:
         log.warning('push_alias: context 未提供，无法发送别名推送消息')
         return
@@ -526,6 +525,8 @@ async def push_alias(push: PushAliasStatus, context=None):
         ],
     ]
     for gid in group_ids:
+        if not alias.push.global_enabled:
+            break
         gid_str = str(gid)
         if maiApi.config.maimaidxaliaswhitelist:
             if gid_str not in alias.push.enable:

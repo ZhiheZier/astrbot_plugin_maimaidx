@@ -205,7 +205,9 @@ class GuessSwitch(Switch): ...
 
 
 ##### AliasesPush
-class AliasesPush(Switch): ...
+class AliasesPush(Switch):
+
+    global_enabled: bool = True
 
 
 ##### Best50

@@ -18,7 +18,7 @@ from .command.mai_alias import sse_alias_server
 from .command.mai_base import get_plain_message_text
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.6")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.4.7")
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -30,6 +30,9 @@ class MaimaiDXPlugin(Star):
         # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
+        from .libraries.maimaidx_music import alias
+
+        alias.reload()
         from .libraries.maimaidx_user import userstore
 
         userstore.reload()
