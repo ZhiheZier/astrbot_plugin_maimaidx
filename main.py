@@ -10,7 +10,7 @@ import traceback
 import json
 from pathlib import Path
 
-from . import Root, log, loga, plate_to_dx_version, platecn, _BOTNAME, init_static_dir
+from . import Root, log, loga, plate_to_dx_version, platecn, _BOTNAME, __version__, init_static_dir
 from .libraries.maimai_best_50 import ScoreBaseImage
 from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
@@ -18,7 +18,7 @@ from .command.mai_alias import sse_alias_server
 from .command.mai_base import get_plain_message_text
 import sys
 
-@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", "1.5.0")
+@register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", __version__)
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
@@ -26,6 +26,11 @@ class MaimaiDXPlugin(Star):
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
         self.alias_push_task = None
+        self.update_notice_task = None
+        self._group_settings_valid = False
+        from .libraries.maimaidx_binding import pending_bindings
+
+        pending_bindings.clear()
         
         # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
@@ -45,6 +50,11 @@ class MaimaiDXPlugin(Star):
         # 群组/排卡持久化文件（在持久化根目录下）
         self.data_file = plugin_data_root / "disabled_groups.json"
         self.arcade_switch_file = plugin_data_root / "enabled_arcade_groups.json"
+        from .libraries.maimaidx_update_notice import UpdateNotifier
+
+        self.update_notifier = UpdateNotifier(
+            plugin_data_root / 'version.json', __version__, Root / 'CHANGELOG.md',
+        )
         # 从旧位置（static/data）迁移到根目录
         for fname in ("disabled_groups.json", "enabled_arcade_groups.json"):
             old = pkg.data_dir / fname
@@ -55,6 +65,7 @@ class MaimaiDXPlugin(Star):
         
         # 群组启用状态（存储禁用的群组ID）
         self.disabled_groups = set()  # 禁用插件的群组ID集合
+        self.enabled_groups = set()  # 明确开启舞萌功能的群组，供白名单模式使用
         self.arcade_enabled_groups = set()  # 启用排卡功能的群组ID集合（默认关闭）
         
         # 从插件配置中读取 bot 名称并设置到 __init__.py
@@ -108,7 +119,7 @@ class MaimaiDXPlugin(Star):
             if maiApi.config.maimaidxtoken:
                 log.warning(
                     '检测到仅配置了水鱼 Developer-Token，尚未完成 OAuth 迁移。'
-                    '旧版成绩查询接口将于 2026-10-01 00:00（UTC+8）停止服务，'
+                    '旧版成绩查询接口将于 2027-01-01 00:00（UTC+8）停止服务，'
                     '请尽快配置 df_client_id 与 df_client_secret。'
                 )
         
@@ -152,6 +163,7 @@ class MaimaiDXPlugin(Star):
             
             log.info('maimaiDX插件初始化完成')
             log.info('命令注册完成，等待用户输入...')
+            self._start_update_notice()
         except Exception as e:
             log.error(f'插件初始化失败: {e}')
             log.error(traceback.format_exc())
@@ -159,6 +171,12 @@ class MaimaiDXPlugin(Star):
 
     async def terminate(self):
         """停止插件创建的后台任务。"""
+        if self.update_notice_task and not self.update_notice_task.done():
+            self.update_notice_task.cancel()
+            try:
+                await self.update_notice_task
+            except asyncio.CancelledError:
+                pass
         if self.alias_push_task and not self.alias_push_task.done():
             self.alias_push_task.cancel()
             try:
@@ -168,25 +186,55 @@ class MaimaiDXPlugin(Star):
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
 
+    def _start_update_notice(self):
+        if not self.config.get('update_notice', True) or not self._group_settings_valid:
+            return
+        if self.update_notice_task is None or self.update_notice_task.done():
+            self.update_notice_task = asyncio.create_task(
+                self.update_notifier.run(self.context, self._is_group_enabled),
+            )
+
+    @filter.on_astrbot_loaded()
+    async def update_notice_on_startup(self):
+        self._start_update_notice()
+
+    @filter.on_platform_loaded()
+    async def update_notice_on_platform(self):
+        self._start_update_notice()
+
     def _load_disabled_groups(self):
         """加载禁用群组列表"""
         try:
             if self.data_file.exists():
                 with open(self.data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    self.disabled_groups = set(data.get('disabled_groups', []))
+                settings = {}
+                for key in ('disabled_groups', 'enabled_groups'):
+                    groups = data.get(key, [])
+                    if not isinstance(groups, list):
+                        raise ValueError(f'{key} 必须为列表')
+                    if any(not isinstance(group, (str, int)) or isinstance(group, bool)
+                           for group in groups if group is not None):
+                        raise ValueError(f'{key} 内必须为群号')
+                    settings[key] = {str(group) for group in groups if group is not None}
+                self.disabled_groups = settings['disabled_groups']
+                self.enabled_groups = settings['enabled_groups']
                 log.info(f'已加载禁用群组列表，共 {len(self.disabled_groups)} 个群组')
             else:
                 log.info('禁用群组列表文件不存在，创建新文件')
                 self._save_disabled_groups()
+            self._group_settings_valid = True
         except Exception as e:
             log.error(f'加载禁用群组列表失败: {e}')
             self.disabled_groups = set()
+            self.enabled_groups = set()
+            self._group_settings_valid = False
     
     def _save_disabled_groups(self):
         """保存禁用群组列表"""
         try:
-            data = {'disabled_groups': list(self.disabled_groups)}
+            data = {'disabled_groups': sorted(self.disabled_groups),
+                    'enabled_groups': sorted(getattr(self, 'enabled_groups', set()))}
             with open(self.data_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
             log.info('禁用群组列表已保存')
@@ -195,7 +243,12 @@ class MaimaiDXPlugin(Star):
     
     def _is_group_enabled(self, group_id: str) -> bool:
         """检查群组是否启用插件"""
-        return group_id not in self.disabled_groups
+        group_id = str(group_id)
+        if group_id in self.disabled_groups:
+            return False
+        if getattr(self, 'config', {}).get('maimaidxwhitelist', False):
+            return group_id in getattr(self, 'enabled_groups', set())
+        return True
 
     def _load_arcade_enabled_groups(self):
         """加载已开启排卡功能的群组；文件不存在时默认全部关闭。"""
@@ -395,19 +448,23 @@ class MaimaiDXPlugin(Star):
             return
         
         gid = str(group_id)
-        message_str = get_plain_message_text(event)
+        message_str = get_plain_message_text(event).strip().removeprefix('/')
         
         if message_str == '开启舞萌功能':
-            if gid in self.disabled_groups:
-                self.disabled_groups.remove(gid)
-                self._save_disabled_groups()
+            was_enabled = self._is_group_enabled(gid)
+            self.enabled_groups.add(gid)
+            self.disabled_groups.discard(gid)
+            self._save_disabled_groups()
+            if not was_enabled:
                 yield event.plain_result(f'已开启本群的舞萌功能')
             else:
                 yield event.plain_result('本群舞萌功能已经是开启状态')
         elif message_str == '关闭舞萌功能':
-            if gid not in self.disabled_groups:
-                self.disabled_groups.add(gid)
-                self._save_disabled_groups()
+            was_enabled = self._is_group_enabled(gid)
+            self.enabled_groups.discard(gid)
+            self.disabled_groups.add(gid)
+            self._save_disabled_groups()
+            if was_enabled:
                 yield event.plain_result(f'已关闭本群的舞萌功能')
             else:
                 yield event.plain_result('本群舞萌功能已经是关闭状态')
@@ -420,7 +477,7 @@ class MaimaiDXPlugin(Star):
         async for result in update_data_handler(event, self.superusers):
             yield result
 
-    @filter.regex(r'^/?(帮助maimaiDX|帮助maimaidx|helpmaimai|helpmaimaiDX|helpmaimaidx)$')
+    @filter.regex(r'^/?(?i:帮助maimaidx|helpmaimaidx)$')
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
         # 检查群组是否启用
@@ -428,6 +485,16 @@ class MaimaiDXPlugin(Star):
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         
+        from .command.mai_base import legacy_help_handler
+        async for result in legacy_help_handler(event):
+            yield result
+
+    @filter.regex(r'^/?(?i:maihelp)$')
+    async def maihelp(self, event: AstrMessageEvent):
+        """代码生成的完整帮助图"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
         from .command.mai_base import maimaidxhelp_handler
         async for result in maimaidxhelp_handler(event):
             yield result
@@ -525,7 +592,7 @@ class MaimaiDXPlugin(Star):
 
     @filter.regex(r'^/?(绑定水鱼|绑定df|dfbind)$')
     async def bind_divingfish(self, event: AstrMessageEvent):
-        """绑定水鱼 引导设备码 OAuth 授权"""
+        """绑定水鱼 引导确认码回填授权"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
@@ -533,9 +600,9 @@ class MaimaiDXPlugin(Star):
         async for result in bind_divingfish_handler(event):
             yield result
 
-    @filter.regex(r'^/?(?i:授权码|code)\s+.+$')
+    @filter.regex(r'^/?(?i:水鱼授权码|落雪授权码|授权码|code)\s+.+$')
     async def auth_code(self, event: AstrMessageEvent):
-        """授权码 完成落雪 OAuth 绑定"""
+        """授权码 按待绑定查分器完成 OAuth 绑定"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
@@ -704,6 +771,16 @@ class MaimaiDXPlugin(Star):
         async for result in ginfo_handler(event):
             yield result
 
+    @filter.regex(r'^/?容错计算\s*(.*)$')
+    async def tolerance(self, event: AstrMessageEvent):
+        """查询指定谱面各判定的达成率损失表。"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_tolerance import tolerance_handler
+        async for result in tolerance_handler(event):
+            yield result
+
     @filter.regex(r'^/?分数线\s*(.*)$')
     async def score(self, event: AstrMessageEvent):
         """分数线命令"""
@@ -823,7 +900,7 @@ class MaimaiDXPlugin(Star):
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_guess import reset_guess_handler
-        async for result in reset_guess_handler(event):
+        async for result in reset_guess_handler(event, self.superusers):
             yield result
 
     @filter.regex(r'^/?(开启|关闭)mai猜歌$')
@@ -833,7 +910,7 @@ class MaimaiDXPlugin(Star):
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_guess import guess_on_off_handler
-        async for result in guess_on_off_handler(event):
+        async for result in guess_on_off_handler(event, self.superusers):
             yield result
 
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
@@ -877,7 +954,7 @@ class MaimaiDXPlugin(Star):
         async for result in rating_table_handler(event):
             yield result
 
-    @filter.regex(r'^/?(?!更新)(.+?)完成表(?:\s*[12])?\s*$')
+    @filter.regex(r'^/?(?!更新)(.+?)完成表(?:\s*[12])?(?:\s+.+)?\s*$')
     async def table_pfm(self, event: AstrMessageEvent):
         """完成表命令"""
         group_id = event.message_obj.group_id
@@ -1041,7 +1118,7 @@ class MaimaiDXPlugin(Star):
 
         sender_id = str(event.get_sender_id())
         if sender_id not in self.superusers and not await is_admin(event):
-            yield event.plain_result('仅允许群管理员或超级管理员开关排卡功能')
+            yield event.plain_result('仅允许群管理员或管理员开关排卡功能')
             return
 
         gid = str(group_id)
@@ -1062,9 +1139,9 @@ class MaimaiDXPlugin(Star):
         self._save_arcade_enabled_groups()
         yield event.plain_result('已开启本群排卡功能')
 
-    @filter.regex(r'^/?(帮助maimaiDX排卡|帮助maimaidx排卡)$')
+    @filter.regex(r'^/?排卡帮助$')
     async def dx_arcade_help(self, event: AstrMessageEvent):
-        """帮助maimaiDX排卡"""
+        """排卡帮助"""
         group_id = event.message_obj.group_id
         if group_id and (
             not self._is_group_enabled(str(group_id))
@@ -1124,7 +1201,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import modify_arcade_handler
-        async for result in modify_arcade_handler(event):
+        async for result in modify_arcade_handler(event, self.superusers):
             yield result
 
     @filter.regex(r'^/?(订阅机厅|取消订阅机厅|取消订阅)\s(.+)$')
@@ -1137,7 +1214,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import subscribe_arcade_handler
-        async for result in subscribe_arcade_handler(event):
+        async for result in subscribe_arcade_handler(event, self.superusers):
             yield result
 
     @filter.regex(r'^/?(查看订阅|查看订阅机厅)$')

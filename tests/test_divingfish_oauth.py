@@ -1,4 +1,6 @@
+import base64
 import hashlib
+import json
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, PropertyMock, patch
@@ -6,14 +8,18 @@ from unittest.mock import AsyncMock, PropertyMock, patch
 from ..command.mai_base import bind_divingfish_handler
 from ..libraries import maimaidx_api_data
 from ..libraries.maimaidx_api_data import MaimaiAPI, maiApi
+from ..libraries.maimaidx_binding import pending_bindings
 from ..libraries.maimaidx_error import (
-    DivingFishOAuthPendingError,
+    DivingFishOAuthBindingMismatchError,
+    DivingFishOAuthNotBoundError,
     DivingFishOAuthTokenExpiredError,
 )
 
 
 class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        pending_bindings.clear()
+        self.addCleanup(pending_bindings.clear)
         self.api = MaimaiAPI()
         self.api.config.df_client_id = 'client-id'
         self.api.config.df_client_secret = 'client-secret'
@@ -170,6 +176,7 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
             hashlib.sha256(b'client-id:12345678').hexdigest(),
         )
         self.assertEqual(data['scope'], 'prober.records.read')
+        self.assertEqual(data['handoff'], 'code')
 
     async def test_starting_binding_discards_cached_token(self):
         subject = self.api._divingfish_subject(qqid=12345678)
@@ -183,33 +190,48 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertNotIn(subject, self.api._oauth_tokens)
 
-    async def test_binding_poll_reports_success_and_caches_token(self):
+    @staticmethod
+    def token(subject):
+        payload = base64.urlsafe_b64encode(json.dumps({'sub': subject}).encode()).decode().rstrip('=')
+        return f'header.{payload}.signature'
+
+    async def test_confirmation_code_checks_binding_identity_and_caches_verified_token(self):
+        token = self.token('player-1')
         request = AsyncMock(
             side_effect=[
-                DivingFishOAuthPendingError(),
-                {'access_token': 'bound-token', 'expires_in': 300},
+                {'access_token': 'redeemed-token', 'sub': 'player-1'},
+                {'access_token': token, 'expires_in': 300},
             ]
         )
         with (
             patch.object(self.api, '_request_divingfish_oauth', request),
-            patch.object(
-                maimaidx_api_data.asyncio,
-                'sleep',
-                AsyncMock(),
-            ),
         ):
-            await self.api.wait_for_divingfish_binding(
-                12345678,
-                'device-code',
-                interval=5,
-                expires_in=600,
-            )
+            await self.api.redeem_divingfish_binding(12345678, 'BCDF-GHJK-MNPQ')
 
         subject = self.api._divingfish_subject(qqid=12345678)
-        self.assertEqual(self.api._oauth_tokens[subject][0], 'bound-token')
+        self.assertEqual(self.api._oauth_tokens[subject][0], token)
         self.assertEqual(request.await_count, 2)
+        data = request.await_args_list[0].kwargs['data']
+        self.assertEqual(data['grant_type'], 'urn:diving-fish:params:oauth:grant-type:confirmation-code')
+        self.assertEqual(data['confirmation_code'], 'BCDF-GHJK-MNPQ')
+        self.assertEqual(data['subject_ref'], self.api._divingfish_subject_ref(12345678))
+        self.assertEqual(request.await_args_list[1].kwargs['data']['subject'], subject)
 
-    async def test_group_binding_reports_success(self):
+    async def test_confirmation_code_for_another_account_is_not_cached(self):
+        for result in (
+            {'access_token': self.token('other-player')},
+            DivingFishOAuthNotBoundError(),
+        ):
+            with self.subTest(result=type(result).__name__):
+                request = AsyncMock(side_effect=[
+                    {'access_token': 'redeemed-token', 'sub': 'player-1'}, result,
+                ])
+                with patch.object(self.api, '_request_divingfish_oauth', request):
+                    with self.assertRaises(DivingFishOAuthBindingMismatchError):
+                        await self.api.redeem_divingfish_binding(12345678, 'BCDF-GHJK-MNPQ')
+                self.assertFalse(self.api._oauth_tokens)
+
+    async def test_group_binding_prompts_for_provider_specific_code_without_polling(self):
         class FakeEvent:
             message_obj = SimpleNamespace(group_id='10001')
 
@@ -241,19 +263,16 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
                 'start_divingfish_binding',
                 AsyncMock(return_value=binding),
             ),
-            patch.object(
-                maiApi,
-                'wait_for_divingfish_binding',
-                AsyncMock(),
-            ),
         ):
             messages = [
                 message async for message in bind_divingfish_handler(FakeEvent())
             ]
 
-        self.assertEqual(len(messages), 2)
-        self.assertIn('水鱼查分器绑定成功', messages[1])
-        self.assertNotIn('撤回', messages[1])
+        self.assertEqual(len(messages), 1)
+        self.assertIn('水鱼授权码', messages[0])
+        self.assertNotIn('绑定成功', messages[0])
+        self.assertNotIn('撤回', messages[0])
+        self.assertTrue(pending_bindings.active(pending_bindings.key(FakeEvent())))
 
 
 if __name__ == '__main__':

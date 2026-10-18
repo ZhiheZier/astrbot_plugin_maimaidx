@@ -97,6 +97,16 @@ class DivingFishOAuthBindingExpiredError(DivingFishOAuthError):
     message = '水鱼查分器授权已超时，请重新发送「绑定水鱼」'
 
 
+class DivingFishOAuthConfirmationError(DivingFishOAuthError):
+
+    message = '水鱼授权码无效、已使用或已过期，请检查授权码，或重新发送「绑定水鱼」'
+
+
+class DivingFishOAuthBindingMismatchError(DivingFishOAuthError):
+
+    message = '水鱼授权码与当前绑定身份不匹配，请使用自己发起的链接和网页显示的授权码'
+
+
 class DivingFishLegacyApiRetiredError(DivingFishOAuthError):
 
     message = '水鱼旧版开发者接口已停用，请联系 BOT 管理员配置 OAuth'

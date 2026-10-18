@@ -12,24 +12,7 @@ from .. import log
 from ..command.mai_base import convert_message_segment_to_chain, get_plain_message_text
 from ..libraries.maimaidx_music import guess
 from ..libraries.maimaidx_music_info import draw_music_info
-
-
-async def is_admin(event: AstrMessageEvent) -> bool:
-    """检查用户是否是群管理员或群主"""
-    group_id = event.message_obj.group_id
-    if not group_id:
-        return False  # 私聊不支持管理员检查
-    
-    try:
-        sender_id = event.get_sender_id()
-        member_info = await event.bot.get_group_member_info(group_id=group_id, user_id=sender_id)
-        if member_info:
-            role = member_info.get('role', '')
-            # role 可能是 'owner', 'admin', 'member'
-            return role in ['owner', 'admin']
-    except Exception as e:
-        log.warning(f'检查管理员权限失败: {e}')
-    return False
+from .permissions import can_manage_group as is_admin
 
 
 async def convert_chain_to_onebot_format(chain: List[Any]):
@@ -325,15 +308,15 @@ async def guess_music_solve_handler(event: AstrMessageEvent):
         guess.end(gid)
 
 
-async def reset_guess_handler(event: AstrMessageEvent):
+async def reset_guess_handler(event: AstrMessageEvent, superusers: list | None = None):
     """重置猜歌命令处理"""
     group_id = event.message_obj.group_id
     if not group_id:
         yield event.plain_result('重置猜歌功能仅在群聊中可用')
         return
     
-    if not await is_admin(event):
-        yield event.plain_result('仅允许管理员重置')
+    if not await is_admin(event, superusers):
+        yield event.plain_result('仅允许管理员或群管理员重置')
         return
     
     gid = str(group_id)
@@ -344,15 +327,15 @@ async def reset_guess_handler(event: AstrMessageEvent):
         yield event.plain_result('该群未处在猜歌状态')
 
 
-async def guess_on_off_handler(event: AstrMessageEvent):
+async def guess_on_off_handler(event: AstrMessageEvent, superusers: list | None = None):
     """开启/关闭mai猜歌命令处理"""
     group_id = event.message_obj.group_id
     if not group_id:
         yield event.plain_result('开启/关闭猜歌功能仅在群聊中可用')
         return
     
-    if not await is_admin(event):
-        yield event.plain_result('仅允许管理员开关')
+    if not await is_admin(event, superusers):
+        yield event.plain_result('仅允许管理员或群管理员开关')
         return
     
     gid = str(group_id)

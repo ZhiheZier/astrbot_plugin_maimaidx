@@ -17,10 +17,11 @@ from ..libraries.maimaidx_arcade import (
     update_person,
     updata_arcade,
 )
+from .permissions import can_manage_group as is_admin
 
 
 sv_help = """排卡指令如下：
-开启排卡 / 关闭排卡（仅群管理员）
+开启排卡 / 关闭排卡（管理员或群管理员）
 添加机厅 <店名> <地址> <机台数量> 添加机厅信息
 删除机厅 <店名> 删除机厅信息
 修改机厅 <店名> 数量 <数量> ... 修改机厅信息
@@ -35,25 +36,8 @@ sv_help = """排卡指令如下：
 机厅几人 查看已订阅机厅排卡人数"""
 
 
-async def is_admin(event: AstrMessageEvent) -> bool:
-    """检查用户是否是群管理员或群主"""
-    group_id = event.message_obj.group_id
-    if not group_id:
-        return False
-    
-    try:
-        sender_id = event.get_sender_id()
-        member_info = await event.bot.get_group_member_info(group_id=group_id, user_id=sender_id)
-        if member_info:
-            role = member_info.get('role', '')
-            return role in ['owner', 'admin']
-    except Exception as e:
-        loga.warning(f'检查管理员权限失败: {e}')
-    return False
-
-
 def is_superuser(event: AstrMessageEvent, superusers: list = None) -> bool:
-    """检查用户是否是超级管理员"""
+    """检查用户是否是管理员"""
     if not superusers:
         return False
     sender_id = event.get_sender_id()
@@ -61,7 +45,7 @@ def is_superuser(event: AstrMessageEvent, superusers: list = None) -> bool:
 
 
 async def dx_arcade_help_handler(event: AstrMessageEvent):
-    """帮助maimaiDX排卡"""
+    """排卡帮助"""
     img = text_to_image(sv_help)
     img_base64 = image_to_base64(img)
     import tempfile
@@ -79,7 +63,7 @@ async def dx_arcade_help_handler(event: AstrMessageEvent):
 async def add_arcade_handler(event: AstrMessageEvent, superusers: list = None):
     """添加机厅"""
     if not is_superuser(event, superusers):
-        yield event.plain_result('仅允许主人添加机厅\n请使用 来杯咖啡+内容 联系主人')
+        yield event.plain_result('仅允许管理员添加机厅')
         return
     
     message_str = get_plain_message_text(event)
@@ -92,16 +76,16 @@ async def add_arcade_handler(event: AstrMessageEvent, superusers: list = None):
         args_str = message_str
     
     if args_str in ['帮助', 'help', '指令帮助']:
-        yield event.plain_result('添加机厅指令格式：添加机厅 <店名> <位置> <机台数量> <别称1> <别称2> ...')
+        yield event.plain_result('添加机厅指令格式：添加机厅 <店名> <位置> <机台数量> [别名]；多个别名用空格分隔')
         return
     
     args: List[str] = args_str.split()
     if len(args) < 3:
-        yield event.plain_result('格式错误：添加机厅 <店名> <地址> <机台数量> [别称1] [别称2] ...')
+        yield event.plain_result('格式错误：添加机厅 <店名> <地址> <机台数量> [别名]；多个别名用空格分隔')
         return
     
     if not args[2].isdigit():
-        yield event.plain_result('格式错误：添加机厅 <店名> <地址> <机台数量> [别称1] [别称2] ...')
+        yield event.plain_result('格式错误：添加机厅 <店名> <地址> <机台数量> [别名]；多个别名用空格分隔')
         return
     
     if not arcade.total.search_fullname(args[0]):
@@ -133,7 +117,7 @@ async def add_arcade_handler(event: AstrMessageEvent, superusers: list = None):
 async def delete_arcade_handler(event: AstrMessageEvent, superusers: list = None):
     """删除机厅"""
     if not is_superuser(event, superusers):
-        yield event.plain_result('仅允许主人删除机厅\n请使用 来杯咖啡+内容 联系主人')
+        yield event.plain_result('仅允许管理员删除机厅')
         return
     
     message_str = get_plain_message_text(event)
@@ -183,10 +167,10 @@ async def arcade_alias_handler(event: AstrMessageEvent):
     yield event.plain_result(msg)
 
 
-async def modify_arcade_handler(event: AstrMessageEvent):
+async def modify_arcade_handler(event: AstrMessageEvent, superusers: list | None = None):
     """修改机厅"""
-    if not await is_admin(event):
-        yield event.plain_result('仅允许管理员修改机厅信息')
+    if not await is_admin(event, superusers):
+        yield event.plain_result('仅允许管理员或群管理员修改机厅信息')
         return
     
     message_str = get_plain_message_text(event)
@@ -212,10 +196,10 @@ async def modify_arcade_handler(event: AstrMessageEvent):
     yield event.plain_result('格式错误：修改机厅 <店名> [数量] <数量>')
 
 
-async def subscribe_arcade_handler(event: AstrMessageEvent):
+async def subscribe_arcade_handler(event: AstrMessageEvent, superusers: list | None = None):
     """订阅/取消订阅机厅"""
-    if not await is_admin(event):
-        yield event.plain_result('仅允许管理员订阅和取消订阅')
+    if not await is_admin(event, superusers):
+        yield event.plain_result('仅允许管理员或群管理员订阅和取消订阅')
         return
     
     group_id = event.message_obj.group_id

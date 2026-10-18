@@ -5,6 +5,18 @@
     "type": "string",
     "default": "Bot"
   },
+  "update_notice": {
+    "description": "插件更新通知",
+    "hint": "首次建立版本记录及版本升级时向开启舞萌功能的群发送更新内容，遵守舞萌功能白名单并排除已关闭的群，发送失败会重试。",
+    "type": "bool",
+    "default": true
+  },
+  "maimaidxwhitelist": {
+    "description": "舞萌功能白名单",
+    "hint": "开启后仅允许已执行「开启舞萌功能」的群使用舞萌功能及接收更新通知；管理员在目标群执行开启/关闭指令管理名单，私聊不受影响。关闭时默认全群可用，排除已关闭的群。",
+    "type": "bool",
+    "default": false
+  },
   "enable_reply": {
     "description": "引用回复",
     "hint": "是否在多数指令回复中添加“引用消息”（Reply）。关闭可减少引用/提及效果。",
@@ -13,13 +25,13 @@
   },
   "maimaidxtoken": {
     "description": "水鱼查分器开发者 Token",
-    "hint": "旧版兼容配置，将于 2026-10-01 停止服务。请迁移到下方水鱼 OAuth 配置。",
+    "hint": "旧版兼容配置，官方当前计划于 2027-01-01 停止服务。建议迁移到下方水鱼 OAuth 配置。",
     "type": "string",
     "default": ""
   },
   "df_client_id": {
     "description": "水鱼 OAuth 应用 client_id",
-    "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式选择设备码，仅申请 prober.records.read 权限。",
+    "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式仍选择设备码，仅申请 prober.records.read 权限；用户需回填网页显示的一次性授权码完成绑定。",
     "type": "string",
     "default": ""
   },

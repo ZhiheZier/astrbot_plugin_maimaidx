@@ -3,6 +3,9 @@ from pathlib import Path
 from typing import Dict, List
 
 from astrbot.api import logger
+from yaml import safe_load
+
+__version__ = str(safe_load(Path(__file__).with_name('metadata.yaml').read_text(encoding='utf-8'))['version']).removeprefix('v')
 
 ### 必须
 log = logger

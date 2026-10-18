@@ -2,19 +2,22 @@ import re
 from textwrap import dedent
 from typing import Any, List
 import math
+from fractions import Fraction
 
 import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import log, is_reply_enabled
+from .. import ACHIEVEMENT_LIST, RANK_SP, log, is_reply_enabled
+from .mai_tolerance import parse_chart_request, resolve_song_chart
 from ..command.mai_base import (
     append_theme_source_tip,
     convert_message_segment_to_chain,
     extract_at_qqid,
     get_plain_message_text,
+    parse_player_target,
 )
-from ..libraries.image import image_to_base64, text_to_image
+from ..libraries.maimaidx_tolerance import draw_score_line_table
 from ..libraries.maimai_best_50 import generate
 from ..libraries.maimaidx_music import mai
 from ..libraries.maimaidx_music_info import draw_music_play_data
@@ -90,11 +93,7 @@ async def best50_handler(
             cleaned = re.sub(
                 r'(?i)^/?(?:ap50|b50)', '', message_str.strip()
             )
-        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
-        # 纯数字输入视为 QQ 号而不是舞萌用户名
-        if username.isdigit():
-            qqid = int(username)
-            username = ''
+        qqid, username = parse_player_target(event, cleaned)
     else:
         username = ''
         qqid = at_qqid
@@ -123,15 +122,9 @@ async def gold_analysis_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
 
-    qqid = event.get_sender_id()
     message_str = get_plain_message_text(event)
-    at_qqid = extract_at_qqid(event)
-    if not at_qqid:
-        cleaned = re.sub(r'^/?(?:含金量分析|含金量)', '', message_str)
-        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
-    else:
-        username = ''
-        qqid = at_qqid
+    cleaned = re.sub(r'^/?(?:含金量分析|含金量)', '', message_str)
+    qqid, username = parse_player_target(event, cleaned)
 
     from ..libraries.maimaidx_analysis import generate_gold_analysis
 
@@ -148,19 +141,9 @@ async def water_analysis_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
 
-    qqid = event.get_sender_id()
     message_str = get_plain_message_text(event)
-    at_qqid = extract_at_qqid(event)
-    if not at_qqid:
-        cleaned = re.sub(
-            r'^/?(?:水分分析|含水量分析|含水量)',
-            '',
-            message_str,
-        )
-        username = re.sub(r"[MSG_ID:[^\]]*]", "", cleaned).strip()
-    else:
-        username = ''
-        qqid = at_qqid
+    cleaned = re.sub(r'^/?(?:水分分析|含水量分析|含水量)', '', message_str)
+    qqid, username = parse_player_target(event, cleaned)
 
     from ..libraries.maimaidx_analysis import generate_water_analysis
 
@@ -171,6 +154,33 @@ async def water_analysis_handler(event: AstrMessageEvent):
     yield event.chain_result(chain)
     
     
+def _minfo_songs(query: str):
+    if query.isascii() and query.isdigit():
+        song = mai.total_list.by_id(query)
+        return [song] if song else []
+    songs = [song for song in mai.total_list if song.song_name.casefold() == query.casefold()]
+    if songs:
+        return songs
+    aliases = getattr(mai, 'total_alias_list', None)
+    matches = aliases.by_alias(query.lower()) if aliases else []
+    return list({song.song_id: song for item in (matches or [])
+                 if (song := mai.total_list.by_id(item.SongID)) is not None}.values())
+
+
+def parse_minfo_target(argument: str):
+    # Resolve the complete title first so spaces and literal pipes remain meaningful.
+    songs = _minfo_songs(argument)
+    if songs:
+        return songs, ''
+    if '|' in argument:
+        song_query, player = map(str.strip, argument.rsplit('|', 1))
+        return _minfo_songs(song_query), player
+    parts = argument.rsplit(maxsplit=1)
+    if len(parts) == 2:
+        return _minfo_songs(parts[0]), parts[1]
+    return [], ''
+
+
 async def minfo_handler(event: AstrMessageEvent):
     """minfo/info 命令处理"""
     # 检查数据是否加载
@@ -178,46 +188,29 @@ async def minfo_handler(event: AstrMessageEvent):
         yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
         return
     
-    qqid = event.get_sender_id()
-    message_str = get_plain_message_text(event).lower()
+    message_str = get_plain_message_text(event).removeprefix('/')
     # 移除命令前缀
     for prefix in ['minfo', 'info']:
-        if message_str.startswith(prefix):
+        if message_str.lower().startswith(prefix):
             args = message_str[len(prefix):].strip()
             break
     else:
         args = message_str
     
-    # 检查是否有 @ 消息
-    at_qqid = extract_at_qqid(event)
-    if at_qqid:
-        qqid = at_qqid
-    
     if not args:
         yield event.plain_result('请输入曲目id或曲名')
         return
 
-    if mai.total_list.by_id(args):
-        songs = args
-    elif by_t := mai.total_list.by_title(args):
-        songs = str(by_t.song_id)
-    else:
-        if not hasattr(mai, 'total_alias_list') or not mai.total_alias_list:
-            yield event.plain_result('别名数据未加载，请稍后再试或联系管理员')
-            return
-        alias = mai.total_alias_list.by_alias(args)
-        if not alias:
-            yield event.plain_result('未找到曲目')
-            return
-        elif len(alias) != 1:
-            msg = f'找到相同别名的曲目，请使用以下ID查询：\n'
-            for songs in alias:
-                msg += f'{songs.SongID}：{songs.Name}\n'
-            yield event.plain_result(msg.strip())
-            return
-        else:
-            songs = str(alias[0].SongID)
-    pic = await draw_music_play_data(qqid, songs)
+    songs, player = parse_minfo_target(args)
+    if not songs:
+        yield event.plain_result('未找到曲目；格式：minfo 歌曲 [玩家]，有歧义时使用 minfo 歌曲 | 玩家')
+        return
+    if len(songs) > 1:
+        candidates = '\n'.join(f'{song.song_id}：{song.song_name}' for song in songs)
+        yield event.plain_result(f'找到多个相同名称或别名的曲目，请使用歌曲ID：\n{candidates}')
+        return
+    qqid, username = parse_player_target(event, player)
+    pic = await draw_music_play_data(qqid, str(songs[0].song_id), username=username or None)
     chain = convert_message_segment_to_chain(pic)
     append_theme_source_tip(chain, pic)
     if is_reply_enabled():
@@ -299,98 +292,57 @@ async def ginfo_handler(event: AstrMessageEvent):
     yield event.chain_result(chain)
     
     
-async def score_handler(event: AstrMessageEvent):
-    """分数线命令处理"""
-    # 检查数据是否加载
-    if not hasattr(mai, 'total_list') or not mai.total_list:
-        yield event.plain_result('歌曲数据未加载，请稍后再试或联系管理员')
-        return
-    
-    message_str = get_plain_message_text(event)
-    # 移除命令前缀
-    args = message_str.replace('分数线', '').strip()
-    pro = args.split()
-    
-    if len(pro) == 1 and pro[0] == '帮助':
-        msg = dedent('''\
-            此功能为查找某首歌分数线设计。
-            命令格式：分数线「难度+歌曲id」「分数线」
-            例如：分数线 紫799 100
-            命令将返回分数线允许的「TAP」「GREAT」容错，
-            以及「BREAK」50落等价的「TAP」「GREAT」数。
-            以下为「TAP」「GREAT」的对应表：
-                    GREAT / GOOD / MISS
-            TAP         1 / 2.5  / 5
-            HOLD        2 / 5    / 10
-            SLIDE       3 / 7.5  / 15
-            TOUCH       1 / 2.5  / 5
-            BREAK       5 / 12.5 / 25 (外加200落)
-        ''').strip()
-        import tempfile
-        img = text_to_image(msg)
-        img_base64 = image_to_base64(img)
-        # image_to_base64 返回 base64 字符串，需要保存为临时文件
-        if img_base64.startswith('base64://'):
-            img_base64 = img_base64[9:]  # 移除 base64:// 前缀
-        import base64
-        img_data = base64.b64decode(img_base64)
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as temp_file:
-            temp_file.write(img_data)
-            temp_file_path = temp_file.name
-        chain = [Comp.Image.fromFileSystem(temp_file_path)]
-        yield event.chain_result(chain)
+def parse_score_line_request(text: str) -> tuple[int, str, Fraction] | None:
+    request = parse_chart_request(text, '分数线')
+    if request is None:
+        return None
+    level_index, payload = request
+    parts = payload.rsplit(maxsplit=1)
+    if len(parts) != 2:
+        return None
+    query, target = parts
+    ranks = dict(zip(RANK_SP, (0, *ACHIEVEMENT_LIST)))
+    rank = target.lower().replace('+', 'p')
+    if rank in ranks:
+        line = Fraction(str(ranks[rank]))
+    elif re.fullmatch(r'[0-9]+(?:\.[0-9]+)?%?', target):
+        line = Fraction(target.removesuffix('%'))
     else:
-        result = re.fullmatch(
-            r'([绿黄红紫白])\s*([0-9]+)\s+([0-9]+(?:\.[0-9]+)?)',
-            args,
-        )
-        if not result:
-            yield event.plain_result('格式错误，输入"分数线 帮助"以查看帮助信息')
-            return
+        return None
+    return level_index, query, line
 
-        level_labels = ['绿', '黄', '红', '紫', '白']
-        level_labels2 = ['Basic', 'Advanced', 'Expert', 'Master', 'Re:MASTER']
-        level_index = level_labels.index(result.group(1))
-        chart_id = result.group(2)
-        line = float(result.group(3))
-        if not 0 < line < 101:
-            yield event.plain_result('分数线应大于 0 且小于 101')
-            return
 
-        music = mai.total_list.by_id(chart_id)
-        if music is None:
-            yield event.plain_result(f'未找到 ID 为「{chart_id}」的歌曲')
-            return
-        if level_index >= len(music.difficulties):
-            yield event.plain_result('该乐曲没有这个难度')
-            return
-
-        chart = music.difficulties[level_index]
-        if chart.notes.brk <= 0:
-            yield event.plain_result('该谱面没有 BREAK，无法计算 BREAK 50落换算')
-            return
-
-        try:
-            tap = int(chart.notes.tap)
-            slide = int(chart.notes.slide)
-            hold = int(chart.notes.hold)
-            touch = int(chart.notes.touch)
-            brk = int(chart.notes.brk)
-            total_score = tap * 500 + slide * 1500 + hold * 1000 + touch * 500 + brk * 2500
-            break_bonus = 0.01 / brk
-            break_50_reduce = total_score * break_bonus / 4
-            reduce = 101 - line
-            msg = dedent(f'''\
-                {music.song_name}「{level_labels2[level_index]}」
-                分数线「{line}%」
-                允许的最多「TAP」「GREAT」数量为 
-                「{(total_score * reduce / 10000):.2f}」(每个-{10000 / total_score:.4f}%),
-                「BREAK」50落(一共「{brk}」个)
-                等价于「{(break_50_reduce / 100):.3f}」个「TAP」「GREAT」(-{break_50_reduce / total_score * 100:.4f}%)
-            ''').strip()
-            yield event.plain_result(msg)
-        except (TypeError, ValueError):
-            yield event.plain_result('谱面物量数据异常，暂时无法计算分数线')
+async def score_handler(event: AstrMessageEvent):
+    """查询各音符类型、判定等级的独立容错上限。"""
+    text = get_plain_message_text(event)
+    help_text = (
+        '格式：分数线 难度 歌曲ID/别名/名称 分数或等级\n'
+        '例如：分数线 紫799 100.5、分数线 紫 799 sss+、分数线 Master 歌名 ss\n'
+        '难度与歌曲之间可省略空格，目标分数需用空格分隔。\n'
+        '图片横向为音符类型，纵向为 GREAT、GOOD、MISS，个数为其余音符均为 CP 时的独立上限。'
+    )
+    if text.strip().lstrip('/') in ('分数线 帮助', '分数线帮助'):
+        yield event.plain_result(help_text)
+        return
+    request = parse_score_line_request(text)
+    if request is None:
+        yield event.plain_result('格式错误，输入"分数线 帮助"以查看帮助信息')
+        return
+    level_index, query, target = request
+    if not 0 <= target <= 101:
+        yield event.plain_result('分数线应在 0% 至 101% 之间')
+        return
+    chart = await resolve_song_chart(level_index, query)
+    if isinstance(chart, str):
+        yield event.plain_result(chart)
+        return
+    song, difficulty = chart
+    try:
+        picture = await draw_score_line_table(song, difficulty, target)
+    except ValueError as exc:
+        yield event.plain_result(str(exc))
+        return
+    yield event.chain_result(convert_message_segment_to_chain(picture))
 
 async def mai_score_calculate_handler(event: AstrMessageEvent):
     """计算指定定数和达成率的分数"""

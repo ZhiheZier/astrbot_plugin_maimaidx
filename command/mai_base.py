@@ -10,6 +10,8 @@ from astrbot.api.event import AstrMessageEvent
 from .. import Root, log, get_botname
 from ..libraries.image import image_to_base64, music_picture
 from ..libraries.maimaidx_api_data import maiApi
+from ..libraries.maimaidx_binding import normalize_binding_code, pending_bindings
+from ..libraries.maimaidx_user import ServiceName
 from ..libraries.maimaidx_error import *
 from ..libraries.maimaidx_music import mai
 from ..libraries.maimaidx_music_info import draw_music_info
@@ -67,6 +69,30 @@ def get_plain_message_text(event: AstrMessageEvent) -> str:
         for component in components
         if isinstance(component, Comp.Plain)
     ).strip()
+
+
+def parse_player_target(event: AstrMessageEvent, argument: str = ''):
+    """Prefer a real At, then QQ number, then Diving-Fish username; default to self."""
+    if target := extract_at_qqid(event):
+        return target, ''
+    player = re.sub(r'\[MSG_ID:[^\]]*\]', '', argument).strip()
+    if not player:
+        return event.get_sender_id(), ''
+    if player.isascii() and player.isdigit():
+        return int(player), ''
+    return None, player
+
+
+def parse_page_player_args(argument: str):
+    """A lone QQ number is a player; an explicit page may precede any player."""
+    parts = argument.strip().split(maxsplit=1)
+    if not parts:
+        return 1, ''
+    if parts[0].isascii() and parts[0].isdigit():
+        if len(parts) == 1 and len(parts[0]) >= 5:
+            return 1, parts[0]
+        return int(parts[0]), parts[1] if len(parts) > 1 else ''
+    return 1, argument.strip()
 
 
 # 查分图成功返回后的提示（主题 / 数据源）
@@ -138,15 +164,29 @@ async def update_data_handler(event: AstrMessageEvent, superusers: list = None):
 
 
 async def maimaidxhelp_handler(event: AstrMessageEvent):
-    """帮助maimaiDX"""
+    """maihelp"""
+    from ..libraries.maimaidx_help import draw_help_image
+
+    try:
+        picture = await draw_help_image()
+    except OSError as exc:
+        log.warning(f'生成帮助图片失败，尝试使用备用帮助图: {exc}')
+        help_image_path = Root / 'maimaidxhelp.png'
+        if help_image_path.exists():
+            yield event.chain_result([Comp.Image.fromFileSystem(str(help_image_path))])
+        else:
+            yield event.plain_result('帮助图字体或资源缺失，请联系管理员更新静态资源；完整命令见项目 README。')
+        return
+    yield event.chain_result(convert_message_segment_to_chain(picture))
+
+
+async def legacy_help_handler(event: AstrMessageEvent):
+    """保留旧版静态帮助图。"""
     help_image_path = Root / 'maimaidxhelp.png'
-    if help_image_path.exists():
-        chain = [
-            Comp.Image.fromFileSystem(str(help_image_path))
-        ]
-        yield event.chain_result(chain)
+    if help_image_path.is_file():
+        yield event.chain_result([Comp.Image.fromFileSystem(str(help_image_path))])
     else:
-        yield event.plain_result('帮助图片未找到')
+        yield event.plain_result('旧版帮助图缺失，请发送 /maihelp 查看完整功能说明。')
 
 
 async def maimaidxrepo_handler(event: AstrMessageEvent):
@@ -319,7 +359,6 @@ async def my_rating_ranking_handler(event: AstrMessageEvent):
 
 
 # ============================ 数据源 / 主题 / 落雪绑定 ============================
-CODE_PATTERN = re.compile(r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
 LXNS_ERROR = 'BOT 管理员尚未配置落雪查分器相关信息'
 DIVINGFISH_OAUTH_ERROR = 'BOT 管理员尚未配置水鱼 OAuth 应用'
 
@@ -428,6 +467,9 @@ async def bind_lxns_handler(event: AstrMessageEvent):
         )
         return
     from textwrap import dedent
+    pending_bindings.start(
+        pending_bindings.key(event), ServiceName.LXNS, cfg.lx_client_id,
+    )
     botname = get_botname()
     msg = dedent(f'''
         请点击以下链接进行授权，
@@ -436,7 +478,8 @@ async def bind_lxns_handler(event: AstrMessageEvent):
         {_authorize_url()}
         =======================
         授权后你会得到一个格式为「XXXX-XXXX-XXXX」的授权码，
-        请复制它并发送「授权码 XXXX-XXXX-XXXX」完成绑定。
+        请在 10 分钟内发送「落雪授权码 XXXX-XXXX-XXXX」完成绑定。
+        仅使用自己授权页面显示的授权码。
         =======================
         注意：请在落雪查分器「账号设置 -> 隐私设置」中
         开启允许读取成绩，否则 BOT 无法查询你的成绩。
@@ -445,7 +488,7 @@ async def bind_lxns_handler(event: AstrMessageEvent):
 
 
 async def bind_divingfish_handler(event: AstrMessageEvent):
-    """绑定水鱼/dfbind：创建设备码授权链接。"""
+    """绑定水鱼/dfbind：发起需要回填授权码的绑定。"""
     from ..libraries.maimaidx_error import DivingFishOAuthError
 
     if not maiApi.divingfish_oauth_configured:
@@ -463,41 +506,92 @@ async def bind_divingfish_handler(event: AstrMessageEvent):
         verification_uri_complete = binding.get(
             'verification_uri_complete', verification_uri
         )
-        user_code = binding.get('user_code', '')
+        expires_in = max(int(binding.get('expires_in', 600)), 1)
+        pending_bindings.start(
+            pending_bindings.key(event), ServiceName.DIVINGFISH,
+            maiApi.config.df_client_id, ttl=expires_in,
+        )
         yield event.plain_result(
-            '请在 10 分钟内打开以下链接，登录水鱼账号并确认授权：\n'
+            f'请在 {expires_in} 秒内打开以下链接，登录水鱼账号并确认授权：\n'
             f'{verification_uri_complete}\n'
-            f'绑定码：{user_code}\n'
             f'绑定身份：{maiApi.mask_qq(qqid)}\n'
-            '请确认授权页中的绑定身份无误。授权完成后无需发送授权码，'
-            '直接使用成绩查询指令即可。'
+            '请确认授权页中的绑定身份无误。网页会显示一次性授权码，\n'
+            '请由当前账号发送「水鱼授权码 XXXX-XXXX-XXXX」完成绑定。\n'
+            '仅使用自己授权页面显示的授权码，不要使用他人发来的码。'
         )
-        await maiApi.wait_for_divingfish_binding(
-            qqid,
-            binding['device_code'],
-            interval=int(binding.get('interval', 5)),
-            expires_in=int(binding.get('expires_in', 600)),
-        )
-        success = '水鱼查分器绑定成功！现在可以使用完整成绩查询功能。'
-        yield event.plain_result(success)
     except DivingFishOAuthError as e:
         yield event.plain_result(str(e))
 
 
 async def authcode_handler(event: AstrMessageEvent):
-    """授权码/code 使用授权码完成落雪 OAuth 绑定"""
+    """按显式查分器或待绑定会话路由，绝不跨服务尝试兑换。"""
+    from ..libraries.maimaidx_user import userstore
+
+    match = re.fullmatch(
+        r'/?(?:(水鱼|落雪)授权码|授权码|code)\s+(.+)',
+        get_plain_message_text(event), re.IGNORECASE,
+    )
+    if not match:
+        yield event.plain_result('授权码格式错误，请发送「水鱼授权码 …」或「落雪授权码 …」')
+        return
+    provider_name, raw_code = match.groups()
+    key = pending_bindings.key(event)
+    sessions = pending_bindings.active(key)
+    if provider_name:
+        provider = ServiceName.DIVINGFISH if provider_name == '水鱼' else ServiceName.LXNS
+    elif len(sessions) == 1:
+        provider = next(iter(sessions))
+    elif len(sessions) > 1:
+        yield event.plain_result('你同时发起了水鱼和落雪绑定，请明确发送「水鱼授权码 …」或「落雪授权码 …」')
+        return
+    else:
+        yield event.plain_result('没有待完成的授权，或授权已超时，请先发送「绑定水鱼」或「绑定落雪」')
+        return
+
+    session = sessions.get(provider)
+    label = '水鱼' if provider == ServiceName.DIVINGFISH else '落雪'
+    if session is None:
+        yield event.plain_result(f'没有待完成的{label}授权，或授权已超时，请先发送「绑定{label}」')
+        return
+    code = normalize_binding_code(raw_code, provider)
+    if code is None:
+        yield event.plain_result(f'{label}授权码格式错误，请复制网页中的一次性授权码，发送「{label}授权码 XXXX-XXXX-XXXX」')
+        return
+
+    async with session.lock:
+        if pending_bindings.active(key).get(provider) is not session:
+            yield event.plain_result(f'{label}授权已完成、已超时或已重新发起，请重新发送「绑定{label}」')
+            return
+        cfg = maiApi.config
+        client_id = cfg.df_client_id if provider == ServiceName.DIVINGFISH else cfg.lx_client_id
+        if client_id != session.client_id:
+            pending_bindings.consume(key, provider, session)
+            yield event.plain_result(f'{label}应用配置已变更，请重新发送「绑定{label}」')
+            return
+
+        if provider == ServiceName.LXNS:
+            async for result in _complete_lxns_binding(event, code, key, session):
+                yield result
+            return
+
+        try:
+            await maiApi.redeem_divingfish_binding(event.get_sender_id(), code)
+            pending_bindings.consume(key, provider, session)
+            await userstore.update(event.get_sender_id(), service=ServiceName.DIVINGFISH)
+            yield event.plain_result('水鱼查分器绑定成功！数据源已切换为水鱼，现在可以使用完整成绩查询功能。')
+        except DivingFishOAuthBindingExpiredError as exc:
+            pending_bindings.consume(key, provider, session)
+            yield event.plain_result(str(exc))
+        except DivingFishOAuthError as exc:
+            yield event.plain_result(str(exc))
+        except Exception as exc:
+            log.error(f'水鱼授权处理失败: {type(exc).__name__}')
+            yield event.plain_result('水鱼授权处理失败，请稍后重试；如提示授权码已使用，请重新发送「绑定水鱼」')
+
+
+async def _complete_lxns_binding(event: AstrMessageEvent, code: str, key, session):
     from ..libraries.maimaidx_lxns import LxnsAPI, LxnsError
     from ..libraries.maimaidx_user import ServiceName, userstore
-
-    args = get_plain_message_text(event)
-    for p in ('授权码', 'code'):
-        if args.lower().startswith(p):
-            args = args[len(p):].strip()
-            break
-    code = args.strip()
-    if not CODE_PATTERN.fullmatch(code):
-        yield event.plain_result('授权码格式错误，请重新发送。格式：授权码 XXXX-XXXX-XXXX')
-        return
 
     cfg = maiApi.config
     if not cfg.lx_client_id or not cfg.lx_client_secret:
@@ -508,6 +602,7 @@ async def authcode_handler(event: AstrMessageEvent):
     try:
         api = LxnsAPI(qqid=qqid)
         token = await api.oauth_fetch_token(code)
+        pending_bindings.consume(key, ServiceName.LXNS, session)
         api.access_token = token.access_token
         api.refresh_token = token.refresh_token
         player = await api.player_personal()
@@ -524,5 +619,5 @@ async def authcode_handler(event: AstrMessageEvent):
     except LxnsError as e:
         yield event.plain_result(f'授权失败：{e}')
     except Exception as e:
-        log.error(f'落雪授权失败: {e}')
-        yield event.plain_result('授权失败，请检查授权码是否正确或稍后重试。')
+        log.error(f'落雪授权失败: {type(e).__name__}')
+        yield event.plain_result('落雪授权处理失败，请重新发送「绑定落雪」获取新的授权码后重试。')

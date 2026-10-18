@@ -235,22 +235,24 @@ async def draw_music_banquet_info(music: Song) -> MessageSegment:
     return MessageSegment.image(image_to_base64(im))
 
 
-async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSegment]:
+async def draw_music_play_data(qqid: Optional[Union[int, str]], music_id: str,
+                               username: Optional[str] = None) -> Union[str, MessageSegment]:
     """
     谱面游玩
     
     Params:
         `qqid`: QQID
         `music_id`: 曲目ID
+        `username`: 水鱼用户名；按用户名查询时 qqid 为 None
     Returns:
         `Union[str, MessageSegment]`
     """
     from .maimaidx_source import get_music_record, get_service
     from .maimaidx_user import userstore
 
-    theme = userstore.get(qqid).theme
+    theme = userstore.get(qqid).theme if qqid is not None else Theme.PRISM_PLUS
     try:
-        data = await get_music_record(qqid, music_id)
+        data = await get_music_record(qqid, music_id, username=username)
         if not data:
             raise MusicNotPlayError
 
@@ -269,7 +271,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         dev = bool(
             maiApi.divingfish_oauth_configured
             or maiApi.token
-            or is_lxns(qqid)
+            or is_lxns(qqid, username)
         )
 
         im = Image.open(themed_path(theme, 'play_info.png')).convert('RGBA')
@@ -296,7 +298,7 @@ async def draw_music_play_data(qqid: int, music_id: str) -> Union[str, MessageSe
         mr.draw(255, 622, 18, title, color, 'mm')
         tb.draw(160, 720, 22, music.song_id, color, 'mm')
         tb.draw(380, 720, 22, music.bpm, color, 'mm')
-        tb.draw(1140, 737, 18, f'Data from {get_service(qqid).value}', color, 'rm')
+        tb.draw(1140, 737, 18, f'Data from {get_service(qqid, username).value}', color, 'rm')
 
         y = 100
         for num, info in enumerate(diff):
@@ -395,11 +397,12 @@ def draw_rating(rating: str, path: Path) -> MessageSegment:
     return MessageSegment.image(image_to_base64(im))
 
 
-async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union[MessageSegment, str]:
+async def draw_rating_table(qqid: Optional[Union[int, str]], rating: str, isfc: bool = False,
+                            username: Optional[str] = None) -> Union[MessageSegment, str]:
     """绘制定数表"""
     from .maimaidx_source import get_plate
     try:
-        obj = await get_plate(qqid=qqid)
+        obj = await get_plate(qqid=qqid, username=username)
         
         stat_keys = ['clear', 's', 'sp', 'ss', 'ssp', 'sss', 'sssp',
                      'sync', 'fc', 'fcp', 'ap', 'app', 'fs', 'fsp', 'fsd', 'fsdp']
@@ -573,10 +576,11 @@ async def draw_rating_table(qqid: int, rating: str, isfc: bool = False) -> Union
 
 
 async def draw_plate_table(
-    qqid: int,
+    qqid: Optional[Union[int, str]],
     version: str,
     plan: str,
     page: int = 1,
+    username: Optional[str] = None,
 ) -> Union[MessageSegment, str]:
     """绘制版本牌、舞系或霸者完成表。"""
     try:
@@ -628,7 +632,7 @@ async def draw_plate_table(
 
         from .maimaidx_source import get_plate
 
-        playerdata = await get_plate(qqid=qqid, version=ver)
+        playerdata = await get_plate(qqid=qqid, username=username, version=ver)
         for play in playerdata:
             song_id = str(play.song_id)
             level = level_by_id.get(song_id)

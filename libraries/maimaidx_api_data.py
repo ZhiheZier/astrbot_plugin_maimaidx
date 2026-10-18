@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import hashlib
+import json
 import time
 from typing import Any, Dict, Tuple
 
@@ -105,7 +107,7 @@ class MaimaiAPI:
         data: Dict[str, str],
     ) -> Dict[str, Any]:
         try:
-            async with ClientSession(timeout=ClientTimeout(total=30)) as session:
+            async with ClientSession(timeout=ClientTimeout(total=30), trust_env=True) as session:
                 async with session.post(
                     self.DivingFishAuthAPI + endpoint,
                     data=data,
@@ -135,6 +137,8 @@ class MaimaiAPI:
                         raise DivingFishOAuthBindingDeniedError
                     if error == 'expired_token':
                         raise DivingFishOAuthBindingExpiredError
+                    if error == 'invalid_grant':
+                        raise DivingFishOAuthConfirmationError
                     if error == 'invalid_client':
                         raise DivingFishOAuthConfigError
                     if (
@@ -154,7 +158,7 @@ class MaimaiAPI:
         self,
         external_id: Union[int, str],
     ) -> Dict[str, Any]:
-        """创建一次设备码授权，绑定关系由水鱼服务端持久化。"""
+        """创建需要用户回填确认码的绑定，禁止自动轮询完成授权。"""
         if not self.divingfish_oauth_configured:
             raise DivingFishOAuthConfigError
         subject = self._divingfish_subject(qqid=external_id)
@@ -167,6 +171,7 @@ class MaimaiAPI:
                 'scope': self.DivingFishOAuthScope,
                 'subject_ref': self._divingfish_subject_ref(external_id),
                 'binding_label': self.mask_qq(external_id),
+                'handoff': 'code',
             },
         )
 
@@ -206,50 +211,67 @@ class MaimaiAPI:
             )
             return str(token)
 
-    async def wait_for_divingfish_binding(
+    @staticmethod
+    def _token_subject(token: str) -> Optional[str]:
+        """仅比较授权服务器刚返回的两张令牌的账号，不作为验签依据。"""
+        try:
+            payload = token.split('.')[1]
+            decoded = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+            subject = decoded.get('sub')
+            return str(subject) if subject is not None else None
+        except (ValueError, IndexError, AttributeError, TypeError):
+            return None
+
+    async def redeem_divingfish_binding(
         self,
         external_id: Union[int, str],
-        device_code: str,
-        *,
-        interval: int = 5,
-        expires_in: int = 600,
+        confirmation_code: str,
     ) -> None:
-        """轮询设备码授权结果，成功后缓存本次返回的访问令牌。"""
+        """兑换一次性确认码，并换票核对账号确实绑定到当前发起者。"""
+        if not self.divingfish_oauth_configured:
+            raise DivingFishOAuthConfigError
         subject = self._divingfish_subject(qqid=external_id)
-        poll_interval = max(int(interval), 1)
-        deadline = time.monotonic() + max(int(expires_in), 1)
-
-        while time.monotonic() < deadline:
-            await asyncio.sleep(poll_interval)
+        lock = self._oauth_locks.setdefault(subject, asyncio.Lock())
+        async with lock:
+            self._oauth_tokens.pop(subject, None)
+            redeemed = await self._request_divingfish_oauth(
+                '/oauth/token',
+                data={
+                    'grant_type': 'urn:diving-fish:params:oauth:grant-type:confirmation-code',
+                    'confirmation_code': confirmation_code,
+                    'subject_ref': self._divingfish_subject_ref(external_id),
+                    'client_id': self.config.df_client_id,
+                    'client_secret': self.config.df_client_secret,
+                },
+            )
+            redeemed_subject = redeemed.get('sub') or self._token_subject(
+                redeemed.get('access_token', '')
+            )
+            if not redeemed.get('access_token') or not redeemed_subject:
+                raise DivingFishOAuthServiceError
             try:
                 payload = await self._request_divingfish_oauth(
                     '/oauth/token',
                     data={
-                        'grant_type': (
-                            'urn:ietf:params:oauth:grant-type:device_code'
-                        ),
-                        'device_code': device_code,
+                        'grant_type': 'urn:diving-fish:params:oauth:grant-type:on-behalf-of',
+                        'subject': subject,
+                        'scope': self.DivingFishOAuthScope,
                         'client_id': self.config.df_client_id,
                         'client_secret': self.config.df_client_secret,
                     },
                 )
-            except DivingFishOAuthPendingError:
-                continue
-            except DivingFishOAuthRateLimitError:
-                poll_interval += 5
-                continue
-
+            except DivingFishOAuthNotBoundError as exc:
+                raise DivingFishOAuthBindingMismatchError from exc
             token = payload.get('access_token')
             if not token:
                 raise DivingFishOAuthServiceError
+            if self._token_subject(token) != str(redeemed_subject):
+                raise DivingFishOAuthBindingMismatchError
             token_expires_in = max(int(payload.get('expires_in', 300)), 1)
             self._oauth_tokens[subject] = (
                 str(token),
                 time.monotonic() + token_expires_in,
             )
-            return
-
-        raise DivingFishOAuthBindingExpiredError
 
     async def _requestmai_oauth(
         self,

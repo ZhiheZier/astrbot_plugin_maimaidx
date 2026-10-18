@@ -3,7 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
-from ..command.mai_base import _authorize_url, authcode_handler
+from ..command.mai_base import _authorize_url, authcode_handler, bind_lxns_handler
+from ..libraries.maimaidx_binding import pending_bindings
 from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_lxns import (
     LxnsAPI,
@@ -197,6 +198,9 @@ class LxnsOAuthTest(unittest.IsolatedAsyncioTestCase):
             ) as api_class,
             patch.object(userstore, 'update', update),
         ):
+            pending_bindings.clear()
+            self.addCleanup(pending_bindings.clear)
+            _ = [message async for message in bind_lxns_handler(FakeEvent())]
             messages = [
                 message async for message in authcode_handler(FakeEvent())
             ]
