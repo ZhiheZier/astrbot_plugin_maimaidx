@@ -2,13 +2,24 @@ import asyncio
 import json
 import time
 import traceback
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
 
 import aiohttp
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .. import arcades_json, loga
 from .maimaidx_music import writefile
+from .maimaidx_arcade_games import ArcadeGameType, DEFAULT_ARCADE_GAME, arcade_game_from_key
+from .maimaidx_arcade_messages import format_arcade_query, local_arcade_query
+
+
+class ArcadeAttendance(BaseModel):
+    person: int = 0
+    by: str = ''
+    time: str = ''
+    status: str = '营业'
+    label: str = ''
 
 
 class Arcade(BaseModel):
@@ -20,28 +31,66 @@ class Arcade(BaseModel):
     num: int
     id: str
     alias: List[str]
+    group_aliases: Dict[str, List[str]] = Field(default_factory=dict)
     group: List[int]
     person: int
     by: str
     time: str
     status: str = '营业'
+    game_attendance: Dict[str, ArcadeAttendance] = Field(default_factory=dict)
+    game_machine_counts: Dict[str, int] = Field(default_factory=dict)
+
+    def aliases_for(self, group_id=None):
+        scoped = self.group_aliases.get(str(group_id), []) if group_id is not None else []
+        return list(dict.fromkeys((*self.alias, *scoped)))
+
+    def attendance_for(self, game: ArcadeGameType = DEFAULT_ARCADE_GAME):
+        if game.key == DEFAULT_ARCADE_GAME.key:
+            return self
+        return self.game_attendance.get(game.key, ArcadeAttendance())
+
+    def known_games(self) -> list[ArcadeGameType]:
+        games = []
+        for key in dict.fromkeys((*self.game_attendance, *self.game_machine_counts)):
+            attendance = self.game_attendance.get(key)
+            if game := arcade_game_from_key(key, attendance.label if attendance else ''):
+                games.append(game)
+        return games
+
+
+def match_arcades(records, name, group_id=None):
+    if name.isascii() and name.isdigit():
+        return [record for record in records if record.id == name]
+    scoped = [record for record in records if group_id is not None and name in record.group_aliases.get(str(group_id), [])]
+    return scoped or [record for record in records if name == record.name or name in record.alias]
 
 
 class ArcadeList(List[Arcade]):
 
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.alias_lock = asyncio.Lock()
+
 
     async def save_arcade(self):
-        return await writefile(arcades_json, [_.model_dump() for _ in self])
+        data = [record.model_dump() for record in self]
+        saved = await writefile(arcades_json, data)
+        if saved:
+            arcade.arcades = data
+        return saved
     
-    def search_name(self, name: str) -> List[Arcade]:
+    def search_name(self, name: str, group_id=None) -> List[Arcade]:
         """模糊查询机厅"""
+        scoped = [record for record in self if group_id is not None and name in record.group_aliases.get(str(group_id), [])]
+        if scoped:
+            return scoped
         arcade_list = []
         for arcade in self:
             if name in arcade.name:
                 arcade_list.append(arcade)
             elif name in arcade.location:
                 arcade_list.append(arcade)
-            elif name in arcade.alias:
+            elif name in arcade.aliases_for(group_id):
                 arcade_list.append(arcade)
                 
         return arcade_list
@@ -103,19 +152,14 @@ class ArcadeList(List[Arcade]):
         return arcade_list
 
     @classmethod
-    def arcade_to_msg(cls, arcade_list: List[Arcade]) -> List[str]:
+    def arcade_to_msg(cls, arcade_list: List[Arcade], game: ArcadeGameType | None = DEFAULT_ARCADE_GAME,
+                      configured_games: dict | None = None) -> List[str]:
         """机厅人数格式化"""
         result = []
         for arcade in arcade_list:
-            msg = f'''{arcade.name}
-    - 当前 {arcade.person} 人\n'''
-            if arcade.num > 1:
-                msg += f'    - 平均 {arcade.person / arcade.num:.2f} 人\n'
-            if arcade.status == '闭店':
-                msg += '    - 状态：闭店\n'
-            if arcade.by:
-                msg += f'    - 由 {arcade.by} 更新于 {arcade.time}'
-            result.append(msg.strip())
+            result.append(format_arcade_query(local_arcade_query(
+                arcade, (configured_games or {}).get(arcade.id, []), game,
+            )))
         return result
 
 
@@ -231,16 +275,30 @@ async def download_arcade_info(save: bool = True) -> ArcadeList:
         return arcadelist
 
 
-async def updata_arcade(arcadeName: str, num: str):
+async def updata_arcade(arcadeName: str, num: str, game: ArcadeGameType = DEFAULT_ARCADE_GAME):
     if arcadeName.isdigit():
         arcade_list = arcade.total.search_id(arcadeName)
     else:
         arcade_list = arcade.total.search_fullname(arcadeName)
     if arcade_list:
         _arcade = arcade_list[0]
-        _arcade.num = int(num)
-        msg = f'已修改机厅 [{arcadeName}] 机台数量为 [{num}]'
-        await arcade.total.save_arcade()
+        count = int(num)
+        if count < 0 or count > 9999:
+            return '机台数量需为0至9999的整数'
+        original_num, original_counts = _arcade.num, dict(_arcade.game_machine_counts)
+        if game.key == DEFAULT_ARCADE_GAME.key:
+            _arcade.num = count
+        else:
+            _arcade.game_machine_counts[game.key] = count
+        label = '' if game.key == DEFAULT_ARCADE_GAME.key else f'（{game.name}）'
+        msg = f'已修改机厅 [{arcadeName}]{label} 机台数量为 [{num}]'
+        try:
+            if not await arcade.total.save_arcade():
+                raise OSError('machine count save failed')
+        except Exception as exc:
+            _arcade.num, _arcade.game_machine_counts = original_num, original_counts
+            loga.warning(f'保存机台数量失败（{type(exc).__name__}）')
+            return '本地保存失败，机台数量未修改，请稍后重试'
     else:
         msg = f'未找到机厅：{arcadeName}'
     return msg
@@ -279,21 +337,20 @@ async def update_alias(arcadeName: str, aliasName: str, add_del: bool):
 async def subscribe(group_id: int, arcadeName: str, sub: bool):
     """订阅机厅，`sub` 等于 `True` 为订阅，`False` 为取消订阅"""
     change = False
-    if arcadeName.isdigit():
-        arcade_list = arcade.total.search_id(arcadeName)
-    else:
-        arcade_list = arcade.total.search_fullname(arcadeName)
+    arcade_list = match_arcades(arcade.total, arcadeName, group_id)
+    if len(arcade_list) > 1:
+        return '找到多个机厅，请使用ID订阅\n' + '\n'.join(f'{record.id}：{record.name}' for record in arcade_list)
     if arcade_list:
         _arcade = arcade_list[0]
         if sub:
-            if arcade.total.group_in_arcade(group_id, _arcade.name):
+            if group_id in _arcade.group:
                 msg = f'该群已订阅机厅：{_arcade.name}'
             else:
                 _arcade.group.append(group_id)
                 msg = f'群：{group_id} 已添加订阅机厅：{_arcade.name}'
                 change = True
         else:
-            if not arcade.total.group_in_arcade(group_id, _arcade.name):
+            if group_id not in _arcade.group:
                 msg = f'该群未订阅机厅：{_arcade.name}，无需取消订阅'
             else:
                 _arcade.group.remove(group_id)
@@ -306,44 +363,72 @@ async def subscribe(group_id: int, arcadeName: str, sub: bool):
     return msg
         
         
-async def update_person(arcadeList: List[Arcade], userName: str, value: str, person: int):
-    """变更机厅人数"""
-    if len(arcadeList) == 1:
-        _arcade = arcadeList[0]
-        original_person = _arcade.person
-        # 闭店：<店名/别名>=-1 时清空人数并标记为闭店
-        if person == -1 and value in ['=', '＝', '设置', '设定']:
-            if _arcade.status == '闭店' and _arcade.person == 0:
-                return f'机厅：{_arcade.name} 已处于闭店状态'
-            _arcade.person = 0
-            _arcade.status = '闭店'
-            _arcade.by = userName
-            _arcade.time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            await arcade.total.save_arcade()
-            return f'机厅：{_arcade.name}\n已闭店，人数已清空\n变更时间：{_arcade.time}'
-        if person < 0:
-            return '请勿乱玩bot，恼！'
-        if value in ['+', '＋', '增加', '添加', '加']:
-            if person > 30:
-                return '请勿乱玩bot，恼！'
-            _arcade.person += person
-        elif value in ['-', '－', '减少', '降低', '减']:
-            if person > 30 or person > _arcade.person:
-                return '请勿乱玩bot，恼！'
-            _arcade.person -= person
-        elif value in ['=', '＝', '设置', '设定']:
-            if abs(_arcade.person - person) > 30:
-                return '请勿乱玩bot，恼！'
-            _arcade.person = person
-        if _arcade.person == original_person:
-            return f'人数没有变化\n机厅：{_arcade.name}\n当前人数：{_arcade.person}'
-        else:
-            _arcade.status = '营业'
-            _arcade.by = userName
-            _arcade.time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
-            await arcade.total.save_arcade()
-            return f'机厅：{_arcade.name}\n当前人数：{_arcade.person}\n变更时间：{_arcade.time}'
-    elif len(arcadeList) > 1:
-        return '找到多个机厅，请使用id变更人数\n' + '\n'.join([f'{_.id}：{_.name}' for _ in arcadeList])
+@dataclass(frozen=True)
+class AttendanceUpdateResult:
+    message: str
+    successful: bool = True
+    changed: bool = False
+
+
+async def update_attendance(record: Arcade, user_name: str, value: str, person: int,
+                            game: ArcadeGameType = DEFAULT_ARCADE_GAME, *, records=None) -> AttendanceUpdateResult:
+    attendance = record.attendance_for(game)
+    name = record.name if game.key == DEFAULT_ARCADE_GAME.key else f'{record.name}（{game.name}）'
+    setting = value in ('=', '＝', '设置', '设定')
+    closing = person == -1 and setting
+    if closing:
+        if attendance.status == '闭店' and attendance.person == 0:
+            return AttendanceUpdateResult(f'机厅：{name} 已处于闭店状态')
+        count = 0
+    elif person < 0:
+        return AttendanceUpdateResult('人数不能为负数；闭店请使用 =-1', successful=False)
+    elif value in ('+', '＋', '增加', '添加', '加'):
+        if person > 30:
+            return AttendanceUpdateResult('单次人数变化不能超过30人', successful=False)
+        count = attendance.person + person
+    elif value in ('-', '－', '减少', '降低', '减'):
+        if person > 30:
+            return AttendanceUpdateResult('单次人数变化不能超过30人', successful=False)
+        if person > attendance.person:
+            return AttendanceUpdateResult('减少人数不能超过当前人数', successful=False)
+        count = attendance.person - person
+    elif setting:
+        if abs(attendance.person - person) > 30:
+            return AttendanceUpdateResult('单次人数变化不能超过30人', successful=False)
+        count = person
     else:
-        return '没有找到指定机厅'
+        return AttendanceUpdateResult('未识别的人数操作', successful=False)
+    known = (bool(record.person or record.by or record.time or record.status == '闭店')
+             if game.key == DEFAULT_ARCADE_GAME.key else game.key in record.game_attendance)
+    if not closing and count == attendance.person and known:
+        return AttendanceUpdateResult(f'人数没有变化\n机厅：{name}\n当前人数：{count}')
+
+    snapshot = record.model_copy(deep=True)
+    attendance.person = count
+    attendance.status = '闭店' if closing else '营业'
+    attendance.by = user_name
+    attendance.time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+    if game.key != DEFAULT_ARCADE_GAME.key:
+        attendance.label = game.name
+        record.game_attendance[game.key] = attendance
+    try:
+        if not await (records if records is not None else arcade.total).save_arcade():
+            raise OSError('attendance save failed')
+    except Exception as exc:
+        # Do not retain an in-memory change that was never successfully saved.
+        for field in ('person', 'status', 'by', 'time', 'game_attendance'):
+            setattr(record, field, getattr(snapshot, field))
+        loga.warning(f'保存排卡人数失败（{type(exc).__name__}），未上传云端')
+        return AttendanceUpdateResult('本地保存失败，人数未更新、未上传云端，请稍后重试', successful=False)
+    detail = '已闭店，人数已清空' if closing else f'当前人数：{count}'
+    return AttendanceUpdateResult(f'机厅：{name}\n{detail}\n变更时间：{attendance.time}', changed=True)
+
+
+async def update_person(arcadeList: List[Arcade], userName: str, value: str, person: int,
+                        game: ArcadeGameType = DEFAULT_ARCADE_GAME):
+    """变更机厅人数，保留原调用方的文本返回接口。"""
+    if len(arcadeList) == 1:
+        return (await update_attendance(arcadeList[0], userName, value, person, game)).message
+    if len(arcadeList) > 1:
+        return '找到多个机厅，请使用id变更人数\n' + '\n'.join([f'{_.id}：{_.name}' for _ in arcadeList])
+    return '没有找到指定机厅'

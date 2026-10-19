@@ -1,104 +1,346 @@
 {
+  "general": {
+    "description": "基础设置",
+    "type": "object",
+    "hint": "机器人名称、回复方式、群功能白名单及插件更新通知。",
+    "items": {
+      "bot_name": {
+        "description": "机器人名称",
+        "hint": "用于在消息中显示（如：今日运势功能）",
+        "type": "string",
+        "default": "Bot"
+      },
+      "enable_reply": {
+        "description": "引用回复",
+        "hint": "是否在多数指令回复中添加“引用消息”（Reply）。关闭可减少引用/提及效果。",
+        "type": "bool",
+        "default": true
+      },
+      "maimaidxwhitelist": {
+        "description": "舞萌功能白名单",
+        "hint": "开启后仅允许已执行「开启舞萌功能」的群使用舞萌功能及接收更新通知；管理员在目标群执行开启/关闭指令管理名单，私聊不受影响。关闭时默认全群可用，排除已关闭的群。",
+        "type": "bool",
+        "default": false
+      },
+      "update_notice": {
+        "description": "插件更新通知",
+        "hint": "首次建立版本记录及版本升级时，仅向开启舞萌功能的群广播更新日志的「新功能」部分，其他内容通过日志链接查看；遵守舞萌功能白名单并排除已关闭的群，发送失败会重试。",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "divingfish": {
+    "description": "水鱼查分器",
+    "type": "object",
+    "hint": "水鱼 OAuth 凭据、旧版 Token 兼容及查询中转。",
+    "items": {
+      "df_client_id": {
+        "description": "水鱼 OAuth 应用 client_id",
+        "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式仍选择设备码，仅申请 prober.records.read 权限；用户需回填网页显示的一次性授权码完成绑定。",
+        "type": "string",
+        "default": ""
+      },
+      "df_client_secret": {
+        "description": "水鱼 OAuth 应用 client_secret",
+        "hint": "与 client_id 配套使用。仅保存在 BOT 配置中。",
+        "type": "string",
+        "default": ""
+      },
+      "maimaidxtoken": {
+        "description": "水鱼查分器开发者 Token",
+        "hint": "旧版兼容配置，官方当前计划于 2027-01-01 停止服务。建议迁移到同组的水鱼 OAuth 配置。",
+        "type": "string",
+        "default": ""
+      },
+      "maimaidxproberproxy": {
+        "description": "水鱼查分器中转",
+        "hint": "是否使用中转访问水鱼查分器，适用于境外服务器。",
+        "type": "bool",
+        "default": false
+      }
+    }
+  },
+  "lxns": {
+    "description": "落雪查分器",
+    "type": "object",
+    "hint": "落雪开发者 Token、OAuth 凭据及回调地址。",
+    "items": {
+      "lxns_dev_token": {
+        "description": "落雪查分器 开发者 Token",
+        "hint": "填写后用户可用「数据源 落雪」按 QQ 号查询（需用户在落雪绑定 QQ 并允许第三方读取）。支持 b50/ap50/单曲/完成表/进度等。",
+        "type": "string",
+        "default": ""
+      },
+      "lx_client_id": {
+        "description": "落雪 OAuth 应用 client_id",
+        "hint": "可选。OAuth 权限仅需选择 read_player。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
+        "type": "string",
+        "default": ""
+      },
+      "lx_client_secret": {
+        "description": "落雪 OAuth 应用 client_secret",
+        "hint": "可选。与 client_id 配套使用。",
+        "type": "string",
+        "default": ""
+      },
+      "lx_redirect_uri": {
+        "description": "落雪 OAuth 回调地址",
+        "hint": "可选。推荐在落雪开发者面板选择“无回调地址”并填写 urn:ietf:wg:oauth:2.0:oob；留空时插件也会自动使用该地址。请勿填写完整的 OAuth 授权链接。",
+        "type": "string",
+        "default": ""
+      }
+    }
+  },
+  "alias": {
+    "description": "别名服务",
+    "type": "object",
+    "hint": "歌曲别名推送、推送白名单及柚子服务器中转。",
+    "items": {
+      "maimaidxaliaspush": {
+        "description": "别名推送",
+        "hint": "是否开启别名推送。",
+        "type": "bool",
+        "default": true
+      },
+      "maimaidxaliaswhitelist": {
+        "description": "别名推送白名单",
+        "hint": "开启后仅向已执行「开启别名推送」的群发送别名广播；关闭则保持原逻辑（全群推送，排除黑名单）。",
+        "type": "bool",
+        "default": false
+      },
+      "maimaidxaliasproxy": {
+        "description": "柚子别名服务器中转",
+        "hint": "是否使用中转访问柚子别名服务器，适用于境内服务器。",
+        "type": "bool",
+        "default": false
+      }
+    }
+  },
+  "images": {
+    "description": "图片与素材",
+    "type": "object",
+    "hint": "绘图素材获取方式及内存占用。",
+    "items": {
+      "saveinmem": {
+        "description": "图片保存在内存",
+        "hint": "是否将部分图片保存在内存中。关闭（false）可节省内存，但部分图片生成会稍慢。",
+        "type": "bool",
+        "default": true
+      },
+      "assets_online": {
+        "description": "在线获取素材",
+        "hint": "对于有 icon / plate 本地资源的可设为 false 使用本地素材；若没有请保持 true，否则使用落雪查分器时无法正常显示。",
+        "type": "bool",
+        "default": true
+      }
+    }
+  },
+  "arcade": {
+    "description": "机厅与云端上报",
+    "type": "object",
+    "hint": "选择本地或 nearcade 机厅库，配置可选的云端人数上传。",
+    "items": {
+      "arcade_data_source": {
+        "description": "机厅数据源",
+        "hint": "local：原有本地机厅信息（默认）；nearcade：直接从 nearcade 查找、订阅及查询机厅，报人数使用云端店铺 ID，无需本地机厅和云端映射。两种模式的订阅、别名及本地报数独立保存，切换后需重新订阅。云端上传仍需开启下方开关并配置 Token。修改后重载插件。",
+        "type": "string",
+        "options": [
+          "local",
+          "nearcade"
+        ],
+        "default": "local"
+      },
+      "nearcade_upload_enabled": {
+        "description": "机厅人数上传 nearcade",
+        "hint": "默认关闭。开启后将排卡人数变化同步到对应游戏的云端记录，支持舞萌/mai、中二/chu、太鼓等；不指定游戏时默认舞萌 DX。需填写 Token；local 数据源还需机厅映射，nearcade 数据源直接使用云端店铺 ID，无需映射。=-1 闭店只保存本地，不上传、不自动重试旧人数。",
+        "type": "bool",
+        "default": false
+      },
+      "nearcade_api_token": {
+        "description": "nearcade API Token",
+        "hint": "人数上传使用的 Bearer API Token，在 nearca.de 的设置 / API 令牌页面生成；账号需绑定手机号，已认领机厅需对应专用凭据。仅填写在插件配置中，不要在群里发送。位置查询与云端人数查询均无需 Token；已映射机厅查询优先读云端，失败回退本地。",
+        "type": "string",
+        "default": "",
+        "condition": {
+          "nearcade_upload_enabled": true
+        }
+      },
+      "nearcade_shop_bindings": {
+        "description": "nearcade 云端机厅映射",
+        "hint": "仅 local 数据源使用；nearcade 数据源忽略此配置，无需映射。通常填 本地ID=云端店铺ID，如123=456，各游戏自动选取唯一记录。同游戏多条记录可命名分区：123[maiA区]=456:456000、123[maiB区]=456:456001，报数用某机厅maiA区3人；分区名以游戏名开头且必须指定gameId。中二指定记录可填123[chu]=456:456002。旧格式123=456:456000的gameId仅指定舞萌。云端店铺ID在 nearca.de/shops/数字 中，gameId见 /api/shops/店铺ID 的 shop.games。",
+        "type": "list",
+        "default": [],
+        "condition": {
+          "arcade_data_source": "local"
+        }
+      }
+    }
+  },
+  "location": {
+    "description": "位置查询",
+    "type": "object",
+    "hint": "直接响应 QQ 位置卡，设置附近机厅的查询范围和返回数量。",
+    "items": {
+      "nearcade_location_enabled": {
+        "description": "QQ 位置卡查询附近机厅",
+        "hint": "默认关闭。开启后检测到 QQ 位置卡即返回附近舞萌 DX 机厅，无需前置指令；群聊与私聊均可，遵守舞萌功能白名单，不依赖排卡开关。坐标仅发送给 nearcade 做当次查询，不写入插件持久化文件。",
+        "type": "bool",
+        "default": false
+      },
+      "nearcade_radius_km": {
+        "description": "附近机厅查询范围（公里）",
+        "hint": "直线距离半径，默认 5 公里，范围 1 至 30。结果会按此范围过滤，并按距离排序。",
+        "type": "float",
+        "default": 5,
+        "slider": {
+          "min": 1,
+          "max": 30,
+          "step": 0.5
+        },
+        "condition": {
+          "nearcade_location_enabled": true
+        }
+      },
+      "nearcade_result_limit": {
+        "description": "附近机厅返回个数",
+        "hint": "默认返回最多 5 家，范围 1 至 20。",
+        "type": "int",
+        "default": 5,
+        "slider": {
+          "min": 1,
+          "max": 20,
+          "step": 1
+        },
+        "condition": {
+          "nearcade_location_enabled": true
+        }
+      }
+    }
+  },
   "bot_name": {
-    "description": "机器人名称",
-    "hint": "用于在消息中显示（如：今日运势功能）",
     "type": "string",
-    "default": "Bot"
+    "default": null,
+    "invisible": true
   },
   "update_notice": {
-    "description": "插件更新通知",
-    "hint": "首次建立版本记录及版本升级时向开启舞萌功能的群发送更新内容，遵守舞萌功能白名单并排除已关闭的群，发送失败会重试。",
     "type": "bool",
-    "default": true
+    "default": null,
+    "invisible": true
   },
   "maimaidxwhitelist": {
-    "description": "舞萌功能白名单",
-    "hint": "开启后仅允许已执行「开启舞萌功能」的群使用舞萌功能及接收更新通知；管理员在目标群执行开启/关闭指令管理名单，私聊不受影响。关闭时默认全群可用，排除已关闭的群。",
     "type": "bool",
-    "default": false
+    "default": null,
+    "invisible": true
   },
   "enable_reply": {
-    "description": "引用回复",
-    "hint": "是否在多数指令回复中添加“引用消息”（Reply）。关闭可减少引用/提及效果。",
     "type": "bool",
-    "default": true
+    "default": null,
+    "invisible": true
+  },
+  "arcade_data_source": {
+    "type": "string",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_api_token": {
+    "type": "string",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_upload_enabled": {
+    "type": "bool",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_location_enabled": {
+    "type": "bool",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_radius_km": {
+    "type": "float",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_result_limit": {
+    "type": "int",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_shop_bindings": {
+    "type": "list",
+    "default": null,
+    "invisible": true
   },
   "maimaidxtoken": {
-    "description": "水鱼查分器开发者 Token",
-    "hint": "旧版兼容配置，官方当前计划于 2027-01-01 停止服务。建议迁移到下方水鱼 OAuth 配置。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "df_client_id": {
-    "description": "水鱼 OAuth 应用 client_id",
-    "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式仍选择设备码，仅申请 prober.records.read 权限；用户需回填网页显示的一次性授权码完成绑定。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "df_client_secret": {
-    "description": "水鱼 OAuth 应用 client_secret",
-    "hint": "与 client_id 配套使用。仅保存在 BOT 配置中。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "maimaidxproberproxy": {
-    "description": "水鱼查分器中转",
-    "hint": "是否使用中转访问水鱼查分器，适用于境外服务器。",
     "type": "bool",
-    "default": false
+    "default": null,
+    "invisible": true
   },
   "maimaidxaliaspush": {
-    "description": "别名推送",
-    "hint": "是否开启别名推送。",
     "type": "bool",
-    "default": true
+    "default": null,
+    "invisible": true
   },
   "maimaidxaliasproxy": {
-    "description": "柚子别名服务器中转",
-    "hint": "是否使用中转访问柚子别名服务器，适用于境内服务器。",
     "type": "bool",
-    "default": false
+    "default": null,
+    "invisible": true
   },
   "maimaidxaliaswhitelist": {
-    "description": "别名推送白名单",
-    "hint": "开启后仅向已执行「开启别名推送」的群发送别名广播；关闭则保持原逻辑（全群推送，排除黑名单）。",
     "type": "bool",
-    "default": false
+    "default": null,
+    "invisible": true
   },
   "saveinmem": {
-    "description": "图片保存在内存",
-    "hint": "是否将部分图片保存在内存中。关闭（false）可节省内存，但部分图片生成会稍慢。",
     "type": "bool",
-    "default": true
+    "default": null,
+    "invisible": true
   },
   "assets_online": {
-    "description": "在线获取素材",
-    "hint": "对于有 icon / plate 本地资源的可设为 false 使用本地素材；若没有请保持 true，否则使用落雪查分器时无法正常显示。",
     "type": "bool",
-    "default": true
+    "default": null,
+    "invisible": true
   },
   "lxns_dev_token": {
-    "description": "落雪查分器 开发者 Token",
-    "hint": "填写后用户可用「数据源 落雪」按 QQ 号查询（需用户在落雪绑定 QQ 并允许第三方读取）。支持 b50/ap50/单曲/完成表/进度等。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "lx_client_id": {
-    "description": "落雪 OAuth 应用 client_id",
-    "hint": "可选。OAuth 权限仅需选择 read_player。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "lx_client_secret": {
-    "description": "落雪 OAuth 应用 client_secret",
-    "hint": "可选。与 client_id 配套使用。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
   },
   "lx_redirect_uri": {
-    "description": "落雪 OAuth 回调地址",
-    "hint": "可选。推荐在落雪开发者面板选择“无回调地址”并填写 urn:ietf:wg:oauth:2.0:oob；留空时插件也会自动使用该地址。请勿填写完整的 OAuth 授权链接。",
     "type": "string",
-    "default": ""
+    "default": null,
+    "invisible": true
+  },
+  "config_layout_version": {
+    "type": "int",
+    "default": 0,
+    "invisible": true
   }
 }

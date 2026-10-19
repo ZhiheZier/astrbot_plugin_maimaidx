@@ -7,11 +7,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from .. import Root, __version__
-from ..libraries.maimaidx_update_notice import UpdateNotifier, update_message
+from ..libraries.maimaidx_update_notice import CHANGELOG_URL, UpdateNotifier, update_message
 from ..main import MaimaiDXPlugin
 
 
-CHANGELOG = '## v1.5.2\n\n### 新功能\n- 最新功能\n\n## v1.5.1\n\n- 容错计算\n\n## v1.5.0\n\n- 旧功能\n'
+CHANGELOG = ('## v1.5.2\n\n### 新功能\n- 最新功能\n\n### 修复\n- 最新修复\n\n'
+             '## v1.5.1\n\n### 新功能\n- 容错计算\n\n### 优化\n- 旧版优化\n\n'
+             '## v1.5.0\n\n### 新功能\n- 旧功能\n')
 
 
 def platform(bot, identity='qq-1'):
@@ -28,21 +30,71 @@ def client(groups=(100, 200)):
 
 
 class UpdateMessageTest(unittest.TestCase):
+    def test_only_new_feature_category_is_included_and_emphasized(self):
+        changelog = ('## v1.5.1\n\n### 新功能\n\n- 新功能内容\n\n'
+                     '### 优化\n\n- 优化内容\n\n### 修复\n- 修复内容\n\n### 其他\n\n- 其他内容\n')
+        message = update_message(changelog, None, '1.5.1')
+        self.assertIn('\n\n━━ 新功能 ━━\n\n- 新功能内容', message)
+        for title in ('优化', '修复', '其他'):
+            self.assertNotIn(f'━━ {title} ━━', message)
+            self.assertNotIn(f'- {title}内容', message)
+        self.assertNotIn('###', message)
+
+    def test_no_new_features_keeps_notice_short_without_other_categories(self):
+        for section in ('### 修复\n- 修复内容', '### 新功能\n\n### 优化\n- 优化内容', '- 无分类内容'):
+            with self.subTest(section=section):
+                message = update_message(f'## v1.5.1\n{section}\n', '1.5.0', '1.5.1')
+                self.assertIn('本次未列出新功能', message)
+                self.assertNotIn('━━ 新功能 ━━', message)
+                self.assertNotIn('- 修复内容', message)
+                self.assertNotIn('- 优化内容', message)
+                self.assertNotIn('- 无分类内容', message)
+
+    def test_new_feature_selection_resets_between_releases_and_keeps_subheadings(self):
+        changelog = ('## v1.5.3\n### 新功能\n- 未来功能\n'
+                     '## v1.5.2\n### 新功能\n#### 查询\n- 查询内容\n'
+                     '## v1.5.1\n- 不应继承分类\n### 修复\n- 修复内容\n'
+                     '## v1.5.0\n### 新功能\n- 历史功能\n')
+        message = update_message(changelog, '1.5.0', '1.5.2')
+        self.assertIn('━━ 查询 ━━', message)
+        self.assertIn('- 查询内容', message)
+        for excluded in ('未来功能', '不应继承分类', '修复内容', '历史功能', '【v1.5.1】'):
+            self.assertNotIn(excluded, message)
+
+    def test_full_changelog_link_uses_master_branch(self):
+        expected = 'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/blob/master/CHANGELOG.md'
+        self.assertEqual(CHANGELOG_URL, expected)
+        self.assertIn(f'完整更新日志：{expected}', update_message(CHANGELOG, None, '1.5.1'))
+
     def test_only_updated_versions_are_included(self):
         message = update_message(CHANGELOG, '1.5.0', '1.5.2')
         self.assertIn('最新功能', message)
         self.assertIn('容错计算', message)
+        self.assertNotIn('最新修复', message)
+        self.assertNotIn('旧版优化', message)
         self.assertNotIn('旧功能', message)
         self.assertNotIn('最新功能', update_message(CHANGELOG, '1.5.0', '1.5.1'))
+        self.assertIn('\n\n【v1.5.1】', message)
 
     def test_long_changelog_is_bounded_and_has_help_and_full_log(self):
-        text = '## v1.5.1\n' + '- 更新功能内容\n' * 600
+        text = '## v1.5.1\n### 新功能\n' + '- 更新功能内容\n' * 600
         message = update_message(text, '1.5.0', '1.5.1')
         self.assertLessEqual(len(message), 1800)
         self.assertIn('maihelp', message)
         self.assertIn('完整更新日志', message)
         self.assertIn('更多内容', message)
-        self.assertTrue(message.endswith('\n\n功能使用说明请通过 /maihelp 查看。'))
+        self.assertIn('\n\n功能使用说明请通过 /maihelp 查看。\n功能建议或问题反馈', message)
+        self.assertIn('contact@zhihezier.com', message)
+        self.assertTrue(message.endswith('https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues'))
+
+    def test_feedback_is_last_line_for_initial_upgrade_and_missing_changelog(self):
+        footer = ('功能建议或问题反馈，请发送邮件至 contact@zhihezier.com，或提交 Issue：'
+                  'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues')
+        for changelog, previous in ((CHANGELOG, None), (CHANGELOG, '1.5.0'), ('', None)):
+            with self.subTest(previous=previous, changelog=bool(changelog)):
+                message = update_message(changelog, previous, '1.5.1')
+                self.assertEqual(message.splitlines()[-1], footer)
+                self.assertIn('\n\n功能使用说明请通过 /maihelp 查看。\n', message)
 
     def test_initial_message_contains_only_current_release(self):
         message = update_message(CHANGELOG, None, '1.5.1')
@@ -234,6 +286,15 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
 
 
 class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
+    async def test_scheduler_dependency_is_declared_and_keeps_v3_api(self):
+        from packaging.requirements import Requirement
+
+        dependencies = [Requirement(line) for line in (Root / 'requirements.txt').read_text(encoding='utf-8').splitlines()
+                        if line.strip() and not line.startswith('#')]
+        scheduler = next(requirement for requirement in dependencies if requirement.name.lower() == 'apscheduler')
+        self.assertIn('3.10', scheduler.specifier)
+        self.assertNotIn('4.0', scheduler.specifier)
+
     async def test_hooks_share_single_task_and_terminate_cancels_it(self):
         started = asyncio.Event()
 
@@ -286,3 +347,5 @@ class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
         metadata = yaml.safe_load((Root / 'metadata.yaml').read_text(encoding='utf-8'))
         self.assertEqual(metadata['version'].removeprefix('v'), __version__)
+        self.assertEqual((Root / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()[0],
+                         f'## v{__version__}')

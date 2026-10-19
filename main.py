@@ -22,7 +22,14 @@ import sys
 class MaimaiDXPlugin(Star):
     def __init__(self, context: Context, config: dict | None = None):
         super().__init__(context)
-        self.config = config or {}
+        from .libraries.maimaidx_plugin_config import load_plugin_config
+
+        self.config = load_plugin_config(config if config is not None else {})
+        from .libraries.maimaidx_nearcade import NearcadeClient
+
+        self.nearcade = NearcadeClient(self.config)
+        if self.nearcade.upload_enabled and not str(self.config.get('nearcade_api_token', '') or '').strip():
+            logger.warning('已开启 nearcade 人数上传，但尚未配置 API Token；本地排卡仍正常可用')
         self.scheduler = AsyncIOScheduler()
         self.scheduler.start()
         self.alias_push_task = None
@@ -1106,6 +1113,19 @@ class MaimaiDXPlugin(Star):
             yield result
 
     # 机厅相关命令
+    @filter.event_message_type(EventMessageType.ALL)
+    async def nearby_arcades(self, event: AstrMessageEvent):
+        """开启位置查询后，直接响应 QQ 位置卡。"""
+        if event.get_platform_name() != 'aiocqhttp' or not self.nearcade.location_enabled:
+            return
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_nearcade import nearby_arcades_handler
+
+        async for result in nearby_arcades_handler(event, self.nearcade):
+            yield result
+
     @filter.regex(r'^/?(开启|关闭)(?:机厅)?排卡$')
     async def toggle_arcade(self, event: AstrMessageEvent):
         """按群开启/关闭机厅排卡功能。"""
@@ -1152,6 +1172,10 @@ class MaimaiDXPlugin(Star):
         async for result in dx_arcade_help_handler(event):
             yield result
 
+    def _arcade_catalog_options(self):
+        nearcade = getattr(self, 'nearcade', None)
+        return {'nearcade': nearcade} if nearcade and nearcade.uses_cloud_catalog else {}
+
     @filter.regex(r'^/?(添加机厅|新增机厅)\s+(.+)$')
     async def add_arcade(self, event: AstrMessageEvent):
         """添加机厅"""
@@ -1162,7 +1186,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import add_arcade_handler
-        async for result in add_arcade_handler(event, self.superusers):
+        async for result in add_arcade_handler(event, self.superusers, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(删除机厅|移除机厅)\s+(.+)$')
@@ -1175,7 +1199,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import delete_arcade_handler
-        async for result in delete_arcade_handler(event, self.superusers):
+        async for result in delete_arcade_handler(event, self.superusers, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(添加机厅别名|删除机厅别名)\s+(.+)$')
@@ -1188,7 +1212,21 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import arcade_alias_handler
-        async for result in arcade_alias_handler(event):
+        async for result in arcade_alias_handler(event, **self._arcade_catalog_options()):
+            yield result
+
+    @filter.regex(r'^/?(添加群机厅别名|删除群机厅别名)\s+(.+)$')
+    async def group_arcade_alias(self, event: AstrMessageEvent):
+        """添加/删除仅在当前群生效的机厅别名。"""
+        group_id = event.message_obj.group_id
+        if group_id and (
+            not self._is_group_enabled(str(group_id))
+            or not self._is_arcade_enabled(str(group_id))
+        ):
+            return
+        from .command.mai_arcade import group_arcade_alias_handler
+
+        async for result in group_arcade_alias_handler(event, self.superusers, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(修改机厅|编辑机厅)\s+(.+)$')
@@ -1201,7 +1239,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import modify_arcade_handler
-        async for result in modify_arcade_handler(event, self.superusers):
+        async for result in modify_arcade_handler(event, self.superusers, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(订阅机厅|取消订阅机厅|取消订阅)\s(.+)$')
@@ -1214,7 +1252,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import subscribe_arcade_handler
-        async for result in subscribe_arcade_handler(event, self.superusers):
+        async for result in subscribe_arcade_handler(event, self.superusers, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(查看订阅|查看订阅机厅)$')
@@ -1227,7 +1265,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import check_subscribe_handler
-        async for result in check_subscribe_handler(event):
+        async for result in check_subscribe_handler(event, **self._arcade_catalog_options()):
             yield result
 
     @filter.regex(r'^/?(查找机厅|查询机厅|机厅查找|机厅查询|搜素机厅|机厅搜素)\s+(.+)$')
@@ -1240,10 +1278,10 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import search_arcade_handler
-        async for result in search_arcade_handler(event):
+        async for result in search_arcade_handler(event, **self._arcade_catalog_options()):
             yield result
 
-    @filter.regex(r'^/?(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?$')
+    @filter.regex(r'^/?(?:(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?|.+?\s*[0-9]+\s*(?:人|卡)?)$')
     async def arcade_person(self, event: AstrMessageEvent):
         """操作排卡人数"""
         group_id = event.message_obj.group_id
@@ -1253,7 +1291,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import arcade_person_handler
-        async for result in arcade_person_handler(event):
+        async for result in arcade_person_handler(event, self.nearcade):
             yield result
 
     @filter.regex(r'^/?(机厅几人|jtj)$')
@@ -1266,10 +1304,10 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import arcade_query_multiple_handler
-        async for result in arcade_query_multiple_handler(event):
+        async for result in arcade_query_multiple_handler(event, self.nearcade):
             yield result
 
-    @filter.regex(r'^/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|j|jr|几卡)$')
+    @filter.regex(r'^(?!/?机厅几人$)/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|j|jr|几卡)$')
     async def arcade_query_person(self, event: AstrMessageEvent):
         """有多少人/有几人/有几卡"""
         group_id = event.message_obj.group_id
@@ -1279,5 +1317,5 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import arcade_query_person_handler
-        async for result in arcade_query_person_handler(event):
+        async for result in arcade_query_person_handler(event, self.nearcade):
             yield result

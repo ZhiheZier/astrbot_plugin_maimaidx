@@ -37,6 +37,18 @@ def command_decorators():
 
 
 class HelpCatalogueTest(unittest.TestCase):
+    def test_new_features_share_major_and_minor_versions(self):
+        for introduced, current, expected in (
+            ('1.5.1', '1.5.1', True), ('1.5.1', '1.5.2', True),
+            ('1.5.2', '1.5.2', True), ('1.5.2', '1.5.10', True),
+            ('1.5.1', '1.6.0', False), ('1.5.1', '2.5.1', False),
+            ('1.4.9', '1.5.1', False), ('1.5.2', '1.5.1', False),
+            ('', '1.5.1', False), ('invalid', '1.5.1', False),
+            ('1.5.1', 'invalid', False), ('v1.5.1', 'v1.5.2', True),
+        ):
+            with self.subTest(introduced=introduced, current=current):
+                self.assertEqual(help_image.is_new_feature(introduced, current), expected)
+
     def test_every_command_handler_is_documented(self):
         documented = {handler for entry in entries() for handler in entry.handlers}
         self.assertEqual(documented, set(command_decorators()))
@@ -87,7 +99,7 @@ class HelpCatalogueTest(unittest.TestCase):
             entry = by_handler[handler]
             self.assertTrue(entry.admin, handler)
             self.assertIn('#', help_image.help_command_label(entry))
-        for handler in ('reset_guess', 'guess_on_off', 'subscribe_arcade', 'modify_arcade', 'toggle_arcade'):
+        for handler in ('reset_guess', 'guess_on_off', 'subscribe_arcade', 'modify_arcade', 'toggle_arcade', 'group_arcade_alias'):
             entry = by_handler[handler]
             self.assertTrue(entry.group_admin, handler)
             self.assertFalse(entry.admin, handler)
@@ -140,7 +152,9 @@ class HelpCatalogueTest(unittest.TestCase):
             ('auth_code', '落雪授权码 XXXX-XXXX-XXXX'), ('bind_divingfish', '绑定水鱼'),
             ('bind_lxns', '绑定落雪'), ('alias_song', 'id799有什么别名'),
             ('arcade_person', '机厅=-1'), ('arcade_person', '机厅+1'),
-            ('arcade_query_person', '机厅几人'), ('toggle_arcade', '开启排卡'),
+            ('group_arcade_alias', '添加群机厅别名 456 天街'),
+            ('group_arcade_alias', '/删除群机厅别名 456 天街'),
+            ('arcade_query_person', '某机厅几人'), ('arcade_query_multiple', '机厅几人'), ('toggle_arcade', '开启排卡'),
             ('all_songs_best50', '全曲b50'), ('dx_star_best50', '五星b50'),
             ('ap_plus50', '理论b50'), ('fitted_best50', '拟合b50'),
         )
@@ -206,7 +220,7 @@ class HelpRenderingTest(unittest.TestCase):
                 self.assertIn(section.title, texts)
                 for entry in section.entries:
                     for part in (help_image.help_command_label(entry), entry.description):
-                        width = 626 - help_image.NEW_BADGE_SPACE if part == help_image.help_command_label(entry) and entry.new_in == __version__ else 626
+                        width = 626 - help_image.NEW_BADGE_SPACE if part == help_image.help_command_label(entry) and help_image.is_new_feature(entry.new_in, __version__) else 626
                         for line in help_image.wrap_help_text(part, self.font, width):
                             self.assertIn(line, texts)
         self.assertIn('maimaiDX 使用说明', texts)
@@ -214,12 +228,28 @@ class HelpRenderingTest(unittest.TestCase):
         self.assertNotEqual(image.getpixel((0, 0)), image.getpixel((image.width - 1, image.height - 1)))
 
     def test_version_label_and_new_badges_follow_release_version(self):
-        expected = sum(entry.new_in == __version__ for entry in entries())
+        expected = sum(help_image.is_new_feature(entry.new_in, __version__) for entry in entries())
         self.assertGreater(expected, 0)
         for version, count in ((__version__, expected), ('9.0.0', 0)):
             with (patch.object(help_image.ImageFont, 'truetype', return_value=self.font),
                   patch.object(ImageDraw.ImageDraw, 'text', autospec=True) as text):
                 help_image.render_help_image('Bot', 'font.ttf', version=version)
+                drawn = [call.args[2] for call in text.call_args_list]
+                self.assertIn(f'v{version}', drawn)
+                self.assertEqual(drawn.count('新'), count)
+
+    def test_patch_release_keeps_earlier_badges_and_marks_its_own_features(self):
+        column = (help_image.HelpSection('测试', '#168681', (
+            help_image.HelpEntry(('a',), '功能一', '说明', new_in='1.5.1'),
+            help_image.HelpEntry(('b',), '功能二', '说明', new_in='1.5.2'),
+            help_image.HelpEntry(('c',), '旧功能', '说明', new_in='1.4.9'),
+            help_image.HelpEntry(('d',), '普通功能', '说明'),
+        )),)
+        for version, count in (('1.5.1', 1), ('1.5.2', 2), ('1.5.10', 2), ('1.6.0', 0), ('2.5.0', 0)):
+            with self.subTest(version=version):
+                with (patch.object(help_image.ImageFont, 'truetype', return_value=self.font),
+                      patch.object(ImageDraw.ImageDraw, 'text', autospec=True) as text):
+                    help_image.render_help_image('Bot', 'font.ttf', columns=(column,), version=version)
                 drawn = [call.args[2] for call in text.call_args_list]
                 self.assertIn(f'v{version}', drawn)
                 self.assertEqual(drawn.count('新'), count)
