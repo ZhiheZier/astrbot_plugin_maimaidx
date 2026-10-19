@@ -42,7 +42,7 @@ class ArcadeQueryResult:
 def local_arcade_query(record, configured=(), selected=None, warning='') -> ArcadeQueryResult:
     choices = {game.key: game for game in record.known_games()}
     choices.update((game.key, game) for game in configured)
-    families = {game.family_key for game in choices.values() if game.is_named}
+    families = {game.family_key for game in choices.values() if game.is_named and ':@' not in game.key}
     if 'mai' not in families or attendance_is_known(record, DEFAULT_ARCADE_GAME):
         choices.setdefault('mai', DEFAULT_ARCADE_GAME)
     if selected is None or (not selected.is_named and selected.key in families):
@@ -127,7 +127,7 @@ def attendance_machine_count(record, game, choices=()) -> int | None:
         count = record.game_machine_counts[game.key]
         return count if count >= 0 else None
     # The local cabinet count belongs to unpartitioned maimai, not every game/zone.
-    if game.key == DEFAULT_ARCADE_GAME.key and not any(item.is_named and item.family_key == 'mai' for item in choices):
+    if game.key == DEFAULT_ARCADE_GAME.key and not any(item.is_named and ':@' not in item.key and item.family_key == 'mai' for item in choices):
         return record.num if record.num > 0 else None
     return None
 

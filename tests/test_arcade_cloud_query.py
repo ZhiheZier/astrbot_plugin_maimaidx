@@ -157,7 +157,7 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_configuration_isolated_to_affected_local_shop(self):
         records = a.ArcadeList([arcade(), arcade(name='另一机厅', id='124')])
-        api = client(nearcade_shop_bindings=['123[unknown]=456:1'])
+        api = client(nearcade_shop_bindings=['123[mml]=456'])
         api._request = AsyncMock()
         with patch.object(mai_arcade.arcade, 'total', records, create=True):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), api))[0]

@@ -36,7 +36,9 @@ async def _cloud_query_target(nearcade, name, group_id):
     records = nearcade.catalog
     if not name or name == '机厅':
         return records.group_subscribe_arcade(group_id), None
-    named = [game for record in records for game in record.known_games() if game.is_named]
+    await nearcade.prepare_cabinet_aliases((record.id for record in records), strict=False)
+    configured = _configured_games(records, nearcade, strict=False)
+    named = _named_games_for_target(records, name, configured, group_id)
     shop_name, game = split_arcade_game(name, named)
     if _matching_arcades(records, name, group_id):
         return await nearcade.find_catalog(name, group_id=group_id), None
@@ -68,6 +70,13 @@ def _configured_games(records, nearcade=None, *, strict=True):
     return games
 
 
+def _named_games_for_target(records, target, configured, group_id=None):
+    labels = [label for record in records for label in (record.name, record.id, *record.aliases_for(group_id))
+              if label and target.startswith(label)]
+    scoped = _matching_arcades(records, max(labels, key=len), group_id) if labels else records
+    return [game for record in scoped for game in configured.get(record.id, []) if game.is_named]
+
+
 def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_GAME, *, group_id=None, scope_records=None):
     target = target.strip()
     allowed = {record.id for record in records}
@@ -86,7 +95,7 @@ def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_G
     if matches := matching(target):
         return matches, default_game
     configured = _configured_games(records, nearcade)
-    named = [game for choices in configured.values() for game in choices if game.is_named]
+    named = _named_games_for_target(records, target, configured, group_id)
     name, game = split_arcade_game(target, named)
     if name == target:
         game = default_game
@@ -117,7 +126,7 @@ def _batch_arcade_reports(records, text, nearcade=None, *, group_id=None, scope_
 
 
 def _partition_hint(game, choices, name):
-    partitions = [item for item in choices if item.is_named and item.family_key == game.family_key]
+    partitions = [item for item in choices if item.is_named and ':@' not in item.key and item.family_key == game.family_key]
     if not game.is_named and partitions:
         return ('该游戏按分区记录人数，请指定映射名：' + '、'.join(item.name for item in partitions)
                 + f'\n例如：{name}{partitions[0].name}3人')
@@ -127,8 +136,9 @@ def _partition_hint(game, choices, name):
 async def _apply_arcade_report(record, nickname, operation, person, game, nearcade):
     records = _arcade_records(nearcade)
     native = nearcade and nearcade.uses_cloud_catalog
-    snapshot = record.model_copy(deep=True) if native else None
-    if native and nearcade.upload_enabled and not (person == -1 and operation in ('=', '＝', '设置', '设定')):
+    cloud_counter = native or ':@' in game.key
+    snapshot = record.model_copy(deep=True) if cloud_counter else None
+    if cloud_counter and nearcade and nearcade.upload_enabled and not (person == -1 and operation in ('=', '＝', '设置', '设定')):
         result = (await nearcade.read_attendance([record.id])).get(record.id)
         if result is None or isinstance(result, NearcadeError):
             return AttendanceUpdateResult(f'无法核对云端当前人数：{result}', successful=False), 'skipped', ''
@@ -143,7 +153,7 @@ async def _apply_arcade_report(record, nickname, operation, person, game, nearca
             record.game_attendance[game.key] = current
     update = await update_attendance(record, nickname, operation, person, game,
                                      **({'records': records} if native else {}))
-    if native and not update.successful:
+    if cloud_counter and not update.successful:
         for field in ('person', 'status', 'by', 'time', 'game_attendance'):
             setattr(record, field, getattr(snapshot, field))
     if not update.changed or record.attendance_for(game).status == '闭店':
@@ -226,6 +236,8 @@ sv_help = """排卡指令如下：
 管理员可在配置中选择 local 本地机厅或 nearcade 云端机厅数据源，默认local；两种订阅独立保存
 nearcade模式直接查找、订阅云端店铺ID，无需本地机厅或映射；同类记录合并人数和机台数，官机、MML、手台等舞萌DX描述不分区
 同类多条记录按总人数最少改动分配：增加和减少均优先人数最多、同人数靠前的，减少不足再扣下一条；调整后合计等于汇报值，不修改其他游戏
+local模式可配置机台别名，如123[mml]=456:456000，报数用某机厅mml3；别名无需游戏前缀，按gameId精确更新
+nearcade模式可在nearcade_game_aliases中配置14871[mml]=14871002，使用云端ID或店名加别名报数，如14871mml3
 各游戏人数可选同步nearcade（需Token和上传开关；仅local模式还需机厅映射，闭店不上传）"""
 
 
@@ -606,6 +618,8 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
         return
     if arcade_list:
         try:
+            if nearcade:
+                await nearcade.prepare_cabinet_aliases(record.id for record in arcade_list)
             batch = _batch_arcade_reports(arcade_list, message_str, nearcade, group_id=group_id, scope_records=all_records)
             if batch:
                 yield event.plain_result(await _batch_arcade_report_message(event, *batch, nearcade))
@@ -753,12 +767,14 @@ async def arcade_query_person_handler(event: AstrMessageEvent, nearcade: Nearcad
                                                        compact=not name or name == '机厅'):
                 yield event.plain_result(message)
             return
+        if nearcade:
+            await nearcade.prepare_cabinet_aliases((record.id for record in records), strict=False)
         configured = _configured_games(records, nearcade, strict=False)
         if name and name != '机厅':
             if exact := _matching_arcades(records, name, group_id):
                 arcade_list, game = exact, None
             else:
-                named = [item for choices in configured.values() for item in choices if item.is_named]
+                named = _named_games_for_target(records, name, configured, group_id)
                 shop_name, selected = split_arcade_game(name, named)
                 game = selected if shop_name != name else None
                 if not shop_name or shop_name == '机厅':

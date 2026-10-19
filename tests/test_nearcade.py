@@ -419,7 +419,7 @@ class NearcadeEventTest(unittest.IsolatedAsyncioTestCase):
         schema = {key: value for node in schema.values() if node['type'] == 'object'
                   for key, value in node['items'].items()}
         for key in ('nearcade_api_token', 'nearcade_upload_enabled', 'nearcade_location_enabled',
-                    'nearcade_radius_km', 'nearcade_result_limit', 'nearcade_shop_bindings'):
+                    'nearcade_radius_km', 'nearcade_result_limit', 'nearcade_shop_bindings', 'nearcade_game_aliases'):
             self.assertIn(key, schema)
         self.assertFalse(schema['nearcade_upload_enabled']['default'])
         self.assertFalse(schema['nearcade_location_enabled']['default'])

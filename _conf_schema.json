@@ -166,9 +166,18 @@
           "nearcade_upload_enabled": true
         }
       },
+      "nearcade_game_aliases": {
+        "description": "nearcade 机台 gameId 别名",
+        "hint": "仅 nearcade 数据源使用，格式为 云端机厅ID[别名]=gameId。例如14871[mml]=14871002、14871[抬手乐]=14871000，发送14871mml3或14871抬手乐4精确更新对应记录。别名不需要游戏前缀，实际游戏类型按gameId确认；同机厅别名和gameId均不能重复，不能用mai、chu等游戏名作别名。普通游戏总人数仍按最少改动分配，查询详情仍使用游戏名加version。修改后重载插件。",
+        "type": "list",
+        "default": [],
+        "condition": {
+          "arcade_data_source": "nearcade"
+        }
+      },
       "nearcade_shop_bindings": {
         "description": "nearcade 云端机厅映射",
-        "hint": "仅 local 数据源使用；nearcade 数据源忽略此配置，无需映射，并按游戏类别汇总同类机台，不自动分区。通常填 本地ID=云端店铺ID，如123=456。local 模式需要明确上传记录时可填123[mai]=456:456000或123[chu]=456:456002，仍兼容已有命名映射。旧格式123=456:456000的gameId仅指定舞萌。云端店铺ID在 nearca.de/shops/数字 中，gameId见 /api/shops/店铺ID 的 shop.games。",
+        "hint": "仅 local 数据源使用；nearcade 数据源忽略此配置。通常填 本地ID=云端店铺ID，如123=456。可增加机台别名映射：123[mml]=456:456000、123[抬手乐]=456:456001，发送某机厅mml3或某机厅抬手乐4精确更新对应gameId；别名无需游戏前缀，首次使用需联网确认实际游戏类型，限1至40字符、不能有空格或运算符，同机厅别名不能重复。保留123=456可继续按mai等游戏总人数报数。兼容123[mai]=456:456000、123[chu]=456:456002和旧命名映射。旧格式123=456:456000的gameId仅指定舞萌；gameId见 /api/shops/店铺ID 的 shop.games。",
         "type": "list",
         "default": [],
         "condition": {
@@ -335,6 +344,11 @@
   },
   "lx_redirect_uri": {
     "type": "string",
+    "default": null,
+    "invisible": true
+  },
+  "nearcade_game_aliases": {
+    "type": "list",
     "default": null,
     "invisible": true
   },

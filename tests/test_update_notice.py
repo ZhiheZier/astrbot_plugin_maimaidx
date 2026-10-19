@@ -30,6 +30,12 @@ def client(groups=(100, 200)):
 
 
 class UpdateMessageTest(unittest.TestCase):
+    def test_unreleased_changes_are_not_broadcast(self):
+        changelog = '## 未发布\n\n### 新功能\n- 未发布机台别名\n\n' + CHANGELOG
+        message = update_message(changelog, '1.5.1', '1.5.2')
+        self.assertNotIn('未发布机台别名', message)
+        self.assertIn('最新功能', message)
+
     def test_all_categories_except_other_are_included_and_emphasized(self):
         changelog = ('## v1.5.1\n\n### 新功能\n\n- 新功能内容\n\n'
                      '### 优化\n\n- 优化内容\n\n### 修复\n- 修复内容\n\n### 其他\n\n- 其他内容\n')
@@ -367,5 +373,6 @@ class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
 
         metadata = yaml.safe_load((Root / 'metadata.yaml').read_text(encoding='utf-8'))
         self.assertEqual(metadata['version'].removeprefix('v'), __version__)
-        self.assertEqual((Root / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()[0],
-                         f'## v{__version__}')
+        releases = [line for line in (Root / 'CHANGELOG.md').read_text(encoding='utf-8').splitlines()
+                    if line.startswith('## v')]
+        self.assertEqual(releases[0], f'## v{__version__}')

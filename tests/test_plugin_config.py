@@ -48,7 +48,7 @@ class PluginConfigTest(unittest.TestCase):
 
     def test_all_existing_settings_appear_once_in_seven_visible_object_groups(self):
         self.assertEqual(set(self.groups), {'general', 'divingfish', 'lxns', 'alias', 'images', 'arcade', 'location'})
-        self.assertEqual(len(self.fields), 24)
+        self.assertEqual(len(self.fields), 25)
         self.assertEqual(sum(len(fields) for fields in self.groups.values()), len(self.fields))
         for key, node in self.schema.items():
             if key in self.groups:
@@ -168,11 +168,13 @@ class PluginConfigTest(unittest.TestCase):
                     self.assertIn(dependency, fields, (group, key, dependency))
         self.assertEqual(self.fields['nearcade_radius_km']['condition'], {'nearcade_location_enabled': True})
         self.assertEqual(self.fields['nearcade_shop_bindings']['condition'], {'arcade_data_source': 'local'})
+        self.assertEqual(self.fields['nearcade_game_aliases']['condition'], {'arcade_data_source': 'nearcade'})
 
     def test_grouped_settings_reach_existing_nearcade_client_unchanged(self):
         config = self.grouped()
         config['arcade'].update(arcade_data_source='nearcade', nearcade_upload_enabled=True,
-                                nearcade_api_token='test-token', nearcade_shop_bindings=['123=456'])
+                                nearcade_api_token='test-token', nearcade_shop_bindings=['123=456'],
+                                nearcade_game_aliases=['456[mml]=456000'])
         config['location'].update(nearcade_location_enabled=True, nearcade_radius_km=7.5, nearcade_result_limit=8)
         client = NearcadeClient(load_plugin_config(config))
         self.assertTrue(client.uses_cloud_catalog)
@@ -181,3 +183,4 @@ class PluginConfigTest(unittest.TestCase):
         self.assertEqual(client.radius, 7.5)
         self.assertEqual(client.limit, 8)
         self.assertEqual(client.config['nearcade_api_token'], 'test-token')
+        self.assertEqual(client.config['nearcade_game_aliases'], ['456[mml]=456000'])

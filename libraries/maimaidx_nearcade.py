@@ -155,6 +155,7 @@ class NearcadeClient:
         self._locks: dict[str, asyncio.Lock] = {}
         self._requests = asyncio.Semaphore(4)
         self._catalog = None
+        self._cabinet_aliases = {}
 
     @property
     def uses_cloud_catalog(self) -> bool:
@@ -302,27 +303,103 @@ class NearcadeClient:
         return sorted(shops.values(), key=lambda shop: (shop.distance, shop.id))[:self.limit]
 
     def _bindings(self, local_id: str):
+        if self.uses_cloud_catalog:
+            return self._native_alias_bindings(local_id)
         bindings = self.config.get('nearcade_shop_bindings', [])
         if not isinstance(bindings, list):
             raise NearcadeError('云端机厅映射配置格式错误，请联系管理员')
         result = []
+        labels = set()
         for entry in bindings:
             match = re.fullmatch(r'\s*(\d+)(?:\s*\[([^\]]+)\])?\s*=\s*(\d+)(?:\s*:\s*(\d+))?\s*', str(entry))
             if match and match[1] == str(local_id):
+                if match[2]:
+                    label_key = match[2].casefold()
+                    if label_key in labels:
+                        raise NearcadeError('同一机厅存在重复机台别名，请联系管理员修正')
+                    labels.add(label_key)
                 game = resolve_arcade_game(match[2]) if match[2] else None
-                if match[2] and game is None:
-                    raise NearcadeError('映射名需以游戏名开头，如 maiA区、maiB区、chu')
                 selected_game = int(match[4]) if match[4] is not None else None
+                if match[2] and game is None:
+                    label = match[2]
+                    if selected_game is None:
+                        raise NearcadeError(f'机台别名 {label} 必须指定 gameId')
+                    game = self._cabinet_alias_game(local_id, label, int(match[3]), selected_game)
                 if game and game.is_named and selected_game is None:
-                    raise NearcadeError(f'分区映射 {game.name} 必须指定 gameId')
+                    raise NearcadeError(f'机台别名 {game.name} 必须指定 gameId')
                 result.append((game, int(match[3]), selected_game))
         return result
 
+    def _cabinet_alias_game(self, local_id, label, shop_id, game_id):
+        if (not label or len(label) > 40 or label.isdigit()
+                or any(char.isspace() or char in '[]=:+-＋－＝' for char in label)):
+            raise NearcadeError('机台别名需为1至40个字符，不能包含空格、运算符或为纯数字')
+        key = (str(local_id), label.casefold(), shop_id, game_id)
+        return self._cabinet_aliases.get(key) or ArcadeGameType(f'cabinet:{label.casefold()}', label, (), (label,))
+
+    def _native_alias_bindings(self, shop_id):
+        entries = self.config.get('nearcade_game_aliases', [])
+        if not isinstance(entries, list):
+            raise NearcadeError('nearcade 机台别名配置必须为列表')
+        result, labels, targets = [], set(), set()
+        for entry in entries:
+            match = re.fullmatch(r'\s*([0-9]+)\[([^\]]+)\]\s*=\s*([0-9]+)\s*', str(entry))
+            if not match:
+                raise NearcadeError('nearcade 机台别名格式应为 云端机厅ID[别名]=gameId')
+            if match[1] != str(shop_id):
+                continue
+            label, game_id = match[2], int(match[3])
+            if label.casefold() in labels or game_id in targets:
+                raise NearcadeError('同一机厅的机台别名或 gameId 重复，请联系管理员修正')
+            if (game := resolve_arcade_game(label)) and not game.is_named:
+                raise NearcadeError('机台别名不能与 mai、chu 等游戏名相同，以免覆盖游戏总人数指令')
+            labels.add(label.casefold())
+            targets.add(game_id)
+            result.append((self._cabinet_alias_game(shop_id, label, int(shop_id), game_id), int(shop_id), game_id))
+        return result
+
+    def _resolve_cabinet_alias(self, local_id, alias, shop_id, game_id, games):
+        item = next((item for item in games if item.gameId == game_id), None)
+        if item is None:
+            raise NearcadeError(f'云端未找到机台别名 {alias.name} 对应的 gameId')
+        family = _game_family(item)
+        if family not in ARCADE_GAMES:
+            raise NearcadeError(f'机台别名 {alias.name} 对应的游戏暂不支持报数')
+        game = ArcadeGameType(f'{family.key}:@{alias.name.casefold()}', alias.name,
+                              family.title_ids, (alias.name,))
+        self._cabinet_aliases[(str(local_id), alias.name.casefold(), shop_id, game_id)] = game
+        return game
+
+    async def prepare_cabinet_aliases(self, local_ids, *, strict=True):
+        pending = []
+        try:
+            for local_id in dict.fromkeys(str(value) for value in local_ids):
+                pending.extend((local_id, alias, shop_id, game_id)
+                               for alias, shop_id, game_id in self._bindings(local_id)
+                               if alias and alias.family_key == 'cabinet')
+            shops = {}
+            for shop_id in dict.fromkeys(item[2] for item in pending):
+                data = await self._request('GET', f'/shops/{shop_id}')
+                shop = CatalogShop.model_validate(data.get('shop'))
+                if shop.id != shop_id or len({item.gameId for item in shop.games}) != len(shop.games):
+                    raise NearcadeError('云端机厅或机台 ID 不匹配')
+                shops[shop_id] = shop
+            for local_id, alias, shop_id, game_id in pending:
+                self._resolve_cabinet_alias(local_id, alias, shop_id, game_id, shops[shop_id].games)
+        except (NearcadeError, ValidationError) as exc:
+            if strict:
+                raise NearcadeError(f'无法确认机台别名：{exc}' if isinstance(exc, NearcadeError)
+                                    else '云端机台资料格式异常，未修改人数') from None
+
     def games_for(self, local_id: str) -> list[ArcadeGameType]:
+        games = []
         if self.uses_cloud_catalog:
             matches = self.catalog.search_id(str(local_id))
-            return matches[0].known_games() if matches else []
-        return list({game.key: game for game, _, _ in self._bindings(local_id) if game}.values())
+            games.extend(matches[0].known_games() if matches else [])
+        games.extend(game for game, _, _ in self._bindings(local_id) if game)
+        if any(game.family_key == 'cabinet' for game in games):
+            raise NearcadeError('机台别名尚未确认游戏类型，请联网查询后重试')
+        return list({game.key: game for game in games}.values())
 
     async def _read_shop_attendance(self, shop_id: int, *, detail=None) -> NearcadeShopAttendance | NearcadeError:
         try:
@@ -378,7 +455,7 @@ class NearcadeClient:
 
     def _query_result(self, bindings, snapshots) -> ArcadeQueryResult:
         groups = {}
-        overridden = {game.family_key for game, _, _ in bindings if game}
+        overridden = {game.family_key for game, _, _ in bindings if game and ':@' not in game.key}
         for selected, shop_id, game_id in bindings:
             snapshot = snapshots[shop_id]
             if isinstance(snapshot, NearcadeError):
@@ -424,7 +501,8 @@ class NearcadeClient:
                 records = []
                 for item, snapshot in items:
                     version = _plain(item.version, limit=60)
-                    label = f'{family.name}（{version}）' if version else family.name
+                    game_name = _game_family(item).name
+                    label = f'{game_name}（{version}）' if version else game_name
                     records.append(build_row(family, [(item, snapshot)], label))
                 row = replace(row, records=tuple(records))
             rows.append(row)
@@ -441,7 +519,7 @@ class NearcadeClient:
                 if self.uses_cloud_catalog:
                     if not local_id.isascii() or not local_id.isdigit() or len(local_id) > 12:
                         raise NearcadeError('云端机厅 ID 格式不正确')
-                    bindings = [(None, int(local_id), None)]
+                    bindings = [(None, int(local_id), None), *self._query_bindings(local_id)]
                 else:
                     bindings = self._query_bindings(local_id)
                 if bindings:
@@ -459,6 +537,13 @@ class NearcadeClient:
                     if not snapshot.games:
                         results[local_id] = ArcadeQueryResult(snapshot.name, (), source='nearcade')
                         continue
+                resolved = []
+                for alias, shop_id, game_id in bindings:
+                    snapshot = snapshots[shop_id]
+                    if alias and alias.family_key == 'cabinet' and not isinstance(snapshot, NearcadeError):
+                        alias = self._resolve_cabinet_alias(local_id, alias, shop_id, game_id, snapshot.games)
+                    resolved.append((alias, shop_id, game_id))
+                bindings = resolved
                 results[local_id] = self._query_result(bindings, snapshots)
             except NearcadeError as exc:
                 results[local_id] = exc
@@ -469,10 +554,14 @@ class NearcadeClient:
             if not str(local_id).isascii() or not str(local_id).isdigit() or len(str(local_id)) > 12:
                 raise NearcadeError('云端机厅 ID 格式不正确')
             if game.is_named:
-                raise NearcadeError('nearcade 按游戏类别报人数，请使用 mai、chu 等游戏名')
+                matches = [(shop_id, game_id) for alias, shop_id, game_id in self._bindings(local_id)
+                           if alias.key == game.key]
+                if len(matches) != 1:
+                    raise NearcadeError('未找到唯一的机台别名配置，请检查 云端机厅ID[别名]=gameId')
+                return matches[0]
             return int(local_id), None
         bindings = self._bindings(local_id)
-        if not game.is_named and any(selected and selected.is_named and selected.family_key == game.key
+        if not game.is_named and any(selected and selected.is_named and ':@' not in selected.key and selected.family_key == game.key
                                      for selected, _, _ in bindings):
             raise NearcadeError('该游戏配置了分区，请使用具体映射名报人数')
         general, specific = [], []
@@ -501,6 +590,7 @@ class NearcadeClient:
             raise NearcadeError('尚未配置 nearcade API Token，请联系管理员')
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise NearcadeError('只能上传非负整数人数')
+        await self.prepare_cabinet_aliases([local_id])
         shop_id, selected_game = self._binding(local_id, game_type)
         data = await self._request('GET', f'/shops/{shop_id}')
         shop = data.get('shop')

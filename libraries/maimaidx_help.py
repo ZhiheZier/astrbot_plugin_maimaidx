@@ -101,7 +101,7 @@ HELP_COLUMNS = (
             HelpEntry(('subscribe_arcade',), '订阅机厅 / 取消订阅机厅 <店名/ID>', '管理本群订阅；两种数据源独立保存，云端模式使用nearcade ID。', group_admin=True, new_in='1.5.2'),
             HelpEntry(('check_subscribe', 'arcade_query_multiple'), '查看订阅 / 机厅几人', '总览也可用 jtj；每家一行列出各游戏人数，云端优先，失败标明本地。', new_in='1.5.2'),
             HelpEntry(('arcade_query_person',), '<机厅名/别名> [游戏]几人', '后缀也可用几、j、jr等，如天街几、天街chujr；nearcade同类机台汇总人数和数量，不分区，失败回退本地。', prefix=True, new_in='1.5.3'),
-            HelpEntry(('arcade_person',), '<机厅> [游戏]=人数 / +人数 / -人数', '机厅可填名称、别名或ID。可直接报机厅3、机厅mai3，或连报机厅mai3chu2。可选同步nearcade；=-1闭店。', prefix=True, new_in='1.5.3'),
+            HelpEntry(('arcade_person',), '<机厅> [游戏/机台别名]=人数 / +人数 / -人数', '机厅可填名称、别名或ID。可报机厅3、机厅mai3或mai3chu2；两种数据源均可配置mml等机台别名，按gameId精确报数。=-1闭店。', prefix=True, new_in='1.5.3'),
             HelpEntry(('add_arcade',), '添加机厅 <店名> <地址> <机台数量> [别名]', '添加机厅信息；可填写多个别名，用空格分隔。', admin=True),
             HelpEntry(('delete_arcade',), '删除机厅 <完整店名>', '管理员删除机厅信息，需填写完整店名。', admin=True),
             HelpEntry(('modify_arcade',), '修改机厅 <店名/ID> [游戏] 数量 <数量>', '本地模式如修改机厅 123 chu 数量 2；云端模式的店铺及机台信息请在nearcade网站维护。', group_admin=True, new_in='1.5.2'),
