@@ -97,16 +97,16 @@ HELP_COLUMNS = (
     (
         HelpSection('机厅查询与排卡', '#bc4768', (
             HelpEntry(('toggle_arcade',), '开启排卡 / 关闭排卡', '排卡功能默认关闭，按当前群切换。', prefix=True, group_admin=True),
-            HelpEntry(('search_arcade',), '查找机厅 <关键词/ID>', '数据源可选本地或nearcade；云端模式无需机厅映射。开启位置查询后，直接发送QQ位置卡可查附近舞萌DX机厅。', new_in='1.5.2'),
+            HelpEntry(('search_arcade',), '查找机厅 <关键词/ID>', '无需开启排卡；可选本地或nearcade数据源，云端无需映射。开启位置查询后，直接发送QQ位置卡可查附近舞萌DX机厅。', new_in='1.5.2'),
             HelpEntry(('subscribe_arcade',), '订阅机厅 / 取消订阅机厅 <店名/ID>', '管理本群订阅；两种数据源独立保存，云端模式使用nearcade ID。', group_admin=True, new_in='1.5.2'),
-            HelpEntry(('check_subscribe', 'arcade_query_multiple'), '查看订阅 / 机厅几人', '查看订阅，或每家机厅一行列出各游戏人数；云端模式直接查nearcade，本地模式可映射，失败标明本地。', new_in='1.5.2'),
-            HelpEntry(('arcade_query_person',), '<机厅名/别名> [游戏/分区名]几人', '如机厅chu几人；单店详情优先读nearcade人数及机台数，失败回退本地。', prefix=True, new_in='1.5.2'),
-            HelpEntry(('arcade_person',), '<机厅> [游戏/分区]=人数 / +人数 / -人数', '机厅可填名称、别名或ID。可报机厅3人，或连报机厅mai3chu2。可选同步nearcade，逐项反馈；=-1闭店。', prefix=True, new_in='1.5.2'),
+            HelpEntry(('check_subscribe', 'arcade_query_multiple'), '查看订阅 / 机厅几人', '总览也可用 jtj；每家一行列出各游戏人数，云端优先，失败标明本地。', new_in='1.5.2'),
+            HelpEntry(('arcade_query_person',), '<机厅名/别名> [游戏]几人', '后缀也可用几、j、jr等，如天街几、天街chujr；nearcade同类机台汇总人数和数量，不分区，失败回退本地。', prefix=True, new_in='1.5.3'),
+            HelpEntry(('arcade_person',), '<机厅> [游戏]=人数 / +人数 / -人数', '机厅可填名称、别名或ID。可直接报机厅3、机厅mai3，或连报机厅mai3chu2。可选同步nearcade；=-1闭店。', prefix=True, new_in='1.5.3'),
             HelpEntry(('add_arcade',), '添加机厅 <店名> <地址> <机台数量> [别名]', '添加机厅信息；可填写多个别名，用空格分隔。', admin=True),
             HelpEntry(('delete_arcade',), '删除机厅 <完整店名>', '管理员删除机厅信息，需填写完整店名。', admin=True),
-            HelpEntry(('modify_arcade',), '修改机厅 <店名/ID> [游戏/分区] 数量 <数量>', '本地模式如修改机厅 123 chu 数量 2；云端模式的店铺及机台信息请在nearcade网站维护。', group_admin=True, new_in='1.5.2'),
+            HelpEntry(('modify_arcade',), '修改机厅 <店名/ID> [游戏] 数量 <数量>', '本地模式如修改机厅 123 chu 数量 2；云端模式的店铺及机台信息请在nearcade网站维护。', group_admin=True, new_in='1.5.2'),
             HelpEntry(('arcade_alias',), '添加机厅别名 / 删除机厅别名 <店名> <别名>', '维护机厅的查询别名。'),
-            HelpEntry(('group_arcade_alias',), '添加群机厅别名 / 删除群机厅别名 <店名/ID> <别名>', '仅当前群生效，可用于查找、订阅、查询和报人数；不同群可用同一简称指向不同机厅，不改全局别名。', group_admin=True, new_in='1.5.2'),
+            HelpEntry(('group_arcade_alias',), '添加群机厅别名 / 删除群机厅别名 <店名/ID> <别名>', '添加前需本群订阅该机厅；别名仅当前群生效，可用于查找、订阅、查询和报人数，不改全局别名。', group_admin=True, new_in='1.5.2'),
             HelpEntry(('dx_arcade_help',), '排卡帮助', '查看排卡专用帮助。'),
         )),
         HelpSection('歌曲别名与投票', '#3478a4', (

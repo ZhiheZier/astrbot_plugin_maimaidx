@@ -145,12 +145,16 @@ class MultiGameUploadTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(api._request.await_args_list[0].args, ('GET', '/shops/789'))
         self.assertEqual(api._request.await_args.kwargs['payload']['games'][0]['id'], 789002)
 
-    async def test_old_and_new_taiko_coexisting_require_explicit_group(self):
+    async def test_old_and_new_taiko_share_one_family_total(self):
         api = client()
-        api._request = AsyncMock(return_value={'shop': shop(games=[game(titleId=31), game(gameId=456001, titleId=15)])})
-        with self.assertRaisesRegex(Exception, '多条太鼓达人'):
-            await api.upload_attendance('123', 5, resolve_arcade_game('太鼓'))
-        self.assertEqual(api._request.await_count, 1)
+        games = [game(titleId=31), game(gameId=456001, titleId=15)]
+        api._request = AsyncMock(side_effect=[{'shop': shop(games=games)}, {
+            'success': True, 'games': [dict(games[0], total=2), dict(games[1], total=1)],
+            'reported': [], 'registered': [],
+        }, {'success': True}])
+        await api.upload_attendance('123', 5, resolve_arcade_game('太鼓'))
+        self.assertEqual(api._request.await_args.kwargs['payload']['games'],
+                         [{'id': 456000, 'currentAttendances': 4}])
 
 
 class MultiGameCommandTest(unittest.IsolatedAsyncioTestCase):
@@ -179,18 +183,50 @@ class MultiGameCommandTest(unittest.IsolatedAsyncioTestCase):
                         api.upload_attendance.assert_awaited_with('123', count, selected)
             self.assertEqual(record.person, 4)
 
+    async def test_headcounts_without_unit_set_the_selected_game(self):
+        record = arcade()
+        api = client()
+        api.upload_attendance = AsyncMock(return_value='已同步')
+        with (patch.object(mai_arcade.arcade, 'total', a.ArcadeList([record]), create=True),
+              patch.object(a.ArcadeList, 'save_arcade', AsyncMock())):
+            for text, key, count in (
+                ('测试机厅3', 'mai', 3), ('测试机厅mai4', 'mai', 4),
+                ('/别名 CHU 5', 'chu', 5), ('测试机厅中二0', 'chu', 0),
+                ('123 太鼓2', 'taiko', 2), ('123 6', 'mai', 6),
+                ('123mai7', 'mai', 7),
+            ):
+                with self.subTest(text=text):
+                    self.assertIsNotNone(re.fullmatch(command_decorators()['arcade_person'][1], text))
+                    result = await collect(mai_arcade.arcade_person_handler, event(text=text), api)
+                    self.assertIn('已同步', result[0])
+                    selected = resolve_arcade_game(key)
+                    self.assertEqual(record.attendance_for(selected).person, count)
+
     async def test_plain_headcounts_ignore_unsubscribed_shops_and_normal_chat(self):
         record = arcade()
         api = client()
         api.upload_attendance = AsyncMock()
         with (patch.object(mai_arcade.arcade, 'total', a.ArcadeList([record]), create=True),
               patch.object(a.ArcadeList, 'save_arcade', AsyncMock()) as save):
-            for text in ('13人', '今天吃饭3人', '未订阅机厅4人', '测试机厅几人', '测试机厅' + '9' * 5000 + '人'):
+            for text in ('13人', '今天吃饭3人', '未订阅机厅4人', '测试机厅几人', '测试机厅' + '9' * 5000 + '人',
+                         '1233', '13', '今天吃饭3', '未订阅机厅4'):
                 result = await collect(mai_arcade.arcade_person_handler, event(text=text), api)
                 self.assertEqual(result, [])
             self.assertEqual(record.person, 2)
             save.assert_not_awaited()
             api.upload_attendance.assert_not_awaited()
+
+    async def test_digit_ending_names_use_the_longest_shop_label(self):
+        records = a.ArcadeList([arcade(name='天街'), arcade(name='天街2', id='124')])
+        api = client(nearcade_upload_enabled=False, nearcade_shop_bindings=[])
+        with (patch.object(mai_arcade.arcade, 'total', records, create=True),
+              patch.object(a.ArcadeList, 'save_arcade', AsyncMock())):
+            for text, count in (('天街23', 3), ('天街2 4', 4), ('天街2mai5', 5)):
+                with self.subTest(text=text):
+                    result = await collect(mai_arcade.arcade_person_handler, event(text=text), api)
+                    self.assertTrue(result)
+                    self.assertEqual(records[1].person, count)
+                    self.assertEqual(records[0].person, 2)
 
     async def test_invalid_new_game_report_does_not_create_state(self):
         record = arcade()

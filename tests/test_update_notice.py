@@ -30,36 +30,56 @@ def client(groups=(100, 200)):
 
 
 class UpdateMessageTest(unittest.TestCase):
-    def test_only_new_feature_category_is_included_and_emphasized(self):
+    def test_all_categories_except_other_are_included_and_emphasized(self):
         changelog = ('## v1.5.1\n\n### 新功能\n\n- 新功能内容\n\n'
                      '### 优化\n\n- 优化内容\n\n### 修复\n- 修复内容\n\n### 其他\n\n- 其他内容\n')
         message = update_message(changelog, None, '1.5.1')
         self.assertIn('\n\n━━ 新功能 ━━\n\n- 新功能内容', message)
-        for title in ('优化', '修复', '其他'):
-            self.assertNotIn(f'━━ {title} ━━', message)
-            self.assertNotIn(f'- {title}内容', message)
+        for title in ('优化', '修复'):
+            self.assertIn(f'\n\n━━ {title} ━━\n\n- {title}内容', message)
+        self.assertNotIn('━━ 其他 ━━', message)
+        self.assertNotIn('- 其他内容', message)
+        self.assertEqual(message.count('【v1.5.1】'), 1)
         self.assertNotIn('###', message)
 
-    def test_no_new_features_keeps_notice_short_without_other_categories(self):
-        for section in ('### 修复\n- 修复内容', '### 新功能\n\n### 优化\n- 优化内容', '- 无分类内容'):
+    def test_fix_only_and_optimization_only_releases_are_announced(self):
+        for section, expected in (('### 修复\n- 修复内容', '修复内容'),
+                                  ('### 新功能\n\n### 优化\n- 优化内容', '优化内容'),
+                                  ('- 无分类内容', '无分类内容')):
             with self.subTest(section=section):
                 message = update_message(f'## v1.5.1\n{section}\n', '1.5.0', '1.5.1')
-                self.assertIn('本次未列出新功能', message)
+                self.assertIn(f'- {expected}', message)
                 self.assertNotIn('━━ 新功能 ━━', message)
-                self.assertNotIn('- 修复内容', message)
-                self.assertNotIn('- 优化内容', message)
-                self.assertNotIn('- 无分类内容', message)
+                self.assertNotIn('本次未列出', message)
 
-    def test_new_feature_selection_resets_between_releases_and_keeps_subheadings(self):
+    def test_category_selection_resets_between_releases_and_keeps_subheadings(self):
         changelog = ('## v1.5.3\n### 新功能\n- 未来功能\n'
-                     '## v1.5.2\n### 新功能\n#### 查询\n- 查询内容\n'
-                     '## v1.5.1\n- 不应继承分类\n### 修复\n- 修复内容\n'
+                     '## v1.5.2\n### 新功能\n#### 查询\n- 查询内容\n### 其他\n- 不广播内容\n'
+                     '## v1.5.1\n### 修复\n- 修复内容\n'
                      '## v1.5.0\n### 新功能\n- 历史功能\n')
         message = update_message(changelog, '1.5.0', '1.5.2')
         self.assertIn('━━ 查询 ━━', message)
         self.assertIn('- 查询内容', message)
-        for excluded in ('未来功能', '不应继承分类', '修复内容', '历史功能', '【v1.5.1】'):
+        self.assertIn('━━ 修复 ━━\n\n- 修复内容', message)
+        self.assertIn('【v1.5.1】', message)
+        for excluded in ('未来功能', '不广播内容', '历史功能'):
             self.assertNotIn(excluded, message)
+
+    def test_other_subheadings_are_skipped_and_later_categories_are_kept(self):
+        changelog = ('## v1.5.1\n### 其他\n- 版本号调整\n#### 内部说明\n- 内部内容\n'
+                     '### 说明\n- 用户说明\n### 优化\n- 优化内容\n')
+        message = update_message(changelog, None, '1.5.1')
+        self.assertIn('━━ 说明 ━━\n\n- 用户说明', message)
+        self.assertIn('━━ 优化 ━━\n\n- 优化内容', message)
+        for excluded in ('版本号调整', '内部说明', '内部内容'):
+            self.assertNotIn(excluded, message)
+
+    def test_only_other_or_empty_categories_use_safe_fallback(self):
+        for section in ('### 其他\n- 内部内容', '### **其他**\n- 内部内容', '### 新功能\n\n### 修复\n'):
+            message = update_message(f'## v1.5.1\n{section}', '1.5.0', '1.5.1')
+            self.assertIn('本次未列出可广播的更新内容', message)
+            self.assertNotIn('内部内容', message)
+            self.assertNotIn('━━', message)
 
     def test_full_changelog_link_uses_master_branch(self):
         expected = 'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/blob/master/CHANGELOG.md'
@@ -70,8 +90,8 @@ class UpdateMessageTest(unittest.TestCase):
         message = update_message(CHANGELOG, '1.5.0', '1.5.2')
         self.assertIn('最新功能', message)
         self.assertIn('容错计算', message)
-        self.assertNotIn('最新修复', message)
-        self.assertNotIn('旧版优化', message)
+        self.assertIn('最新修复', message)
+        self.assertIn('旧版优化', message)
         self.assertNotIn('旧功能', message)
         self.assertNotIn('最新功能', update_message(CHANGELOG, '1.5.0', '1.5.1'))
         self.assertIn('\n\n【v1.5.1】', message)

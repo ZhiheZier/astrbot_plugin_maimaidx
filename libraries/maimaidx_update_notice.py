@@ -18,7 +18,8 @@ def update_message(changelog: str, previous: str | None, current: str) -> str:
     lower, upper = Version(previous) if previous is not None else None, Version(current)
     sections = []
     selected = False
-    new_features = False
+    category = None
+    category_started = False
     version_started = False
     version_label = ''
     for line in changelog.splitlines():
@@ -28,24 +29,30 @@ def update_message(changelog: str, previous: str | None, current: str) -> str:
                 selected = release == upper if lower is None else lower < release <= upper
             except InvalidVersion:
                 selected = False
-            new_features = False
+            category = '更新内容'
+            category_started = False
             version_started = False
             version_label = f'【v{match[1].removeprefix("v")}】'
         elif selected:
             if heading := re.fullmatch(r'###\s+(.+?)\s*', line):
-                new_features = heading[1].replace('`', '') == '新功能'
-            elif new_features and line.strip():
+                title = heading[1].strip('`* \t')
+                category = None if title == '其他' else title
+                category_started = False
+            elif category is not None and line.strip():
                 if not version_started:
                     if sections:
                         sections.append('')
-                    sections.extend((version_label, '', '━━ 新功能 ━━', ''))
+                    sections.append(version_label)
                     version_started = True
+                if not category_started:
+                    sections.extend(('', f'━━ {category} ━━', ''))
+                    category_started = True
                 if heading := re.fullmatch(r'#{4,6}\s+(.+?)\s*', line):
                     sections.extend(('', f'━━ {heading[1].replace("`", "")} ━━', ''))
                 else:
                     sections.append(line.replace('`', ''))
     body = '\n'.join(sections) or (
-        '本次未列出新功能，其他更新请查看完整更新日志。' if changelog.strip()
+        '本次未列出可广播的更新内容，详情请查看完整更新日志。' if changelog.strip()
         else '本次更新详情请查看完整更新日志。'
     )
     header = (f'舞萌DX插件当前版本：v{current}\n\n' if previous is None

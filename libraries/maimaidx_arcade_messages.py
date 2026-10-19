@@ -25,6 +25,7 @@ class ArcadeQueryGame:
     time: str = ''
     status: str = '营业'
     label: str = ''
+    records: tuple['ArcadeQueryGame', ...] = ()
 
     def attendance_for(self, game):
         return self
@@ -75,7 +76,7 @@ def format_arcade_query(result: ArcadeQueryResult, *, compact=False) -> str:
     source = result.source + (f'（云端查询失败：{result.warning}）' if result.warning else '')
     blocks = ['\n'.join(format_attendance_lines(row, row.game, label=row.label or row.game.name,
                                               machine_count=row.machines, known=row.person is not None))
-              for row in result.games]
+              for category in result.games for row in (category.records or (category,))]
     return f'📍 机厅：{name}\n数据来源：{source}\n' + '\n\n'.join(blocks or ['暂无对应游戏记录'])
 
 

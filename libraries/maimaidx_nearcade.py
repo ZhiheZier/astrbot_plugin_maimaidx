@@ -4,7 +4,7 @@ import asyncio
 import json
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from urllib.parse import quote, urlencode
 
@@ -137,17 +137,6 @@ class CatalogShop(BaseModel):
     games: list[NearcadeGame]
 
 
-def _native_bindings(shop_id, games):
-    families = [_game_family(game) for game in games]
-    bindings = []
-    for game, family in zip(games, families):
-        if families.count(family) > 1:
-            label = f'{family.key}机台{game.gameId}号'
-            family = ArcadeGameType(f'{family.key}:机台{game.gameId}号', label, family.title_ids, (label,))
-        bindings.append((family, shop_id, game.gameId))
-    return bindings
-
-
 def _bounded_number(config, key: str, default: float, lower: float, upper: float) -> float:
     try:
         value = float(config.get(key, default))
@@ -214,9 +203,11 @@ class NearcadeClient:
             if len({game.gameId for game in shop.games}) != len(shop.games):
                 raise NearcadeError('云端机厅游戏记录重复')
         for shop in shops:
-            bindings = _native_bindings(shop.id, shop.games)
-            quantities = {item.gameId: item.quantity for item in shop.games}
-            records.append(self.catalog.remember(shop, [(game, quantities[game_id]) for game, _, game_id in bindings]))
+            quantities = {}
+            for item in shop.games:
+                family = _game_family(item)
+                quantities[family] = quantities.get(family, 0) + item.quantity
+            records.append(self.catalog.remember(shop, list(quantities.items())))
         return records, more
 
     async def find_catalog(self, keyword, *, group_id=None):
@@ -333,10 +324,11 @@ class NearcadeClient:
             return matches[0].known_games() if matches else []
         return list({game.key: game for game, _, _ in self._bindings(local_id) if game}.values())
 
-    async def _read_shop_attendance(self, shop_id: int) -> NearcadeShopAttendance | NearcadeError:
+    async def _read_shop_attendance(self, shop_id: int, *, detail=None) -> NearcadeShopAttendance | NearcadeError:
         try:
             async with asyncio.timeout(15):
-                detail = await self._request('GET', f'/shops/{shop_id}')
+                if detail is None:
+                    detail = await self._request('GET', f'/shops/{shop_id}')
                 if not isinstance(detail, dict):
                     raise NearcadeError('云端机厅详情格式异常')
                 shop = detail.get('shop')
@@ -409,9 +401,9 @@ class NearcadeClient:
                 groups.setdefault(family, []).append((item, snapshot))
             if selected and not matched:
                 raise NearcadeError(f'云端未找到映射的{selected.name}记录')
-        rows = []
         observed_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        for family, items in groups.items():
+
+        def build_row(family, items, label=''):
             count = sum(item.total for item, _ in items)
             known = count > 0 or any(item.gameId in snapshot.reports for item, snapshot in items)
             reports = [snapshot.reports[item.gameId] for item, snapshot in items if item.gameId in snapshot.reports]
@@ -422,8 +414,20 @@ class NearcadeClient:
             else:
                 by, stamp = ('Nearcade（登记数据）', observed_at) if known else ('', '')
             status = '闭店' if all(snapshot.status == '闭店' for _, snapshot in items) else '营业'
-            rows.append(ArcadeQueryGame(family, count if known else None, sum(item.quantity for item, _ in items),
-                                       by, stamp, status))
+            return ArcadeQueryGame(family, count if known else None, sum(item.quantity for item, _ in items),
+                                   by, stamp, status, label)
+
+        rows = []
+        for family, items in groups.items():
+            row = build_row(family, items)
+            if self.uses_cloud_catalog:
+                records = []
+                for item, snapshot in items:
+                    version = _plain(item.version, limit=60)
+                    label = f'{family.name}（{version}）' if version else family.name
+                    records.append(build_row(family, [(item, snapshot)], label))
+                row = replace(row, records=tuple(records))
+            rows.append(row)
         rows.sort(key=lambda row: (row.game.family_key != 'mai', row.game.family_key, row.game.key))
         ids = {shop_id for _, shop_id, _ in bindings}
         name = snapshots[next(iter(ids))].name if len(ids) == 1 else ''
@@ -452,8 +456,7 @@ class NearcadeClient:
                     snapshot = snapshots[int(local_id)]
                     if isinstance(snapshot, NearcadeError):
                         raise snapshot
-                    bindings = _native_bindings(int(local_id), snapshot.games)
-                    if not bindings:
+                    if not snapshot.games:
                         results[local_id] = ArcadeQueryResult(snapshot.name, (), source='nearcade')
                         continue
                 results[local_id] = self._query_result(bindings, snapshots)
@@ -466,10 +469,7 @@ class NearcadeClient:
             if not str(local_id).isascii() or not str(local_id).isdigit() or len(str(local_id)) > 12:
                 raise NearcadeError('云端机厅 ID 格式不正确')
             if game.is_named:
-                match = re.fullmatch(r'机台([0-9]+)号', game.key.partition(':')[2])
-                if not match:
-                    raise NearcadeError('请使用查找机厅显示的游戏分区名')
-                return int(local_id), int(match[1])
+                raise NearcadeError('nearcade 按游戏类别报人数，请使用 mai、chu 等游戏名')
             return int(local_id), None
         bindings = self._bindings(local_id)
         if not game.is_named and any(selected and selected.is_named and selected.family_key == game.key
@@ -519,15 +519,34 @@ class NearcadeClient:
             if self.uses_cloud_catalog:
                 raise NearcadeError(f'云端机厅中未找到对应{game_type.name}记录，请查找机厅确认当前资料')
             raise NearcadeError(f'映射的云端机厅中未找到对应{game_type.name}记录，请检查映射')
-        if len(games) != 1:
-            if self.uses_cloud_catalog:
-                labels = '、'.join(f'{game_type.family_key}机台{item.gameId}号' for item in games)
-                raise NearcadeError(f'该游戏有多条记录，请指定分区：{labels}')
-            raise NearcadeError(f'云端机厅有多条{game_type.name}记录，请在对应游戏的映射中指定 gameId')
+        if len({item.gameId for item in games}) != len(games):
+            raise NearcadeError('云端游戏记录重复，未上传人数')
+        payload = [{'id': games[0].gameId, 'currentAttendances': count}]
+        if len(games) > 1:
+            snapshot = await self._read_shop_attendance(shop_id, detail=data)
+            if isinstance(snapshot, NearcadeError):
+                raise NearcadeError(f'无法核对云端各机台人数：{snapshot}')
+            current = [item for item in snapshot.games if item.titleId in game_type.title_ids]
+            if {item.gameId for item in current} != {item.gameId for item in games}:
+                raise NearcadeError('云端机台资料已变化或包含不可上报记录，请重新查询后报数')
+            counts = {item.gameId: item.total for item in current}
+            difference = count - sum(counts.values())
+            # Largest counters first minimize changed records; stable sorting preserves API order for ties.
+            priority = sorted(current, key=lambda item: -item.total)
+            for item in priority:
+                change = difference if difference >= 0 else max(difference, -counts[item.gameId])
+                counts[item.gameId] += change
+                difference -= change
+                if difference == 0:
+                    break
+            payload = [{'id': item.gameId, 'currentAttendances': counts[item.gameId]}
+                       for item in priority if counts[item.gameId] != item.total]
+            if not payload:
+                return f'nearcade 人数未变化：{game_type.name} {count} 人；未重复上传'
         if not self.upload_enabled:
             return ''
         result = await self._request('POST', f'/shops/{shop_id}/attendance', authenticated=True, payload={
-            'games': [{'id': games[0].gameId, 'currentAttendances': count}],
+            'games': payload,
         })
         if result.get('success') is not True:
             raise NearcadeError('云端未确认上报成功，请稍后核对')
@@ -546,8 +565,6 @@ def format_nearby_shops(shops: list[NearbyShop], radius: float, point: QQCoordin
         'latitude': point.latitude, 'longitude': point.longitude,
         'radius': f'{radius:g}', 'convertFrom': 'GCJ02', 'gameTitleIds': MAIMAI_DX_TITLE_ID,
     }
-    if point.name:
-        params['name'] = _plain(point.name, 80)
     url = 'https://nearca.de/discover?' + urlencode(params, quote_via=quote)
     blocks.append(f'👉 更多详情请点开：{url}')
     return '\n\n'.join(blocks)

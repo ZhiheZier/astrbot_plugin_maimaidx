@@ -1,4 +1,5 @@
 import asyncio
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ from ..libraries.maimaidx_arcade_catalog import NearcadeArcadeList
 from ..libraries.maimaidx_nearcade import CatalogShop, NearcadeError
 from ..main import MaimaiDXPlugin
 from .test_arcade_games import arcade
+from .test_help_image import command_decorators
 from .test_nearcade import client, collect, event, game, shop
 
 
@@ -36,11 +38,19 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
     async def test_add_by_id_does_not_modify_global_aliases_subscriptions_or_other_groups(self):
         self.first.alias = ['全局别名']
         result = await self.change()
-        self.assertIn('已添加本群别名：天街', result[0])
+        self.assertEqual(result, ['机厅：一号机厅（123）\n已添加本群别名：天街'])
         self.assertEqual(self.first.group_aliases, {'200': ['天街']})
         self.assertEqual(self.first.alias, ['全局别名'])
         self.assertEqual(self.first.group, [200, 300])
         self.assertEqual(self.second.group_aliases, {})
+
+    async def test_add_requires_subscription_to_the_target_shop_in_the_current_group(self):
+        self.first.group = [300]
+        result = await self.change()
+        self.assertIn('本群尚未订阅该机厅', result[0])
+        self.assertIn('订阅机厅 123', result[0])
+        self.assertEqual(self.first.group_aliases, {})
+        self.records.save_arcade.assert_not_awaited()
 
     async def test_add_accepts_full_name_and_optional_command_prefix(self):
         self.first.name = '测试 店名'
@@ -119,6 +129,10 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
         await self.change()
         await collect(mai_arcade.arcade_person_handler, event(text='天街3人'), self.api)
         self.assertEqual(self.first.person, 3)
+        for text, count in (('天街4', 4), ('天街mai3', 3)):
+            result = await collect(mai_arcade.arcade_person_handler, event(text=text), self.api)
+            self.assertTrue(result)
+            self.assertEqual(self.first.person, count)
         await collect(mai_arcade.arcade_person_handler, event(text='天街chu=4'), self.api)
         self.assertEqual(self.first.game_attendance['chu'].person, 4)
         await collect(mai_arcade.arcade_person_handler, event(text='天街mai5chu2'), self.api)
@@ -128,11 +142,34 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
         await collect(mai_arcade.arcade_person_handler, event(text='天街+1', group='300'), self.api)
         self.assertEqual(self.first.model_dump(), before)
 
+    async def test_all_count_query_suffixes_work_with_name_id_and_group_alias(self):
+        await self.change()
+        patterns = command_decorators()
+        suffixes = ('有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', '几卡', '有几', '几', 'jr', 'j')
+        self.records.save_arcade.reset_mock()
+        expected = await collect(mai_arcade.arcade_query_person_handler, event(text='天街几人'), self.api)
+        for name in (self.first.name, self.first.id, '天街'):
+            for suffix in suffixes:
+                for prefix in ('', '/'):
+                    text = prefix + name + suffix
+                    with self.subTest(text=text):
+                        self.assertIsNotNone(re.fullmatch(patterns['arcade_query_person'][1], text))
+                        result = await collect(mai_arcade.arcade_query_person_handler, event(text=text), self.api)
+                        self.assertEqual(result, expected)
+        self.records.save_arcade.assert_not_awaited()
+
+    async def test_short_count_suffixes_preserve_game_selection(self):
+        await self.change()
+        for suffix in ('几', 'j', 'jr', '有几'):
+            result = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='天街chu' + suffix), self.api))
+            self.assertIn('中二节奏', result)
+            self.assertNotIn('舞萌 DX', result)
+
     async def test_unsubscribed_group_alias_never_falls_back_to_another_shop_global_alias(self):
         await self.change()
         self.first.group = []
         self.second.alias = ['天街']
-        for text in ('天街+1', '天街3人', '天街mai3chu2'):
+        for text in ('天街+1', '天街3人', '天街3', '天街mai3', '天街mai3chu2'):
             await collect(mai_arcade.arcade_person_handler, event(text=text), self.api)
         self.assertEqual(self.first.person, 2)
         self.assertEqual(self.second.person, 2)
@@ -188,16 +225,18 @@ class NearcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
         self.api = client(arcade_data_source='nearcade', nearcade_upload_enabled=False, nearcade_shop_bindings=[])
         self.api._catalog = NearcadeArcadeList(self.path)
         self.api._request = AsyncMock(return_value={'shop': shop()})
+        record = self.api.catalog.remember(CatalogShop.model_validate(shop()), [])
+        record.group = [200, 300]
 
     async def change(self, command='添加群机厅别名 456 天街', group='200'):
         return [message async for message in mai_arcade.group_arcade_alias_handler(
             event(text=command, group=group), ['123456'], nearcade=self.api,
         )]
 
-    async def test_native_group_alias_persists_without_subscription_and_resolves_cloud_id(self):
+    async def test_native_group_alias_persists_for_subscribed_shop_and_resolves_cloud_id(self):
         self.assertIn('已添加', (await self.change())[0])
         self.api._catalog = NearcadeArcadeList(self.path)
-        self.assertEqual(self.api.catalog[0].group, [])
+        self.assertEqual(self.api.catalog[0].group, [200, 300])
         self.assertEqual(self.api.catalog[0].group_aliases, {'200': ['天街']})
         self.api._request.reset_mock()
         records = await self.api.find_catalog('天街', group_id='200')
@@ -209,15 +248,35 @@ class NearcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.api.find_catalog('天街'), [])
         self.assertTrue(all(call.args[1] == '/shops' for call in self.api._request.await_args_list))
 
+    async def test_native_add_rejects_unsubscribed_shop_without_querying_or_saving(self):
+        self.api.catalog[0].group = [300]
+        result = await self.change()
+        self.assertIn('本群尚未订阅该机厅', result[0])
+        self.api._request.assert_not_awaited()
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.api.catalog[0].group_aliases, {})
+
+    async def test_native_add_rechecks_subscription_after_cloud_metadata_refresh(self):
+        async def refresh(*args, **kwargs):
+            self.api.catalog[0].group = []
+            return {'shop': shop()}
+
+        self.api._request.side_effect = refresh
+        result = await self.change()
+        self.assertIn('本群尚未订阅该机厅', result[0])
+        self.assertEqual(self.api.catalog[0].group_aliases, {})
+        self.assertFalse(self.path.exists())
+
     async def test_native_search_subscribe_and_metadata_refresh_keep_scoped_alias(self):
         await self.change()
         records, _ = await self.api.search_catalog('天街', group_id='200')
         self.assertEqual(records[0].id, '456')
+        self.api.catalog[0].group.remove(200)
         result = [message async for message in mai_arcade.subscribe_arcade_handler(
             event(text='订阅机厅 天街'), ['123456'], nearcade=self.api,
         )]
         self.assertIn('订阅添加成功', result[0])
-        self.assertEqual(self.api.catalog[0].group, [200])
+        self.assertEqual(set(self.api.catalog[0].group), {200, 300})
         self.api.catalog[0].group_aliases['300'] = ['其他群秘密简称']
         result = [message async for message in mai_arcade.check_subscribe_handler(event(text='查看订阅'), nearcade=self.api)]
         self.assertIn('本群别名：天街', '\n'.join(result))
@@ -226,6 +285,7 @@ class NearcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
     async def test_native_delete_works_offline_and_removes_only_current_group(self):
         await self.change()
         await self.change(group='300')
+        self.api.catalog[0].group.remove(200)
         self.api._request.reset_mock()
         self.api._request.side_effect = NearcadeError('offline')
         self.assertIn('已删除', (await self.change('删除群机厅别名 456 天街'))[0])

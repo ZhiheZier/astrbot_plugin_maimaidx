@@ -9,6 +9,7 @@ import re
 import traceback
 import json
 from pathlib import Path
+from contextlib import AsyncExitStack
 
 from . import Root, log, loga, plate_to_dx_version, platecn, _BOTNAME, __version__, init_static_dir
 from .libraries.maimai_best_50 import ScoreBaseImage
@@ -429,13 +430,35 @@ class MaimaiDXPlugin(Star):
             log.error(f'定时更新数据失败: {e}')
     
     async def _arcade_daily_update(self):
-        """机厅数据每日更新 - 每天凌晨3点执行"""
+        """每天凌晨3点刷新机厅资料并清零本地人数，不上传云端。"""
+        from .libraries.maimaidx_arcade import arcade
         try:
-            from .libraries.maimaidx_arcade import arcade
             await arcade.getArcade()
             loga.info('maimai机厅数据更新完成')
         except Exception as e:
             loga.error(f'机厅数据更新失败: {e}')
+
+        stores = [('本地机厅', getattr(arcade, 'total', None))]
+        nearcade = getattr(self, 'nearcade', None)
+        if nearcade and nearcade.uses_cloud_catalog:
+            try:
+                stores.append(('nearcade本地缓存', nearcade.catalog))
+            except Exception as e:
+                loga.error(f'nearcade本地缓存读取失败，未清零: {e}')
+        for name, records in stores:
+            if records is None:
+                continue
+            try:
+                async with AsyncExitStack() as stack:
+                    if nearcade:
+                        for shop_id in sorted({record.id for record in records}):
+                            await stack.enter_async_context(nearcade.lock_for(shop_id))
+                    if await records.reset_local_attendance():
+                        loga.info(f'{name}人数每日清零完成')
+                    else:
+                        loga.error(f'{name}人数清零保存失败，已恢复原人数')
+            except Exception as e:
+                loga.error(f'{name}人数每日清零失败: {e}')
 
     # 注册命令处理函数
     # 群组开关命令（管理员专用）
@@ -1272,10 +1295,7 @@ class MaimaiDXPlugin(Star):
     async def search_arcade(self, event: AstrMessageEvent):
         """查找机厅"""
         group_id = event.message_obj.group_id
-        if group_id and (
-            not self._is_group_enabled(str(group_id))
-            or not self._is_arcade_enabled(str(group_id))
-        ):
+        if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_arcade import search_arcade_handler
         async for result in search_arcade_handler(event, **self._arcade_catalog_options()):
@@ -1307,7 +1327,7 @@ class MaimaiDXPlugin(Star):
         async for result in arcade_query_multiple_handler(event, self.nearcade):
             yield result
 
-    @filter.regex(r'^(?!/?机厅几人$)/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|j|jr|几卡)$')
+    @filter.regex(r'^(?!/?(?:机厅(?:几人|几|jr|j)|jtj)$)/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|几卡|有几|几|jr|j)$')
     async def arcade_query_person(self, event: AstrMessageEvent):
         """有多少人/有几人/有几卡"""
         group_id = event.message_obj.group_id

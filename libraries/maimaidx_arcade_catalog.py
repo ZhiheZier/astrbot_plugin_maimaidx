@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+import re
 from pathlib import Path
 
-from .maimaidx_arcade import Arcade, ArcadeList
+from .maimaidx_arcade import Arcade, ArcadeAttendance, ArcadeList
 from .maimaidx_music import writefile
 
 
@@ -21,6 +22,39 @@ class NearcadeArcadeList(ArcadeList):
             self.extend(Arcade.model_validate(item) for item in data)
             if len({record.id for record in self}) != len(self):
                 raise ValueError('duplicate nearcade shop IDs')
+            for record in self:
+                self._merge_legacy_games(record)
+
+    @staticmethod
+    def _merge_legacy_games(record):
+        families = {}
+        for key in (*record.game_attendance, *record.game_machine_counts):
+            match = re.fullmatch(r'([^:]+):机台[0-9]+号', key)
+            if match:
+                families.setdefault(match[1], set()).add(key)
+        for family, keys in families.items():
+            counts = [record.game_machine_counts.pop(key) for key in keys if key in record.game_machine_counts]
+            if counts and family not in record.game_machine_counts:
+                record.game_machine_counts[family] = sum(counts)
+            reports = [record.game_attendance.pop(key) for key in keys if key in record.game_attendance]
+            reports = [item for item in reports if item.person or item.by or item.time or item.status == '闭店']
+            if not reports:
+                continue
+            # A later family-level report is authoritative; do not add old counters again.
+            if family == 'mai' and (record.person or record.by or record.time or record.status == '闭店'):
+                continue
+            if family in record.game_attendance:
+                continue
+            merged = ArcadeAttendance(person=sum(item.person for item in reports),
+                                      by=reports[0].by if len(reports) == 1 else 'Nearcade（本地缓存汇总）',
+                                      time=max(item.time for item in reports),
+                                      status='闭店' if all(item.status == '闭店' for item in reports) else '营业')
+            if family == 'mai':
+                record.person, record.by, record.time, record.status = merged.person, merged.by, merged.time, merged.status
+            else:
+                record.game_attendance[family] = merged
+        if 'mai' in record.game_machine_counts:
+            record.num = record.game_machine_counts['mai']
 
     async def save_arcade(self):
         async with self.lock:
@@ -43,6 +77,7 @@ class NearcadeArcadeList(ArcadeList):
                             id=str(shop.id), alias=[], group=[], person=0, by='', time='')
             self.append(record)
         record.name = shop.name
+        self._merge_legacy_games(record)
         record.location = ' '.join(filter(None, (
             ' '.join(shop.address.general), shop.address.detailed,
         )))

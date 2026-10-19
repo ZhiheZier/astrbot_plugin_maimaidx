@@ -77,8 +77,8 @@ class MessageSegment:
 VOTE_URL = "https://www.yuzuchan.moe/vote"
 public_addr = VOTE_URL
 
-# ws
-UUID = uuid.uuid1()
+# Random runtime identifier; do not encode hardware addresses.
+UUID = uuid.uuid4()
 
 # echartsjs
 SNAPSHOT_JS = (

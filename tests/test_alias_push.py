@@ -1,14 +1,36 @@
 import json
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from ..command import mai_alias
+from .. import UUID
 from ..command.mai_alias import iter_sse, parse_alias_push, push_alias
 from ..libraries import maimaidx_music
+from ..libraries.maimaidx_api_data import maiApi
 from ..libraries.maimaidx_model import AliasesPush
+
+
+class AliasRequestIdentifierTest(unittest.IsolatedAsyncioTestCase):
+    def test_runtime_identifier_is_a_random_uuid_v4(self):
+        self.assertIsInstance(UUID, uuid.UUID)
+        self.assertEqual(UUID.version, 4)
+        self.assertEqual(UUID.variant, uuid.RFC_4122)
+
+    async def test_alias_requests_keep_protocol_and_share_the_random_runtime_identifier(self):
+        with patch.object(maiApi, '_requestalias', AsyncMock(return_value=SimpleNamespace(content='ok'))) as request:
+            for alias in ('first-alias', 'second-alias'):
+                self.assertEqual(await maiApi.post_alias(799, alias, 123, 456), 'ok')
+        self.assertEqual(request.await_count, 2)
+        for call, alias in zip(request.await_args_list, ('first-alias', 'second-alias')):
+            self.assertEqual(call.args, ('POST', '/applyalias'))
+            self.assertEqual(call.kwargs['json'], {
+                'SongID': 799, 'ApplyAlias': alias, 'ApplyUID': 123, 'GroupID': 456, 'WSUUID': str(UUID),
+            })
+            self.assertEqual(uuid.UUID(call.kwargs['json']['WSUUID']).version, 4)
 
 
 class AliasPushParsingTest(unittest.IsolatedAsyncioTestCase):

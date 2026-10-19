@@ -141,7 +141,7 @@ class NearcadeQueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(text.count('🎮'), 5)
         self.assertEqual(text.count('📍'), 5)
 
-    async def test_details_link_uses_current_coordinates_radius_name_and_coordinate_system(self):
+    async def test_details_link_keeps_query_conditions_without_location_name(self):
         point = n.QQCoordinates(30.309953, 120.328264, '龙湖 杭州&金沙天街')
         text = n.format_nearby_shops([], 7.5, point)
         url = text.split('👉 更多详情请点开：')[1]
@@ -149,9 +149,11 @@ class NearcadeQueryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(urlparse(url).path, '/discover')
         self.assertEqual(parse_qs(urlparse(url).query), {
             'latitude': ['30.309953'], 'longitude': ['120.328264'], 'radius': ['7.5'],
-            'convertFrom': ['GCJ02'], 'gameTitleIds': ['1'], 'name': ['龙湖 杭州&金沙天街'],
+            'convertFrom': ['GCJ02'], 'gameTitleIds': ['1'],
         })
         self.assertNotIn('龙湖', url)
+        self.assertNotIn('name=', url)
+        self.assertEqual(text, n.format_nearby_shops([], 7.5, n.QQCoordinates(point.latitude, point.longitude)))
 
 
 class NearcadeHttpTest(unittest.IsolatedAsyncioTestCase):
@@ -238,8 +240,8 @@ class NearcadeUploadTest(unittest.IsolatedAsyncioTestCase):
                 await api.upload_attendance('123', count)
             api._request.assert_not_awaited()
 
-    async def test_ambiguous_or_non_maimai_games_are_never_posted(self):
-        for games in ([game(), game(gameId=456001)], [game(titleId=3)], [game(quantity=0)], []):
+    async def test_non_maimai_or_unavailable_games_are_never_posted(self):
+        for games in ([game(titleId=3)], [game(quantity=0)], []):
             api = client()
             api._request = AsyncMock(return_value={'shop': shop(games=games)})
             with self.assertRaises(n.NearcadeError):
@@ -268,6 +270,99 @@ class NearcadeUploadTest(unittest.IsolatedAsyncioTestCase):
         api._request = AsyncMock(side_effect=detail)
         self.assertEqual(await api.upload_attendance('123', 5), '')
         self.assertEqual(api._request.await_count, 1)
+
+
+class MultiRecordUploadTest(unittest.IsolatedAsyncioTestCase):
+    def api(self, counts, source='nearcade'):
+        api = client(arcade_data_source=source)
+        games = [game(gameId=456000 + index) for index in range(len(counts))]
+        games.append(game(gameId=456099, titleId=3))
+        current = {item['gameId']: count for item, count in zip(games, (*counts, 9))}
+
+        async def request(method, path, **kwargs):
+            if method == 'POST':
+                for item in kwargs['payload']['games']:
+                    current[item['id']] = item['currentAttendances']
+                return {'success': True}
+            if path == '/shops/456':
+                return {'shop': shop(games=games)}
+            if path == '/shops/456/attendance':
+                return {'success': True, 'games': [dict(item, total=current[item['gameId']]) for item in games],
+                        'reported': [], 'registered': []}
+            raise AssertionError(path)
+
+        api._request = AsyncMock(side_effect=request)
+        return api, games, current
+
+    async def test_distribution_minimizes_changed_records_and_preserves_api_order_for_ties(self):
+        cases = (
+            ((2, 5, 1), 10, (2, 7, 1)),
+            ((2, 5, 1), 6, (2, 3, 1)),
+            ((2, 5, 1), 4, (2, 1, 1)),
+            ((2, 5, 1), 1, (0, 0, 1)),
+            ((2, 5, 1), 0, (0, 0, 0)),
+            ((3, 3, 1), 9, (5, 3, 1)),
+            ((3, 3, 1), 5, (1, 3, 1)),
+            ((3, 3, 3), 8, (2, 3, 3)),
+            ((3, 3, 3), 2, (0, 0, 2)),
+            ((0, 2, 2), 3, (0, 1, 2)),
+            ((0, 0, 0), 3, (3, 0, 0)),
+            ((0, 5, 2), 4, (0, 2, 2)),
+            ((2, 5, 1), 8, (2, 5, 1)),
+        )
+        for source in ('local', 'nearcade'):
+            for counts, target, expected in cases:
+                with self.subTest(source=source, counts=counts, target=target):
+                    api, _, current = self.api(counts, source)
+                    await api.upload_attendance('123' if source == 'local' else '456', target)
+                    actual = tuple(current[456000 + index] for index in range(len(counts)))
+                    self.assertEqual(actual, expected)
+                    self.assertEqual(sum(actual), target)
+                    self.assertTrue(all(value >= 0 for value in actual))
+                    self.assertEqual(current[456099], 9)
+                    writes = [call for call in api._request.await_args_list if call.args[0] == 'POST']
+                    self.assertEqual(len(writes), int(counts != expected))
+                    if writes:
+                        self.assertEqual(writes[0].kwargs['authenticated'], True)
+                        self.assertNotIn(456099, [item['id'] for item in writes[0].kwargs['payload']['games']])
+                        self.assertEqual(len(writes[0].kwargs['payload']['games']),
+                                         sum(old != new for old, new in zip(counts, expected)))
+
+    async def test_invalid_or_changed_attendance_never_posts(self):
+        for mode in ('missing', 'negative', 'duplicate', 'timeout'):
+            with self.subTest(mode=mode):
+                api, games, _ = self.api((2, 5))
+                data = [dict(item, total=2) for item in games]
+                if mode == 'missing':
+                    data.pop(0)
+                elif mode == 'negative':
+                    data[0]['total'] = -1
+                elif mode == 'duplicate':
+                    data.append(data[0])
+                api._request.side_effect = [
+                    {'shop': shop(games=games)},
+                    n.NearcadeError('timeout') if mode == 'timeout' else {
+                        'success': True, 'games': data, 'reported': [], 'registered': [],
+                    },
+                ]
+                with self.assertRaises(n.NearcadeError):
+                    await api.upload_attendance('456', 4)
+                self.assertFalse(any(call.args[0] == 'POST' for call in api._request.await_args_list))
+
+    async def test_disabling_upload_during_attendance_read_prevents_post(self):
+        api, _, current = self.api((2, 5))
+        original = api._request.side_effect
+
+        async def request(method, path, **kwargs):
+            result = await original(method, path, **kwargs)
+            if path.endswith('/attendance'):
+                api.config['nearcade_upload_enabled'] = False
+            return result
+
+        api._request.side_effect = request
+        self.assertEqual(await api.upload_attendance('456', 9), '')
+        self.assertEqual((current[456000], current[456001]), (2, 5))
+        self.assertFalse(any(call.args[0] == 'POST' for call in api._request.await_args_list))
 
 
 class NearcadeEventTest(unittest.IsolatedAsyncioTestCase):

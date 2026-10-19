@@ -134,7 +134,7 @@ async def _apply_arcade_report(record, nickname, operation, person, game, nearca
             return AttendanceUpdateResult(f'无法核对云端当前人数：{result}', successful=False), 'skipped', ''
         row = next((row for row in result.games if row.game.key == game.key), None)
         if row is None:
-            return AttendanceUpdateResult('云端未找到该游戏，请查找机厅确认当前分区名', successful=False), 'skipped', ''
+            return AttendanceUpdateResult('云端未找到该游戏，请查找机厅确认当前游戏记录', successful=False), 'skipped', ''
         if row.person is None and operation not in ('=', '＝', '设置', '设定'):
             return AttendanceUpdateResult('云端尚未上报人数，请先使用 =人数 设置', successful=False), 'skipped', ''
         current = record.attendance_for(game)
@@ -207,25 +207,25 @@ sv_help = """排卡指令如下：
 删除机厅 <店名> 删除机厅信息
 修改机厅 <店名/ID> [游戏/分区名] 数量 <数量> 独立设置各游戏机台数，如修改机厅 123 chu 数量 2
 添加机厅别名 <店名> <别名>
-添加群机厅别名 / 删除群机厅别名 <店名/ID> <别名> 仅当前群生效（管理员或群管理员），支持查找、订阅、查询和报人数
+添加群机厅别名 / 删除群机厅别名 <店名/ID> <别名> 添加前需订阅该机厅（管理员或群管理员），支持查找、订阅、查询和报人数
 订阅机厅 <店名> 订阅机厅，简化后续指令
 查看订阅 查看群组订阅机厅的信息
 取消订阅机厅 <店名> 取消群组机厅订阅
-查找机厅,查询机厅,机厅查找,机厅查询 <关键词> 查询对应机厅信息
+查找机厅,查询机厅,机厅查找,机厅查询 <关键词/ID> 查询对应机厅信息，无需开启排卡，仍遵守舞萌功能白名单
 <店名/别名>人数设置,设定,=,增加,加,+,减少,减,-<人数> 操作排卡人数
 <店名/别名> [游戏]=人数 / +人数 / -人数 分游戏报人数，如机厅chu=5、机厅太鼓+1
-<店名/别名> [游戏]<人数>人 也可直接报数，如机厅3人、机厅中二3人
-同游戏分区用映射名报数，如机厅maiA区3人、机厅maiB区+1
-同时报多个游戏：机厅mai3chu2；可加空格，也支持机厅maiA区3maiB区2，逐项返回本地及云端结果
+<店名/别名> [游戏]<人数>[人/卡] 也可直接报数，如机厅3、机厅mai3、机厅中二3人
+同时报多个游戏：机厅mai3chu2；可加空格，逐项返回本地及云端结果
 游戏支持舞萌/mai、中二/chu、太鼓/taiko、sdvx、iidx、音击/ongeki、wacca、jubeat等；省略默认舞萌
 <店名/别名>=-1 闭店，清空人数并标记为闭店状态
-<店名/别名> [游戏]几人 查看所选游戏的排卡人数，如机厅中二几人
-机厅几人 每家机厅一行列出已订阅机厅各游戏、分区人数，不显示等待等详情
+<店名/别名> [游戏]几人 查看所选游戏的排卡人数，也可用几、j、jr等后缀，如机厅中二几
+机厅几人 / jtj 每家机厅一行列出已订阅机厅各游戏人数，不显示等待等详情
 已映射机厅优先读取nearcade人数及机台数量，无需Token，失败标明本地；查询不上传、不覆盖本地记录
 更新及查询显示更新者、时间和机台信息；当日记录有可靠机台数时估算等待：舞萌每轮16分钟、每台2人，其他每轮12分钟、每台1人，仅供参考
 直接发送QQ位置卡 查询附近舞萌DX机厅（需管理员开启位置查询，不依赖排卡开关）
 管理员可在配置中选择 local 本地机厅或 nearcade 云端机厅数据源，默认local；两种订阅独立保存
-nearcade模式直接查找、订阅云端店铺ID，无需本地机厅或映射；同游戏多条记录自动显示分区名，如mai机台456000号
+nearcade模式直接查找、订阅云端店铺ID，无需本地机厅或映射；同类记录合并人数和机台数，官机、MML、手台等舞萌DX描述不分区
+同类多条记录按总人数最少改动分配：增加和减少均优先人数最多、同人数靠前的，减少不足再扣下一条；调整后合计等于汇报值，不修改其他游戏
 各游戏人数可选同步nearcade（需Token和上传开关；仅local模式还需机厅映射，闭店不上传）"""
 
 
@@ -392,8 +392,16 @@ async def group_arcade_alias_handler(event: AstrMessageEvent, superusers=None, *
     try:
         records = _arcade_records(nearcade)
         matches = _matching_arcades(records, name, group_id)
-        if nearcade and nearcade.uses_cloud_catalog and (adding or not matches):
-            matches = await nearcade.find_catalog(name, group_id=group_id)
+        if adding:
+            matches = [record for record in matches if int(group_id) in record.group]
+            if not matches:
+                yield event.plain_result(f'本群尚未订阅该机厅，请先发送「订阅机厅 {name}」')
+                return
+        if nearcade and nearcade.uses_cloud_catalog:
+            if adding and len(matches) == 1:
+                matches = (await nearcade.search_catalog(matches[0].id))[0]
+            elif not adding and not matches:
+                matches = await nearcade.find_catalog(name, group_id=group_id)
         if len(matches) != 1:
             message = ('找到多个机厅，请使用ID：\n' + '\n'.join(f'{record.id}：{record.name}' for record in matches)
                        if matches else '未找到该机厅，请检查当前数据源及机厅名称或ID')
@@ -402,6 +410,9 @@ async def group_arcade_alias_handler(event: AstrMessageEvent, superusers=None, *
         record = matches[0]
         key = str(group_id)
         async with records.alias_lock:
+            if adding and int(group_id) not in record.group:
+                yield event.plain_result('本群尚未订阅该机厅，请先重新订阅后添加群别名')
+                return
             if adding and (conflicts := [item for item in records if item.id != record.id
                                         and (alias == item.name or alias in item.group_aliases.get(key, []))]):
                 yield event.plain_result(f'本群别名或机厅名称「{alias}」已指向 {conflicts[0].name}（{conflicts[0].id}），请换一个别名')
@@ -423,7 +434,7 @@ async def group_arcade_alias_handler(event: AstrMessageEvent, superusers=None, *
                 record.group_aliases = previous
                 yield event.plain_result('本地保存失败，群机厅别名未修改，请稍后重试')
                 return
-        yield event.plain_result(f'机厅：{record.name}（{record.id}）\n已{"添加" if adding else "删除"}本群别名：{alias}\n仅在当前群生效，不影响全局及其他群')
+        yield event.plain_result(f'机厅：{record.name}（{record.id}）\n已{"添加" if adding else "删除"}本群别名：{alias}')
     except NearcadeError as exc:
         yield event.plain_result(f'群机厅别名操作失败：{exc}')
 
@@ -611,10 +622,13 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
     if match:
         target, value, person_str = match.group(1) or '', match.group(2), match.group(3)
     else:
+        # A numeric message alone cannot distinguish a shop ID from a headcount.
+        if message_str.isascii() and message_str.isdigit():
+            return
         labels = sorted({label for record in arcade_list for label in (record.name, record.id, *record.aliases_for(group_id))
                          if label and message_str.startswith(label)}, key=len, reverse=True)
         prefix = labels[0] if labels else ''
-        count = re.fullmatch(r'(.*?)\s*([0-9]+)\s*(?:人|卡)', message_str[len(prefix):])
+        count = re.fullmatch(r'(.*?)\s*([0-9]+)\s*(?:人|卡)?', message_str[len(prefix):])
         if count is None or not (prefix or count[1].strip()):
             return
         target, value, person_str = prefix + count[1].strip(), '=', count[2]
@@ -720,7 +734,7 @@ async def arcade_query_person_handler(event: AstrMessageEvent, nearcade: Nearcad
     
     message_str = get_plain_message_text(event).removeprefix('/')
     # 移除后缀
-    for suffix in ['有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', 'jr', '几卡', 'j']:
+    for suffix in ['有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', '几卡', '有几', '几', 'jr', 'j']:
         if message_str.endswith(suffix):
             name = message_str[:-len(suffix)].strip()
             break

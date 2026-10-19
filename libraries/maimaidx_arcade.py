@@ -78,6 +78,25 @@ class ArcadeList(List[Arcade]):
         if saved:
             arcade.arcades = data
         return saved
+
+    async def reset_local_attendance(self):
+        if not self:
+            return True
+        fields = ('person', 'by', 'time', 'game_attendance')
+        snapshots = [(record, record.model_copy(deep=True)) for record in self]
+        for record in self:
+            record.person, record.by, record.time = 0, '系统每日清零', ''
+            for attendance in record.game_attendance.values():
+                attendance.person, attendance.by, attendance.time = 0, '系统每日清零', ''
+        saved = False
+        try:
+            saved = bool(await self.save_arcade())
+            return saved
+        finally:
+            if not saved:
+                for record, snapshot in snapshots:
+                    for field in fields:
+                        setattr(record, field, getattr(snapshot, field))
     
     def search_name(self, name: str, group_id=None) -> List[Arcade]:
         """模糊查询机厅"""

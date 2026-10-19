@@ -138,7 +138,12 @@ class PluginConfigTest(unittest.TestCase):
             self.assertEqual(load_plugin_config(config), self.defaults)
 
     def test_dashboard_validation_keeps_grouped_values_after_migration(self):
-        from astrbot.dashboard.routes.config import validate_config
+        try:
+            from astrbot.dashboard.services.config_service import validate_config
+        except ModuleNotFoundError as exc:
+            if exc.name not in ('astrbot.dashboard.services', 'astrbot.dashboard.services.config_service'):
+                raise
+            from astrbot.dashboard.routes.config import validate_config
 
         config = SavedConfig(self.legacy())
         expected = load_plugin_config(config)

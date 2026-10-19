@@ -178,10 +178,19 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
 
     def test_summary_route_is_not_also_matched_as_a_detailed_query(self):
         patterns = command_decorators()
-        for text in ('机厅几人', '/机厅几人'):
-            self.assertIsNotNone(re.fullmatch(patterns['arcade_query_multiple'][1], text))
-            self.assertIsNone(re.fullmatch(patterns['arcade_query_person'][1], text))
-        self.assertIsNotNone(re.fullmatch(patterns['arcade_query_person'][1], '测试机厅几人'))
+        for command in ('机厅几人', 'jtj'):
+            for prefix in ('', '/'):
+                text = prefix + command
+                self.assertIsNotNone(re.fullmatch(patterns['arcade_query_multiple'][1], text))
+                self.assertIsNone(re.fullmatch(patterns['arcade_query_person'][1], text))
+        for command in ('机厅几', '机厅j', '机厅jr'):
+            for prefix in ('', '/'):
+                text = prefix + command
+                self.assertIsNone(re.fullmatch(patterns['arcade_query_multiple'][1], text))
+                self.assertIsNone(re.fullmatch(patterns['arcade_query_person'][1], text))
+        for suffix in ('有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', '几卡', '有几', '几', 'jr', 'j'):
+            for prefix in ('', '/'):
+                self.assertIsNotNone(re.fullmatch(patterns['arcade_query_person'][1], prefix + '测试机厅' + suffix))
 
     def test_summary_pagination_preserves_all_lines_without_wait_details(self):
         lines = [f'{i}号机厅 舞萌5人｜中二3人' for i in range(200)]

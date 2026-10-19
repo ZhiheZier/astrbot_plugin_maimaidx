@@ -23,6 +23,7 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.api._catalog = NearcadeArcadeList(self.path)
         self.games = [game(), game(gameId=456001, titleId=3, name='中二节奏')]
         self.counts = {'mai': 5, 'chu': 3}
+        self.record_counts = {}
         self.api._request = AsyncMock(side_effect=self.request)
         self.local = a.ArcadeList([arcade(id='456', name='本地另一家店')])
         self.local.save_arcade = AsyncMock(return_value=True)
@@ -35,7 +36,10 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
             for item in kwargs['payload']['games']:
                 target = next(game for game in self.games if game['gameId'] == item['id'])
                 key = 'mai' if target['titleId'] == 1 else 'chu'
-                self.counts[key] = item['currentAttendances']
+                if sum(game['titleId'] == target['titleId'] for game in self.games) > 1:
+                    self.record_counts[item['id']] = item['currentAttendances']
+                else:
+                    self.counts[key] = item['currentAttendances']
             return {'success': True}
         if path == '/shops':
             word = kwargs['params']['q']
@@ -44,7 +48,8 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         if path == '/shops/456':
             return {'shop': shop(games=self.games)}
         if path == '/shops/456/attendance':
-            return attendance(*(dict(item, total=self.counts['mai' if item['titleId'] == 1 else 'chu']) for item in self.games))
+            return attendance(*(dict(item, total=self.record_counts.get(
+                item['gameId'], self.counts['mai' if item['titleId'] == 1 else 'chu'])) for item in self.games))
         raise AssertionError(f'unexpected {method} {path}')
 
     async def command(self, handler, text, *, admins=None, group='200'):
@@ -189,6 +194,15 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('没有这样的', result)
         self.assertFalse(self.path.exists())
 
+    async def test_native_count_query_shorthand_resolves_group_alias_and_game(self):
+        await self.subscribe()
+        self.api.catalog[0].group_aliases = {'200': ['天街']}
+        for suffix in ('几', 'j', 'jr', '有几'):
+            result = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='天街chu' + suffix), self.api))
+            self.assertIn('数据来源：nearcade', result)
+            self.assertIn('中二节奏', result)
+            self.assertNotIn('舞萌 DX', result)
+
     async def test_reports_use_live_baseline_and_cloud_game_id_without_mapping(self):
         await self.subscribe()
         result = '\n'.join(await collect(mai_arcade.arcade_person_handler, event(text='456chu+1'), self.api))
@@ -232,16 +246,105 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('云端未找到该游戏', result)
         self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
 
-    async def test_duplicate_game_records_get_automatic_partition_names(self):
+    async def test_duplicate_game_records_are_grouped_by_game_not_description(self):
+        self.games[0].update(name='舞萌 DX（官机）', version='2026')
+        self.games.extend([game(gameId=456002, name='舞萌 DX（MML）', version='mml', quantity=1),
+                           game(gameId=456003, name='舞萌 DX（手台）', version='adx', quantity=1)])
+        await self.subscribe()
+        self.assertEqual({item.key for item in self.api.games_for('456')}, {'mai', 'chu'})
+        self.assertEqual(self.api.catalog[0].game_machine_counts, {'mai': 4, 'chu': 2})
+        summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
+        self.assertEqual(summary, '测试机厅 舞萌15人｜中二3人')
+        details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='456mai几人'), self.api))
+        for version in ('2026', 'mml', 'adx'):
+            self.assertEqual(details.count(f'舞萌 DX（{version}）：'), 1)
+        self.assertEqual(details.count('当前 5 人'), 3)
+        self.assertIn('机台数量：2 台', details)
+        self.assertIn('机台数量：1 台', details)
+        for label in ('456000', '456002', '456003', '机台456', 'MML', '官机', '手台', '中二'):
+            self.assertNotIn(label, details)
+        self.local.save_arcade.assert_not_awaited()
+
+    async def test_multiple_game_records_do_not_duplicate_uploaded_total(self):
         self.games.append(game(gameId=456002, quantity=1))
         await self.subscribe()
-        self.assertEqual({item.key for item in self.api.games_for('456')}, {'mai:机台456000号', 'mai:机台456002号', 'chu'})
-        result = '\n'.join(await collect(mai_arcade.arcade_person_handler, event(text='456mai3人'), self.api))
-        self.assertIn('mai机台456000', result)
+        result = '\n'.join(await collect(mai_arcade.arcade_person_handler, event(text='456mai3'), self.api))
+        self.assertIn('已同步 nearcade', result)
+        self.assertEqual(self.api.catalog[0].person, 3)
+        self.assertEqual(self.record_counts, {456000: 0, 456002: 3})
+        snapshot = (await self.api.read_attendance(['456']))['456']
+        self.assertEqual(snapshot.games[0].person, 3)
+        for text, expected in (('456mai+2', 5), ('456mai-1', 4), ('456mai0', 0)):
+            result = '\n'.join(await collect(mai_arcade.arcade_person_handler, event(text=text), self.api))
+            self.assertIn('已同步 nearcade', result)
+            self.assertEqual(sum(self.record_counts.values()), expected)
+            self.assertEqual(self.api.catalog[0].person, expected)
+            self.assertEqual(self.counts['chu'], 3)
+
+    async def test_detail_labels_use_version_and_empty_version_never_falls_back_to_id(self):
+        self.games[0]['version'] = ' CN1.56-A\n '
+        await self.subscribe()
+        details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='456几人'), self.api))
+        self.assertIn('舞萌 DX（CN1.56-A）：当前 5 人', details)
+        self.assertIn('中二节奏：当前 3 人', details)
+        self.assertNotIn('中二节奏（）', details)
+        self.assertNotIn('456000', details)
+        self.assertNotIn('456001', details)
+        summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
+        self.assertEqual(summary, '测试机厅 舞萌5人｜中二3人')
         self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
-        await collect(mai_arcade.arcade_person_handler, event(text='456mai机台456002号3人'), self.api)
-        writes = [call for call in self.api._request.await_args_list if call.args[0] == 'POST']
-        self.assertEqual(writes[0].kwargs['payload']['games'][0]['id'], 456002)
+
+    async def test_other_game_families_are_aggregated_without_mixing_with_maimai(self):
+        self.games.extend([game(gameId=456002, titleId=3, name='中二手台', quantity=1),
+                           game(gameId=456003, titleId=31, name='太鼓新版', quantity=1),
+                           game(gameId=456004, titleId=15, name='太鼓旧版', quantity=2)])
+        await self.subscribe()
+        snapshot = (await self.api.read_attendance(['456']))['456']
+        self.assertEqual([(row.game.key, row.person, row.machines) for row in snapshot.games],
+                         [('mai', 5, 2), ('chu', 6, 3), ('taiko', 6, 3)])
+
+    async def test_aggregated_zero_is_unknown_unless_one_counter_has_a_report(self):
+        games = (game(total=0), game(gameId=456002, total=0))
+        for reported, expected in (([], None), ([{'gameId': 456002, 'currentAttendances': 0}], 0)):
+            with self.subTest(reported=reported):
+                self.api._request.side_effect = [{'shop': shop()}, attendance(*games, reported=reported)]
+                row = (await self.api.read_attendance(['456']))['456'].games[0]
+                self.assertEqual(row.person, expected)
+                self.assertEqual(row.game.key, 'mai')
+                self.assertEqual(row.machines, 4)
+                self.assertIsNone(row.records[0].person)
+                self.assertEqual(row.records[1].person, expected)
+
+    async def test_old_native_counters_are_merged_and_remain_merged_after_restart(self):
+        record = arcade(name='旧机厅', id='456')
+        record.person, record.by, record.time = 0, '', ''
+        record.game_machine_counts = {'mai:机台456000号': 2, 'mai:机台456002号': 1, 'chu': 2}
+        record.game_attendance = {
+            'mai:机台456000号': a.ArcadeAttendance(person=3, by='A', time='2026-10-19 12:00:00'),
+            'mai:机台456002号': a.ArcadeAttendance(person=2, by='B', time='2026-10-19 13:00:00'),
+            'chu': a.ArcadeAttendance(person=1, by='C', time='2026-10-19 12:00:00'),
+        }
+        self.path.write_text(json.dumps([record.model_dump()]), encoding='utf-8')
+        records = NearcadeArcadeList(self.path)
+        self.assertEqual(records[0].person, 5)
+        self.assertEqual(records[0].num, 3)
+        self.assertEqual(records[0].game_machine_counts, {'mai': 3, 'chu': 2})
+        self.assertEqual(set(records[0].game_attendance), {'chu'})
+        self.api._catalog = records
+        self.api._request.side_effect = NearcadeError('offline')
+        result = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
+        self.assertIn('舞萌5人｜中二1人', result)
+        self.assertNotIn('机台456', result)
+        await records.save_arcade()
+        self.assertEqual(NearcadeArcadeList(self.path)[0].model_dump(), records[0].model_dump())
+
+    async def test_legacy_counters_do_not_double_count_a_new_family_report(self):
+        record = arcade(id='456')
+        record.game_attendance = {'mai:机台456000号': a.ArcadeAttendance(person=9)}
+        self.path.write_text(json.dumps([record.model_dump()]), encoding='utf-8')
+        loaded = NearcadeArcadeList(self.path)[0]
+        self.assertEqual(loaded.person, 2)
+        self.assertEqual(loaded.game_attendance, {})
 
     async def test_closure_is_local_only_and_never_changes_cloud_status(self):
         await self.subscribe()
@@ -282,12 +385,12 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
                 await self.api.search_catalog('测试')
         self.assertEqual(self.api.catalog, [])
 
-    async def test_main_routes_catalog_commands_and_preserves_group_gating(self):
+    async def test_main_routes_catalog_search_without_queue_switch_and_preserves_group_gating(self):
         plugin = MaimaiDXPlugin.__new__(MaimaiDXPlugin)
         plugin.nearcade = self.api
         plugin.superusers = ['123456']
         plugin.disabled_groups = set()
-        plugin.arcade_enabled_groups = {'200'}
+        plugin.arcade_enabled_groups = set()
         result = await collect(plugin.search_arcade, event(text='查找机厅 测试'))
         self.assertIn('nearcade', '\n'.join(result))
         self.api._request.reset_mock()
