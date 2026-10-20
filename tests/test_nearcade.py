@@ -21,8 +21,10 @@ def event(*components, text='', group='200', platform='aiocqhttp'):
         message_str=text,
         message_obj=SimpleNamespace(group_id=group, message=list(components) or [Comp.Plain(text)]),
         get_sender_id=lambda: '123456',
+        get_self_id=lambda: '654321',
         get_platform_name=lambda: platform,
         plain_result=lambda message: message,
+        chain_result=lambda chain: chain,
         bot=SimpleNamespace(get_group_member_info=AsyncMock(return_value={'nickname': '测试用户'})),
     )
 

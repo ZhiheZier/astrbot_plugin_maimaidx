@@ -102,7 +102,7 @@ class DailyUpdateTest(unittest.IsolatedAsyncioTestCase):
             plugin.nearcade._request.assert_not_awaited()
             plugin.nearcade._request.side_effect = [{'shop': shop()}, attendance()]
             reply = await query_arcade_messages(native, {}, plugin.nearcade, compact=True)
-            self.assertEqual(reply, ['测试机厅 舞萌5人｜中二3人'])
+            self.assertEqual(reply, ['店名：测试机厅\n  - 舞萌 DX：5人\n  - 中二节奏：3人'])
             self.assertEqual(native[0].person, 0)
 
     async def test_refresh_failure_still_resets_local_counts(self):

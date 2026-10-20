@@ -12,6 +12,7 @@ from packaging.version import InvalidVersion, Version
 
 
 CHANGELOG_URL = 'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/blob/master/CHANGELOG.md'
+NOTICE_TEXT_LIMIT = 1500
 
 
 def update_message(changelog: str, previous: str | None, current: str) -> str:
@@ -62,10 +63,24 @@ def update_message(changelog: str, previous: str | None, current: str) -> str:
         '\n功能建议或问题反馈，请发送邮件至 contact@zhihezier.com，或提交 Issue：'
         'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues'
     )
-    limit = 1800 - len(header) - len(footer)
-    if len(body) > limit:
-        body = body[:limit - 20].rsplit('\n', 1)[0] + '\n（更多内容见完整更新日志）'
     return header + body + footer
+
+
+def update_message_chunks(message: str) -> list[str]:
+    chunks = []
+    current = ''
+    for line in message.splitlines(keepends=True):
+        if current and (line.startswith(('【v', f'完整更新日志：{CHANGELOG_URL}'))
+                        or len(current) + len(line) > NOTICE_TEXT_LIMIT):
+            chunks.append(current)
+            current = ''
+        while len(line) > NOTICE_TEXT_LIMIT:
+            chunks.append(line[:NOTICE_TEXT_LIMIT])
+            line = line[NOTICE_TEXT_LIMIT:]
+        current += line
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 class UpdateNotifier:
@@ -153,6 +168,16 @@ class UpdateNotifier:
                     if not isinstance(groups, list):
                         raise ValueError('群列表不是列表')
                     group_ids = sorted({str(group['group_id']) for group in groups}, key=int)
+                    login_info = await asyncio.wait_for(client.get_login_info(), timeout=30)
+                    bot_id = str(int(login_info['user_id']))
+                    forward_nodes = [
+                        {'type': 'node', 'data': {
+                            'user_id': bot_id,
+                            'nickname': login_info.get('nickname') or '舞萌DX更新通知',
+                            'content': [{'type': 'text', 'data': {'text': chunk}}],
+                        }}
+                        for chunk in update_message_chunks(message)
+                    ]
                 except Exception as exc:
                     logger.warning(f'舞萌更新通知等待平台 {platform.meta().id} 就绪: {exc}')
                     complete = False
@@ -163,8 +188,8 @@ class UpdateNotifier:
                         continue
                     try:
                         # Explicit text segments cannot interpret changelog content as CQ codes.
-                        await asyncio.wait_for(client.send_group_msg(
-                            group_id=int(group_id), message=[{'type': 'text', 'data': {'text': message}}],
+                        await asyncio.wait_for(client.send_group_forward_msg(
+                            group_id=int(group_id), messages=forward_nodes,
                         ), timeout=30)
                     except Exception as exc:
                         logger.warning(f'舞萌更新通知发送到群 {group_id} 失败，将稍后重试: {exc}')

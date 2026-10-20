@@ -115,7 +115,7 @@ class ArcadeCloudReadTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_summary_is_one_line_per_shop_and_details_use_live_quantities_without_saving(self):
+    async def test_summary_groups_shops_and_details_use_live_quantities_without_saving(self):
         record, other = arcade(), arcade(name='本地另一机厅', id='124')
         record.num = 9
         other.group = [200]
@@ -125,15 +125,18 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
         with (patch.object(mai_arcade.arcade, 'total', a.ArcadeList([record, other]), create=True),
               patch.object(a.ArcadeList, 'save_arcade', AsyncMock()) as save):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), api))[0]
-            self.assertEqual(result.splitlines(), ['云端新店名 舞萌5人｜中二3人', '本地另一机厅（本地） 舞萌2人'])
+            self.assertEqual(result.split('\n\n'), [
+                '店名：云端新店名\n  - 舞萌：5人\n  - 中二：3人',
+                '店名：本地另一机厅\n  - 数据来源：本地\n  - 舞萌：2人',
+            ])
             self.assertNotIn('预计等待', result)
             api._request.side_effect = [{'shop': shop(name='云端新店名')}, attendance()]
             details = (await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅几人'), api))[0]
             self.assertIn('数据来源：nearcade', details)
             self.assertIn('机台数量：2 台', details)
             self.assertNotIn('机台数量：9 台', details)
-            self.assertIn('每轮时间：12 分钟', details)
-            self.assertIn('预计等待：约 6 分钟', details)
+            self.assertNotIn('每轮', details)
+            self.assertNotIn('等待', details)
             save.assert_not_awaited()
         self.assertEqual([record.model_dump(), other.model_dump()], before)
         self.assertTrue(all(call.args[0] == 'GET' for call in api._request.await_args_list))
@@ -150,8 +153,8 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
         api._request = AsyncMock(side_effect=request)
         with patch.object(mai_arcade.arcade, 'total', records, create=True):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), api))[0]
-            self.assertIn('测试机厅（本地·云端查询失败） 舞萌2人', result)
-            self.assertIn('另一机厅 舞萌5人｜中二3人', result)
+            self.assertIn('店名：测试机厅\n  - 数据来源：本地·云端查询失败\n  - 舞萌：2人', result)
+            self.assertIn('店名：另一机厅\n  - 舞萌：5人\n  - 中二：3人', result)
             details = (await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅几人'), api))[0]
             self.assertIn('云端查询失败：云端连接超时', details)
 
@@ -161,8 +164,8 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
         api._request = AsyncMock()
         with patch.object(mai_arcade.arcade, 'total', records, create=True):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), api))[0]
-        self.assertIn('测试机厅（本地·云端查询失败）', result)
-        self.assertIn('另一机厅（本地）', result)
+        self.assertIn('店名：测试机厅\n  - 数据来源：本地·云端查询失败', result)
+        self.assertIn('店名：另一机厅\n  - 数据来源：本地', result)
         api._request.assert_not_awaited()
 
     async def test_specific_game_query_filters_cloud_rows_and_respects_group_subscriptions(self):
@@ -193,8 +196,8 @@ class ArcadeCloudQueryHandlerTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(re.fullmatch(patterns['arcade_query_person'][1], prefix + '测试机厅' + suffix))
 
     def test_summary_pagination_preserves_all_lines_without_wait_details(self):
-        lines = [f'{i}号机厅 舞萌5人｜中二3人' for i in range(200)]
-        chunks = list(split_arcade_query_messages(lines, compact=True))
+        blocks = [f'店名：{i}号机厅\n  - 舞萌：5人\n  - 中二：3人' for i in range(200)]
+        chunks = list(split_arcade_query_messages(blocks, compact=True))
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(len(chunk) <= 1800 for chunk in chunks))
-        self.assertEqual('\n'.join(chunks).splitlines(), lines)
+        self.assertEqual('\n\n'.join(chunks).split('\n\n'), blocks)

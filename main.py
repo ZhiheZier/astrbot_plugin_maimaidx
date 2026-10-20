@@ -58,6 +58,9 @@ class MaimaiDXPlugin(Star):
         # 群组/排卡持久化文件（在持久化根目录下）
         self.data_file = plugin_data_root / "disabled_groups.json"
         self.arcade_switch_file = plugin_data_root / "enabled_arcade_groups.json"
+        from .libraries.maimaidx_ranking import SongRankingStore
+
+        self.song_ranking_store = SongRankingStore(plugin_data_root / 'song_ranking.json')
         from .libraries.maimaidx_update_notice import UpdateNotifier
 
         self.update_notifier = UpdateNotifier(
@@ -587,6 +590,27 @@ class MaimaiDXPlugin(Star):
             return
         from .command.mai_base import my_rating_ranking_handler
         async for result in my_rating_ranking_handler(event):
+            yield result
+
+    @filter.regex(r'^/?(?:加入排行榜|退出排行榜)$')
+    async def ranking_membership(self, event: AstrMessageEvent):
+        """加入或退出当前群的单曲排行榜。"""
+        group_id = event.message_obj.group_id
+        if (group_id and not self._is_group_enabled(str(group_id))
+                and get_plain_message_text(event).removeprefix('/').strip() != '退出排行榜'):
+            return
+        from .command.mai_ranking import ranking_membership_handler
+        async for result in ranking_membership_handler(event, self.song_ranking_store):
+            yield result
+
+    @filter.regex(r'^/?(?i:wmrk).*$')
+    async def song_ranking(self, event: AstrMessageEvent):
+        """wmrk 歌曲 [难度]。"""
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_ranking import song_ranking_handler
+        async for result in song_ranking_handler(event, self.song_ranking_store):
             yield result
 
     # 数据源 / 主题 / 查分器绑定命令

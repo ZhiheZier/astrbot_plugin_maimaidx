@@ -4,6 +4,7 @@ import re
 
 from .mai_base import get_plain_message_text
 from .permissions import can_manage_group
+from .mai_arcade_replies import arcade_list_results
 from ..libraries.maimaidx_arcade_messages import split_arcade_query_messages
 from ..libraries.maimaidx_arcade import match_arcades
 from ..libraries.maimaidx_nearcade import NearcadeError
@@ -41,8 +42,8 @@ async def catalog_management_handler(event, nearcade, action, superusers=None):
                 except NearcadeError:
                     warning = '\n云端查询失败，以上为订阅缓存信息'
                 messages.append(catalog_record_message(record, group) + warning)
-            for message in split_arcade_query_messages(messages, compact=False):
-                yield event.plain_result(message)
+            for reply in arcade_list_results(event, messages):
+                yield reply
             if not records:
                 yield event.plain_result('该群未订阅任何 nearcade 机厅')
             return

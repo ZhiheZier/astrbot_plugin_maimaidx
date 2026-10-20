@@ -1,12 +1,12 @@
 import unittest
-from datetime import date
 from unittest.mock import AsyncMock, patch
 
 from ..command import mai_arcade
 from ..libraries import maimaidx_arcade as a
 from ..libraries.maimaidx_arcade_games import ARCADE_GAMES, DEFAULT_ARCADE_GAME, resolve_arcade_game
 from ..libraries.maimaidx_arcade_messages import (
-    attendance_machine_count, estimate_arcade_wait, format_attendance_lines,
+    ArcadeQueryGame, ArcadeQueryResult, attendance_machine_count, estimate_arcade_wait,
+    format_arcade_query, format_attendance_lines,
 )
 from .test_arcade_games import arcade
 from .test_nearcade import client, collect, event
@@ -52,34 +52,81 @@ class ArcadeMessageFormatTest(unittest.TestCase):
         self.record.person = 5
         self.record.by = '测试玩家'
         self.record.time = '2026-10-19 15:00:00'
-        self.today = date(2026, 10, 19)
 
     def format(self, game=DEFAULT_ARCADE_GAME, **kwargs):
-        return '\n'.join(format_attendance_lines(self.record, game, today=self.today, **kwargs))
+        return '\n'.join(format_attendance_lines(self.record, game, **kwargs))
 
-    def test_current_maimai_reply_includes_machine_count_wait_tip_and_updater(self):
+    def test_summary_lists_each_game_on_its_own_line_and_preserves_states(self):
+        result = ArcadeQueryResult('长店名（购物中心四楼）', (
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 0, 1),
+            ArcadeQueryGame(resolve_arcade_game('chu'), None, 1),
+            ArcadeQueryGame(resolve_arcade_game('太鼓'), 2, 1, status='闭店'),
+        ), source='nearcade')
+        self.assertEqual(format_arcade_query(result, compact=True).splitlines(), [
+            '店名：长店名（购物中心四楼）', '  - 舞萌：0人',
+            '  - 中二：未上报', '  - 太鼓达人：2人（闭店）',
+        ])
+
+    def test_summary_marks_local_fallback_on_a_separate_line(self):
+        result = ArcadeQueryResult('测试机厅', (
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 3, 1),
+        ), warning='offline')
+        self.assertEqual(format_arcade_query(result, compact=True).splitlines(), [
+            '店名：测试机厅', '  - 数据来源：本地·云端查询失败', '  - 舞萌：3人',
+        ])
+
+    def test_summary_expands_records_without_showing_family_total_or_losing_states(self):
+        records = (
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 5, 1, label='舞萌 DX（官机）'),
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 0, 1, label='舞萌 DX（mml）'),
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, None, 1, label='舞萌 DX（adx）'),
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 2, 1, status='闭店', label='舞萌 DX（adx）'),
+        )
+        result = ArcadeQueryResult('测试机厅', (
+            ArcadeQueryGame(DEFAULT_ARCADE_GAME, 7, 4, records=records),
+        ), source='nearcade')
+        self.assertEqual(format_arcade_query(result, compact=True).splitlines(), [
+            '店名：测试机厅', '  - 舞萌 DX（官机）：5人', '  - 舞萌 DX（mml）：0人',
+            '  - 舞萌 DX（adx）：未上报', '  - 舞萌 DX（adx）：2人（闭店）',
+        ])
+
+    def test_summary_with_no_games_keeps_shop_heading_and_empty_state(self):
+        result = ArcadeQueryResult('测试机厅', (), source='nearcade')
+        self.assertEqual(format_arcade_query(result, compact=True), '店名：测试机厅\n  - 暂无游戏记录')
+
+    def test_current_maimai_reply_keeps_counts_and_updater_without_wait_details(self):
         result = self.format(machine_count=2)
         self.assertIn('🎮 舞萌 DX：当前 5 人', result)
-        self.assertIn('🕹️ 机台数量：2 台（每轮最多 4 人）', result)
-        self.assertIn('预计等待：约 4 分钟（仅供参考）', result)
-        self.assertIn('范围：0~16 分钟（0~1 轮）', result)
-        self.assertIn('💡', result)
+        self.assertIn('🕹️ 机台数量：2 台', result)
+        for text in ('等待', '每轮', '范围：', '出勤', '💡'):
+            self.assertNotIn(text, result)
         self.assertIn('（测试玩家 · 2026-10-19 15:00:00）', result)
+
+    def test_all_games_and_counter_states_omit_wait_messages(self):
+        for game in (*ARCADE_GAMES, resolve_arcade_game('maiA区')):
+            for known in (False, True):
+                for machines in (None, 0, 2):
+                    for status in ('营业', '闭店'):
+                        with self.subTest(game=game.key, known=known, machines=machines, status=status):
+                            self.record.status = status
+                            result = self.format(game, known=known, machine_count=machines)
+                            for text in ('等待', '每轮', '范围：', '出勤', '分钟'):
+                                self.assertNotIn(text, result)
 
     def test_zero_is_reported_but_not_a_guarantee_of_no_wait(self):
         self.record.person = 0
         result = self.format(machine_count=2)
         self.assertIn('当前 0 人', result)
-        self.assertIn('约 0 分钟', result)
-        self.assertIn('现场情况', result)
+        self.assertNotIn('等待', result)
+        self.assertNotIn('每轮', result)
         self.assertNotIn('尚未上报', result)
 
     def test_stale_and_unknown_dates_do_not_generate_current_wait_advice(self):
         for stamp in ('2026-10-18 23:00:00', '2026-10-20 00:00:00', '', '旧时间'):
             self.record.time = stamp
             result = self.format(machine_count=2)
-            self.assertIn('暂不估算等待时间', result)
-            self.assertNotIn('预计等待：约', result)
+            self.assertIn(stamp or '时间未知', result)
+            self.assertNotIn('等待', result)
             self.assertNotIn('💡', result)
 
     def test_closed_status_never_promises_that_zero_means_go_play(self):
@@ -111,9 +158,8 @@ class ArcadeMessageFormatTest(unittest.TestCase):
         self.assertNotIn('预计等待：约', result)
         result = self.format(chu, machine_count=2)
         self.assertIn('机台数量：2 台', result)
-        self.assertIn('每轮最多 2 人', result)
-        self.assertIn('每轮时间：12 分钟', result)
-        self.assertIn('预计等待：约 0 分钟', result)
+        self.assertNotIn('每轮', result)
+        self.assertNotIn('等待', result)
 
     def test_explicit_counts_are_independent_and_zero_disables_wait_estimation(self):
         chu, zone = resolve_arcade_game('chu'), resolve_arcade_game('maiA区')
@@ -137,7 +183,18 @@ class ArcadeMessageFormatTest(unittest.TestCase):
 
 
 class ArcadeMessageHandlerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_group_query_lists_subscribed_shops_with_both_round_models(self):
+    async def test_global_arcade_alias_can_be_added_and_removed_by_local_id(self):
+        record = arcade()
+        with (patch.object(mai_arcade.arcade, 'total', a.ArcadeList([record]), create=True),
+              patch.object(a.ArcadeList, 'save_arcade', AsyncMock(return_value=True)) as save):
+            for command, expected in (('添加机厅别名 123 新别名', '已添加别名：新别名'),
+                                      ('删除机厅别名 123 新别名', '已删除别名：新别名')):
+                result = await collect(mai_arcade.arcade_alias_handler, event(text=command))
+                self.assertIn(expected, result[0])
+            self.assertEqual(save.await_count, 2)
+        self.assertNotIn('新别名', record.alias)
+
+    async def test_group_and_single_shop_queries_keep_counts_without_wait_details(self):
         record, other = arcade(), arcade(name='另一机厅', id='124')
         record.game_machine_counts['chu'] = 2
         records = a.ArcadeList([record, other])
@@ -149,19 +206,18 @@ class ArcadeMessageHandlerTest(unittest.IsolatedAsyncioTestCase):
             await collect(mai_arcade.arcade_person_handler, event(text='测试机厅mai5chu3'), api)
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), api))[0]
             details = (await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅几人'), api))[0]
-        first, second = result.splitlines()
-        self.assertIn('舞萌5人', first)
-        self.assertIn('中二3人', first)
+        first, second = result.split('\n\n')
+        self.assertIn('店名：测试机厅\n', first)
+        self.assertIn('  - 舞萌：5人', first)
+        self.assertIn('  - 中二：3人', first)
         self.assertNotIn('预计等待', result)
         self.assertNotIn('每轮时间', result)
         first = details
         self.assertIn('舞萌 DX：当前 5 人', first)
-        self.assertIn('每轮时间：16 分钟', first)
-        self.assertIn('预计等待：约 4 分钟', first)
         self.assertIn('中二节奏：当前 3 人', first)
-        self.assertIn('每轮时间：12 分钟', first)
-        self.assertIn('预计等待：约 6 分钟', first)
-        self.assertIn('范围：0~12 分钟', first)
+        self.assertIn('机台数量：2 台', first)
+        for text in ('等待', '每轮', '范围：', '出勤'):
+            self.assertNotIn(text, first)
         self.assertNotIn('中二节奏', second)
         self.assertIn('另一机厅', second)
         api._request.assert_not_awaited()
@@ -179,13 +235,13 @@ class ArcadeMessageHandlerTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn('📍 机厅：测试机厅', updated)
             self.assertIn('人数已更新为 5 人', updated)
             self.assertIn('机台数量：2 台', updated)
-            self.assertIn('预计等待', updated)
+            self.assertNotIn('等待', updated)
             self.assertIn('（测试用户 · ', updated)
             self.assertIn('☁️ 已同步 nearcade', updated)
             queried = (await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅几人'), api))[0]
             self.assertIn('📍 机厅：测试机厅', queried)
             self.assertIn('舞萌 DX：当前 5 人', queried)
-            self.assertIn('预计等待', queried)
+            self.assertNotIn('等待', queried)
             api._request.assert_not_awaited()
             api.upload_attendance.reset_mock()
             api.upload_attendance.side_effect = ['已同步', RuntimeError('private-token')]
@@ -194,7 +250,9 @@ class ArcadeMessageHandlerTest(unittest.IsolatedAsyncioTestCase):
             self.assertIn('中二节奏：本地更新成功，当前 2 人；云端未确认同步', batch)
             self.assertIn('本地记录保留', batch)
             self.assertNotIn('private-token', batch)
-            self.assertEqual(batch.count('预计等待：约'), 1)
+            for message in (updated, queried, batch):
+                for text in ('等待', '每轮', '范围：', '出勤'):
+                    self.assertNotIn(text, message)
 
     async def test_local_save_failure_has_clear_failure_marker_without_wait_or_cloud_success(self):
         record = arcade()

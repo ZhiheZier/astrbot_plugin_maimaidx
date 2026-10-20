@@ -98,9 +98,9 @@ class GameAttendanceTest(unittest.IsolatedAsyncioTestCase):
                 self.assertIn('中二节奏', result[0])
                 self.assertNotIn('平均', result[0])
             result = await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'))
-            self.assertIn('舞萌2人', result[0])
+            self.assertIn('舞萌：2人', result[0])
             self.assertNotIn('中二玩家', result[0])
-            self.assertIn('中二7人', result[0])
+            self.assertIn('中二：7人', result[0])
 
     async def test_save_refreshes_in_memory_download_source_and_persists_game_records(self):
         record = arcade()
@@ -352,9 +352,9 @@ class NamedArcadePartitionTest(unittest.IsolatedAsyncioTestCase):
                                   (mai_arcade.arcade_query_person_handler, '123几人')):
                 result = (await collect(handler, event(text=text), self.api))[0]
                 if handler is mai_arcade.arcade_query_multiple_handler:
-                    self.assertIn('maiA区5人', result)
-                    self.assertIn('maiB区3人', result)
-                    self.assertIn('中二2人', result)
+                    self.assertIn('maiA区：5人', result)
+                    self.assertIn('maiB区：3人', result)
+                    self.assertIn('中二：2人', result)
                     self.assertNotIn('更新于', result)
                     continue
                 self.assertIn('maiA区：当前 5 人', result)
@@ -379,8 +379,8 @@ class NamedArcadePartitionTest(unittest.IsolatedAsyncioTestCase):
         before = self.record.model_dump()
         with patch.object(mai_arcade.arcade, 'total', self.records, create=True):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))[0]
-            self.assertIn('maiA区未上报', result)
-            self.assertIn('maiB区未上报', result)
+            self.assertIn('maiA区：未上报', result)
+            self.assertIn('maiB区：未上报', result)
             self.assertNotIn('未分区旧记录', result)
             self.assertNotIn('当前 0 人', result)
             result = (await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅maiB区几人'), self.api))[0]
@@ -444,12 +444,12 @@ class NamedArcadePartitionTest(unittest.IsolatedAsyncioTestCase):
         records = a.ArcadeList([self.record, other, private])
         with patch.object(mai_arcade.arcade, 'total', records, create=True):
             result = (await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))[0]
-            first, second = result.splitlines()
+            first, second = result.split('\n\n')
             self.assertIn('maiA区', first)
             self.assertIn('另一机厅', second)
-            self.assertIn('太鼓达人7人', second)
+            self.assertIn('太鼓达人：7人', second)
             self.assertNotIn('maiA区', second)
-            self.assertNotIn('未订阅机厅', result)
+            self.assertNotIn('未订阅机厅', '\n'.join((first, second)))
             result = (await collect(mai_arcade.arcade_query_person_handler, event(text='maiA区几人'), self.api))[0]
             self.assertNotIn('未订阅机厅', result)
             self.assertNotIn('另一机厅', result)

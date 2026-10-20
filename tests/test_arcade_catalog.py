@@ -179,10 +179,10 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
             await self.api.search_catalog('测试')
         self.assertEqual(self.api.catalog, [])
 
-    async def test_summary_reads_native_cloud_ids_and_remains_one_line_per_shop(self):
+    async def test_summary_reads_native_cloud_ids_and_lists_game_records(self):
         await self.subscribe()
         result = await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api)
-        self.assertEqual(result, ['测试机厅 舞萌5人｜中二3人'])
+        self.assertEqual(result, ['店名：测试机厅\n  - 舞萌 DX：5人\n  - 中二节奏：3人'])
         self.assertTrue(all(call.args[1] != '/shops/999' for call in self.api._request.await_args_list))
 
     async def test_single_query_finds_unsubscribed_cloud_shop_not_in_local_catalog(self):
@@ -230,7 +230,7 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(NearcadeArcadeList(self.path)[0].person, 3)
         self.api._request.side_effect = NearcadeError('offline')
         fallback = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertIn('舞萌3人', fallback)
+        self.assertIn('舞萌：3人', fallback)
 
     async def test_cloud_read_failure_does_not_apply_increment_against_stale_local_count(self):
         await self.subscribe()
@@ -246,7 +246,7 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('云端未找到该游戏', result)
         self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
 
-    async def test_duplicate_game_records_are_grouped_by_game_not_description(self):
+    async def test_duplicate_game_records_are_displayed_individually_but_reporting_stays_grouped(self):
         self.games[0].update(name='舞萌 DX（官机）', version='2026')
         self.games.extend([game(gameId=456002, name='舞萌 DX（MML）', version='mml', quantity=1),
                            game(gameId=456003, name='舞萌 DX（手台）', version='adx', quantity=1)])
@@ -254,7 +254,8 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual({item.key for item in self.api.games_for('456')}, {'mai', 'chu'})
         self.assertEqual(self.api.catalog[0].game_machine_counts, {'mai': 4, 'chu': 2})
         summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertEqual(summary, '测试机厅 舞萌15人｜中二3人')
+        self.assertEqual(summary, '店名：测试机厅\n  - 舞萌 DX（2026）：5人\n'
+                         '  - 舞萌 DX（mml）：5人\n  - 舞萌 DX（adx）：5人\n  - 中二节奏：3人')
         details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='456mai几人'), self.api))
         for version in ('2026', 'mml', 'adx'):
             self.assertEqual(details.count(f'舞萌 DX（{version}）：'), 1)
@@ -291,7 +292,7 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('456000', details)
         self.assertNotIn('456001', details)
         summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertEqual(summary, '测试机厅 舞萌5人｜中二3人')
+        self.assertEqual(summary, '店名：测试机厅\n  - 舞萌 DX（CN1.56-A）：5人\n  - 中二节奏：3人')
         self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
 
     async def test_other_game_families_are_aggregated_without_mixing_with_maimai(self):
@@ -333,7 +334,7 @@ class ArcadeCatalogTest(unittest.IsolatedAsyncioTestCase):
         self.api._catalog = records
         self.api._request.side_effect = NearcadeError('offline')
         result = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertIn('舞萌5人｜中二1人', result)
+        self.assertIn('舞萌：5人\n  - 中二：1人', result)
         self.assertNotIn('机台456', result)
         await records.save_arcade()
         self.assertEqual(NearcadeArcadeList(self.path)[0].model_dump(), records[0].model_dump())

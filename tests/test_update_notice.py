@@ -7,7 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from .. import Root, __version__
-from ..libraries.maimaidx_update_notice import CHANGELOG_URL, UpdateNotifier, update_message
+from ..libraries.maimaidx_update_notice import (
+    CHANGELOG_URL, NOTICE_TEXT_LIMIT, UpdateNotifier, update_message, update_message_chunks,
+)
 from ..main import MaimaiDXPlugin
 
 
@@ -26,7 +28,13 @@ def context(*platforms, configs=None):
 
 def client(groups=(100, 200)):
     return SimpleNamespace(get_group_list=AsyncMock(return_value=[{'group_id': group} for group in groups]),
-                           send_group_msg=AsyncMock())
+                           get_login_info=AsyncMock(return_value={'user_id': 123456, 'nickname': '测试BOT'}),
+                           send_group_msg=AsyncMock(), send_group_forward_msg=AsyncMock())
+
+
+def delivered_message(bot):
+    return ''.join(node['data']['content'][0]['data']['text']
+                   for node in bot.send_group_forward_msg.await_args.kwargs['messages'])
 
 
 class UpdateMessageTest(unittest.TestCase):
@@ -102,16 +110,71 @@ class UpdateMessageTest(unittest.TestCase):
         self.assertNotIn('最新功能', update_message(CHANGELOG, '1.5.0', '1.5.1'))
         self.assertIn('\n\n【v1.5.1】', message)
 
-    def test_long_changelog_is_bounded_and_has_help_and_full_log(self):
+    def test_long_changelog_is_complete_and_has_help_and_full_log(self):
         text = '## v1.5.1\n### 新功能\n' + '- 更新功能内容\n' * 600
         message = update_message(text, '1.5.0', '1.5.1')
-        self.assertLessEqual(len(message), 1800)
+        self.assertGreater(len(message), NOTICE_TEXT_LIMIT)
+        self.assertEqual(message.count('- 更新功能内容'), 600)
         self.assertIn('maihelp', message)
         self.assertIn('完整更新日志', message)
-        self.assertIn('更多内容', message)
+        self.assertNotIn('更多内容见', message)
         self.assertIn('\n\n功能使用说明请通过 /maihelp 查看。\n功能建议或问题反馈', message)
         self.assertIn('contact@zhihezier.com', message)
         self.assertTrue(message.endswith('https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues'))
+
+    def test_forward_chunks_preserve_all_text_and_version_boundaries(self):
+        message = update_message(CHANGELOG, '1.5.0', '1.5.2')
+        chunks = update_message_chunks(message)
+        self.assertEqual(''.join(chunks), message)
+        self.assertTrue(any(chunk.startswith('【v1.5.2】') for chunk in chunks))
+        self.assertTrue(any(chunk.startswith('【v1.5.1】') for chunk in chunks))
+        self.assertTrue(all(0 < len(chunk) <= NOTICE_TEXT_LIMIT for chunk in chunks))
+
+    def test_forward_chunks_handle_long_lines_and_threshold_boundaries(self):
+        for text in ('x' * NOTICE_TEXT_LIMIT, 'x' * (NOTICE_TEXT_LIMIT + 1),
+                     '前言\n' + '长' * (NOTICE_TEXT_LIMIT * 3) + '\n结尾',
+                     '多行内容\n' * 1000):
+            with self.subTest(length=len(text)):
+                chunks = update_message_chunks(text)
+                self.assertEqual(''.join(chunks), text)
+                self.assertTrue(all(0 < len(chunk) <= NOTICE_TEXT_LIMIT for chunk in chunks))
+
+    def test_short_single_version_notice_has_intro_and_release_nodes(self):
+        message = update_message(CHANGELOG, '1.5.0', '1.5.1')
+        chunks = update_message_chunks(message)
+        self.assertEqual(len(chunks), 3)
+        self.assertTrue(chunks[0].startswith('舞萌DX插件已更新：'))
+        self.assertTrue(chunks[1].startswith('【v1.5.1】'))
+        self.assertIn('容错计算', chunks[1])
+        self.assertNotIn('完整更新日志：', chunks[1])
+        self.assertTrue(chunks[-1].startswith(f'完整更新日志：{CHANGELOG_URL}'))
+        self.assertIn('/maihelp', chunks[-1])
+        self.assertTrue(chunks[-1].endswith('https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues'))
+        self.assertEqual(''.join(chunks), message)
+
+    def test_footer_is_a_separate_last_node_for_all_notice_types(self):
+        long_changelog = CHANGELOG.replace('- 最新功能', '- 最新功能\n' * 600)
+        for changelog, previous, current in (
+            (CHANGELOG, None, '1.5.1'),
+            (CHANGELOG, '1.5.0', '1.5.2'),
+            (long_changelog, '1.5.0', '1.5.2'),
+            ('', '1.5.0', '1.5.1'),
+            ('## v1.5.1\n### 其他\n- 内部内容', None, '1.5.1'),
+        ):
+            with self.subTest(previous=previous, current=current, length=len(changelog)):
+                message = update_message(changelog, previous, current)
+                chunks = update_message_chunks(message)
+                footer = chunks[-1]
+                self.assertTrue(footer.startswith(f'完整更新日志：{CHANGELOG_URL}'))
+                self.assertIn('/maihelp', footer)
+                self.assertIn('contact@zhihezier.com', footer)
+                self.assertTrue(footer.endswith('https://github.com/ZhiheZier/astrbot_plugin_maimaidx/issues'))
+                self.assertLessEqual(len(footer), NOTICE_TEXT_LIMIT)
+                for chunk in chunks[:-1]:
+                    self.assertNotIn(f'完整更新日志：{CHANGELOG_URL}', chunk)
+                    self.assertNotIn('/maihelp', chunk)
+                    self.assertNotIn('contact@zhihezier.com', chunk)
+                self.assertEqual(''.join(chunks), message)
 
     def test_feedback_is_last_line_for_initial_upgrade_and_missing_changelog(self):
         footer = ('功能建议或问题反馈，请发送邮件至 contact@zhihezier.com，或提交 Issue：'
@@ -155,29 +218,104 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         bot = client()
         await self.notifier().run(context(platform(bot)), lambda group: True)
         self.assertEqual(self.state(), {'version': '1.5.1', 'pending': None})
-        self.assertEqual(bot.send_group_msg.await_count, 2)
-        message = bot.send_group_msg.await_args.kwargs['message'][0]['data']['text']
+        self.assertEqual(bot.send_group_forward_msg.await_count, 2)
+        bot.send_group_msg.assert_not_awaited()
+        bot.get_login_info.assert_awaited_once()
+        message = delivered_message(bot)
         self.assertIn('当前版本：v1.5.1', message)
         self.assertIn('容错计算', message)
         self.assertNotIn('旧功能', message)
         await self.notifier().run(context(platform(bot)), lambda group: True)
-        self.assertEqual(bot.send_group_msg.await_count, 2)
+        self.assertEqual(bot.send_group_forward_msg.await_count, 2)
+
+    async def test_long_cross_version_notice_uses_complete_forward_nodes(self):
+        changelog = CHANGELOG.replace('- 最新功能', '- 最新功能\n' * 300)
+        self.changelog.write_text(changelog, encoding='utf-8')
+        self.seed()
+        notice = self.notifier('1.5.2')
+        notice._prepare()
+        bot = client()
+        self.assertTrue(await notice.send_pending(context(platform(bot)), lambda group: True))
+        bot.send_group_msg.assert_not_awaited()
+        bot.get_login_info.assert_awaited_once()
+        self.assertEqual(bot.send_group_forward_msg.await_count, 2)
+        nodes = bot.send_group_forward_msg.await_args.kwargs['messages']
+        texts = []
+        for node in nodes:
+            self.assertEqual(node['type'], 'node')
+            self.assertEqual(node['data']['user_id'], '123456')
+            self.assertEqual(node['data']['nickname'], '测试BOT')
+            content = node['data']['content']
+            self.assertEqual(len(content), 1)
+            self.assertEqual(content[0]['type'], 'text')
+            texts.append(content[0]['data']['text'])
+        self.assertTrue(all(0 < len(text) <= NOTICE_TEXT_LIMIT for text in texts))
+        self.assertEqual(''.join(texts), update_message(changelog, '1.5.0', '1.5.2'))
+        self.assertEqual(self.state(), {'version': '1.5.2', 'pending': None})
+
+    async def test_all_lengths_use_forward_messages(self):
+        for length in (1, NOTICE_TEXT_LIMIT, NOTICE_TEXT_LIMIT + 1):
+            with self.subTest(length=length):
+                self.seed()
+                notice = self.notifier()
+                notice._prepare()
+                bot = client((100,))
+                with patch('data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_update_notice.update_message',
+                           return_value='x' * length):
+                    self.assertTrue(await notice.send_pending(context(platform(bot)), lambda group: True))
+                bot.send_group_msg.assert_not_awaited()
+                bot.send_group_forward_msg.assert_awaited_once()
+                self.assertEqual(delivered_message(bot), 'x' * length)
+
+    async def test_forward_failure_retries_only_failed_groups_after_restart(self):
+        self.changelog.write_text('## v1.5.1\n### 修复\n' + '- 修复\n' * 600, encoding='utf-8')
+        self.seed()
+        notice = self.notifier()
+        notice._prepare()
+        bot = client()
+        bot.send_group_forward_msg.side_effect = [None, RuntimeError('offline')]
+        self.assertFalse(await notice.send_pending(context(platform(bot)), lambda group: True))
+        self.assertEqual(self.state()['version'], '1.5.0')
+        self.assertEqual(self.state()['pending']['delivered'], ['qq-1:100'])
+        resumed = self.notifier()
+        resumed._prepare()
+        bot.send_group_forward_msg.reset_mock(side_effect=True)
+        self.assertTrue(await resumed.send_pending(context(platform(bot)), lambda group: True))
+        bot.send_group_forward_msg.assert_awaited_once()
+        self.assertEqual(bot.send_group_forward_msg.await_args.kwargs['group_id'], 200)
+        bot.send_group_msg.assert_not_awaited()
+        self.assertIsNone(self.state()['pending'])
+
+    async def test_login_failure_does_not_mark_long_notice_delivered(self):
+        self.changelog.write_text('## v1.5.1\n### 修复\n' + '- 修复\n' * 600, encoding='utf-8')
+        self.seed()
+        notice = self.notifier()
+        notice._prepare()
+        bot = client((100,))
+        bot.get_login_info.side_effect = RuntimeError('offline')
+        self.assertFalse(await notice.send_pending(context(platform(bot)), lambda group: True))
+        self.assertEqual(self.state()['pending']['delivered'], [])
+        bot.send_group_msg.assert_not_awaited()
+        bot.send_group_forward_msg.assert_not_awaited()
+        bot.get_login_info.side_effect = None
+        self.assertTrue(await notice.send_pending(context(platform(bot)), lambda group: True))
+        bot.send_group_forward_msg.assert_awaited_once()
 
     async def test_first_broadcast_resumes_failed_groups_after_restart(self):
         notice = self.notifier()
         self.assertTrue(notice._prepare())
         bot = client()
-        bot.send_group_msg.side_effect = [None, RuntimeError('offline')]
+        bot.send_group_forward_msg.side_effect = [None, RuntimeError('offline')]
         self.assertFalse(await notice.send_pending(context(platform(bot)), lambda group: True))
         self.assertTrue(self.state()['pending']['initial'])
         self.assertEqual(self.state()['pending']['delivered'], ['qq-1:100'])
         resumed = self.notifier()
         self.assertTrue(resumed._prepare())
-        bot.send_group_msg.reset_mock(side_effect=True)
+        bot.send_group_forward_msg.reset_mock(side_effect=True)
         self.assertTrue(await resumed.send_pending(context(platform(bot)), lambda group: True))
-        bot.send_group_msg.assert_awaited_once()
-        self.assertEqual(bot.send_group_msg.await_args.kwargs['group_id'], 200)
-        self.assertIn('当前版本：', bot.send_group_msg.await_args.kwargs['message'][0]['data']['text'])
+        bot.send_group_forward_msg.assert_awaited_once()
+        self.assertEqual(bot.send_group_forward_msg.await_args.kwargs['group_id'], 200)
+        self.assertIn('当前版本：', delivered_message(bot))
         self.assertIsNone(self.state()['pending'])
 
     async def test_broadcast_respects_feature_whitelist_and_disabled_groups(self):
@@ -187,8 +325,8 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         plugin.disabled_groups = {'200'}
         bot = client((100, 200, 300))
         await self.notifier().run(context(platform(bot)), plugin._is_group_enabled)
-        bot.send_group_msg.assert_awaited_once()
-        self.assertEqual(bot.send_group_msg.await_args.kwargs['group_id'], 100)
+        bot.send_group_forward_msg.assert_awaited_once()
+        self.assertEqual(bot.send_group_forward_msg.await_args.kwargs['group_id'], 100)
 
     async def test_equal_version_and_downgrade_never_broadcast_or_overwrite(self):
         self.seed('1.5.2')
@@ -210,11 +348,11 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(notice._prepare())
         bot = client((100, 200, 100))
         self.assertTrue(await notice.send_pending(context(platform(bot)), lambda group: group != '200'))
-        self.assertEqual(bot.send_group_msg.await_count, 1)
-        arguments = bot.send_group_msg.await_args.kwargs
+        self.assertEqual(bot.send_group_forward_msg.await_count, 1)
+        arguments = bot.send_group_forward_msg.await_args.kwargs
         self.assertEqual(arguments['group_id'], 100)
-        self.assertEqual(arguments['message'][0]['type'], 'text')
-        self.assertIn('容错计算', arguments['message'][0]['data']['text'])
+        self.assertEqual(arguments['messages'][0]['type'], 'node')
+        self.assertIn('容错计算', delivered_message(bot))
         self.assertEqual(self.state()['version'], '1.5.1')
 
     async def test_restart_retries_only_failed_groups(self):
@@ -222,16 +360,16 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         notice = self.notifier()
         notice._prepare()
         bot = client()
-        bot.send_group_msg.side_effect = [None, RuntimeError('offline')]
+        bot.send_group_forward_msg.side_effect = [None, RuntimeError('offline')]
         self.assertFalse(await notice.send_pending(context(platform(bot)), lambda group: True))
         self.assertEqual(self.state()['version'], '1.5.0')
         self.assertEqual(self.state()['pending']['delivered'], ['qq-1:100'])
         resumed = self.notifier()
         self.assertTrue(resumed._prepare())
-        bot.send_group_msg.reset_mock(side_effect=True)
+        bot.send_group_forward_msg.reset_mock(side_effect=True)
         self.assertTrue(await resumed.send_pending(context(platform(bot)), lambda group: True))
-        bot.send_group_msg.assert_awaited_once()
-        self.assertEqual(bot.send_group_msg.await_args.kwargs['group_id'], 200)
+        bot.send_group_forward_msg.assert_awaited_once()
+        self.assertEqual(bot.send_group_forward_msg.await_args.kwargs['group_id'], 200)
         self.assertIsNone(self.state()['pending'])
 
     async def test_platform_is_not_ready_then_recovers(self):
@@ -256,8 +394,8 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await notice.send_pending(ctx, lambda group: True))
         ctx.platform_manager.platform_insts.append(platform(bot2, 'qq-2'))
         self.assertTrue(await notice.send_pending(ctx, lambda group: True))
-        self.assertEqual(bot1.send_group_msg.await_count, 1)
-        self.assertEqual(bot2.send_group_msg.await_count, 1)
+        self.assertEqual(bot1.send_group_forward_msg.await_count, 1)
+        self.assertEqual(bot2.send_group_forward_msg.await_count, 1)
 
     async def test_closed_group_is_rechecked_during_delivery(self):
         self.seed()
@@ -269,9 +407,9 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         async def sent(**kwargs):
             disabled.add('200')
 
-        bot.send_group_msg.side_effect = sent
+        bot.send_group_forward_msg.side_effect = sent
         self.assertTrue(await notice.send_pending(context(platform(bot)), lambda group: group not in disabled))
-        self.assertEqual(bot.send_group_msg.await_count, 1)
+        self.assertEqual(bot.send_group_forward_msg.await_count, 1)
 
     async def test_concurrent_delivery_does_not_duplicate(self):
         self.seed()
@@ -280,7 +418,7 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         bot = client((100,))
         ctx = context(platform(bot))
         self.assertEqual(await asyncio.gather(*(notice.send_pending(ctx, lambda group: True) for _ in range(2))), [True, True])
-        self.assertEqual(bot.send_group_msg.await_count, 1)
+        self.assertEqual(bot.send_group_forward_msg.await_count, 1)
 
     async def test_malformed_record_is_preserved_and_does_not_broadcast(self):
         for data in ('bad json', '[]', '{"version":"invalid"}',
@@ -291,6 +429,7 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
                 await self.notifier().run(context(platform(bot)), lambda group: True)
             self.assertEqual(self.path.read_text(encoding='utf-8'), data)
             bot.send_group_msg.assert_not_awaited()
+            bot.send_group_forward_msg.assert_not_awaited()
 
     async def test_downgrade_during_pending_higher_release_keeps_checkpoint(self):
         pending = {'version': '1.5.2', 'delivered': ['qq-1:100']}

@@ -186,7 +186,9 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
     async def test_subscription_view_never_displays_other_group_aliases(self):
         await self.change()
         await self.change('添加群机厅别名 123 其他群秘密简称', group='300')
-        result = '\n'.join(await collect(mai_arcade.check_subscribe_handler, event(text='查看订阅')))
+        replies = await collect(mai_arcade.check_subscribe_handler, event(text='查看订阅'))
+        self.assertEqual(len(replies), 1)
+        result = replies[0]
         self.assertIn('本群别名：天街', result)
         self.assertNotIn('其他群秘密简称', result)
 

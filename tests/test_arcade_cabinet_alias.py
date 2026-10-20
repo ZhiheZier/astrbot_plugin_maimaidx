@@ -83,7 +83,7 @@ class CabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('mml：当前 2 人', result)
         self.assertNotIn('抬手乐', result)
         result = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertEqual(result, '测试机厅 舞萌7人｜中二1人')
+        self.assertEqual(result, '店名：测试机厅\n  - 舞萌：7人\n  - 中二：1人')
         result = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅mai几人'), self.api))
         self.assertIn('当前 7 人', result)
         self.assertNotIn('mml：', result)
@@ -213,7 +213,8 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('CN1.56-A', result)
         self.assertNotIn('中二', result)
         summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
-        self.assertEqual(summary, '测试机厅 舞萌7人｜中二1人')
+        self.assertEqual(summary, '店名：测试机厅\n  - 舞萌 DX（CN1.56-A）：5人\n'
+                         '  - 舞萌 DX（mml）：2人\n  - 中二节奏（mml）：1人')
         details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='456几人'), self.api))
         self.assertEqual(details.count('舞萌 DX（mml）：'), 1)
         self.assertEqual(details.count('中二节奏（mml）：'), 1)

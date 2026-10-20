@@ -24,8 +24,9 @@ from .permissions import can_manage_group as is_admin
 from ..libraries.maimaidx_nearcade import NearcadeClient, NearcadeError
 from ..libraries.maimaidx_arcade_games import DEFAULT_ARCADE_GAME, split_arcade_game, parse_arcade_reports, resolve_arcade_game
 from ..libraries.maimaidx_arcade_messages import attendance_machine_count, format_attendance_lines
-from .mai_arcade_queries import query_arcade_messages
+from .mai_arcade_queries import query_arcade_blocks, query_arcade_messages
 from .mai_arcade_catalog import catalog_management_handler
+from .mai_arcade_replies import arcade_list_results
 
 
 def _arcade_records(nearcade=None):
@@ -216,7 +217,7 @@ sv_help = """排卡指令如下：
 添加机厅 <店名> <地址> <机台数量> 添加机厅信息
 删除机厅 <店名> 删除机厅信息
 修改机厅 <店名/ID> [游戏/分区名] 数量 <数量> 独立设置各游戏机台数，如修改机厅 123 chu 数量 2
-添加机厅别名 <店名> <别名>
+添加机厅别名 / 删除机厅别名 <店名/ID> <别名>
 添加群机厅别名 / 删除群机厅别名 <店名/ID> <别名> 添加前需订阅该机厅（管理员或群管理员），支持查找、订阅、查询和报人数
 订阅机厅 <店名> 订阅机厅，简化后续指令
 查看订阅 查看群组订阅机厅的信息
@@ -228,10 +229,10 @@ sv_help = """排卡指令如下：
 同时报多个游戏：机厅mai3chu2；可加空格，逐项返回本地及云端结果
 游戏支持舞萌/mai、中二/chu、太鼓/taiko、sdvx、iidx、音击/ongeki、wacca、jubeat等；省略默认舞萌
 <店名/别名>=-1 闭店，清空人数并标记为闭店状态
-<店名/别名> [游戏]几人 查看所选游戏的排卡人数，也可用几、j、jr等后缀，如机厅中二几
-机厅几人 / jtj 每家机厅一行列出已订阅机厅各游戏人数，不显示等待等详情
+<店名/别名/ID> [游戏]几人 查看所选游戏的排卡人数，也可用几、j、jr等后缀，如14871几人、14871mai几；本地模式用本地ID，nearcade模式用云端ID
+机厅几人 / jtj 按已订阅机厅分组，云端游戏记录逐行列出，不显示等待等详情，长列表折叠为聊天记录
 已映射机厅优先读取nearcade人数及机台数量，无需Token，失败标明本地；查询不上传、不覆盖本地记录
-更新及查询显示更新者、时间和机台信息；当日记录有可靠机台数时估算等待：舞萌每轮16分钟、每台2人，其他每轮12分钟、每台1人，仅供参考
+更新及单机厅查询保留人数、机台数量、更新者和时间；不显示等待时间、轮次、每轮容量及出勤建议
 直接发送QQ位置卡 查询附近舞萌DX机厅（需管理员开启位置查询，不依赖排卡开关）
 管理员可在配置中选择 local 本地机厅或 nearcade 云端机厅数据源，默认local；两种订阅独立保存
 nearcade模式直接查找、订阅云端店铺ID，无需本地机厅或映射；同类记录合并人数和机台数，官机、MML、手台等舞萌DX描述不分区
@@ -372,7 +373,7 @@ async def arcade_alias_handler(event: AstrMessageEvent, *, nearcade=None):
     
     args: List[str] = args_str.split()
     if len(args) != 2:
-        yield event.plain_result('格式错误：添加/删除机厅别名 <店名> <别名>')
+        yield event.plain_result('格式错误：添加/删除机厅别名 <店名/ID> <别名>')
         return
     
     if not args[0].isdigit() and len(_arc := arcade.total.search_fullname(args[0])) > 1:
@@ -547,8 +548,8 @@ async def check_subscribe_handler(event: AstrMessageEvent, *, nearcade=None):
     - 数量：{a.num}
     - 别名：{alias}
     - 本群别名：{'、'.join(a.group_aliases.get(str(gid), [])) or '无'}''')
-        msg = '\n'.join(result)
-        yield event.plain_result(msg)
+        for reply in arcade_list_results(event, result):
+            yield reply
     else:
         yield event.plain_result('该群未订阅任何机厅')
 
@@ -733,8 +734,9 @@ async def arcade_query_multiple_handler(event: AstrMessageEvent, nearcade: Nearc
         except NearcadeError as exc:
             yield event.plain_result(f'排卡映射配置有误：{exc}')
             return
-        for message in await query_arcade_messages(arcade_list, configured, nearcade, compact=True):
-            yield event.plain_result(message)
+        blocks = await query_arcade_blocks(arcade_list, configured, nearcade, compact=True)
+        for reply in arcade_list_results(event, blocks):
+            yield reply
     else:
         yield event.plain_result('该群未订阅任何机厅')
 

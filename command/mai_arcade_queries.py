@@ -6,7 +6,7 @@ from ..libraries.maimaidx_arcade_messages import format_arcade_query, local_arca
 from ..libraries.maimaidx_nearcade import NearcadeError
 
 
-async def query_arcade_messages(records, configured, nearcade=None, *, selected=None, compact=False):
+async def query_arcade_blocks(records, configured, nearcade=None, *, selected=None, compact=False):
     cloud = await nearcade.read_attendance(record.id for record in records) if nearcade else {}
     messages = []
     for record in records:
@@ -24,4 +24,9 @@ async def query_arcade_messages(records, configured, nearcade=None, *, selected=
                 rows = tuple(row for row in rows if ':@' not in row.game.key or row.game.family_key not in totals)
             result = replace(result, name=result.name or record.name, games=rows)
         messages.append(format_arcade_query(result, compact=compact))
-    return list(split_arcade_query_messages(messages, compact=compact))
+    return messages
+
+
+async def query_arcade_messages(records, configured, nearcade=None, *, selected=None, compact=False):
+    blocks = await query_arcade_blocks(records, configured, nearcade, selected=selected, compact=compact)
+    return list(split_arcade_query_messages(blocks, compact=compact))
