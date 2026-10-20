@@ -479,6 +479,7 @@ MIT License
 - 原项目：[maimaiDX](https://github.com/Yuri-YuzuChaN/maimaiDX)
 - 水鱼查分器：[mai-bot](https://github.com/Diving-Fish/mai-bot) / [Diving-Fish](https://www.diving-fish.com/maimaidx/prober/)
 - 落雪查分器：[Lxns-Network](https://maimai.lxns.net/)
+- 机厅数据与云端上报：[nearcade](https://github.com/Naptie/nearcade) / [机厅查询](https://nearca.de/shops)
 - 框架：[AstrBot](https://astrbot.app)
 
 ## 支持
