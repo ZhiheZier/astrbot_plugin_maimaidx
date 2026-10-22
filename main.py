@@ -1329,7 +1329,9 @@ class MaimaiDXPlugin(Star):
     async def arcade_person(self, event: AstrMessageEvent):
         """操作排卡人数"""
         group_id = event.message_obj.group_id
-        if group_id and (
+        if not group_id:
+            return
+        if (
             not self._is_group_enabled(str(group_id))
             or not self._is_arcade_enabled(str(group_id))
         ):

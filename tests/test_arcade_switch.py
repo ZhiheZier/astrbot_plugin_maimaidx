@@ -93,6 +93,12 @@ class ArcadeSearchSwitchTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(await self.call(), ['handled'])
             handler.assert_called_once_with(self.request)
 
+    async def test_private_chat_does_not_reach_queue_person_handler(self):
+        self.request.message_obj.group_id = None
+        with patch.object(mai_arcade, 'arcade_person_handler', Mock(side_effect=self.reply)) as handler:
+            self.assertEqual(await self.call('arcade_person'), [])
+            handler.assert_not_called()
+
     async def test_other_queue_operations_keep_their_queue_switch(self):
         for method, handler_name in (
             ('arcade_person', 'arcade_person_handler'),
