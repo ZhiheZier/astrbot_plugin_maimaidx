@@ -318,13 +318,15 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('当前版本：', delivered_message(bot))
         self.assertIsNone(self.state()['pending'])
 
-    async def test_broadcast_respects_feature_whitelist_and_disabled_groups(self):
+    async def test_broadcast_only_targets_explicitly_enabled_groups(self):
         plugin = MaimaiDXPlugin.__new__(MaimaiDXPlugin)
-        plugin.config = {'maimaidxwhitelist': True}
+        plugin.config = {'maimaidxwhitelist': False}
         plugin.enabled_groups = {'100', '200'}
         plugin.disabled_groups = {'200'}
         bot = client((100, 200, 300))
-        await self.notifier().run(context(platform(bot)), plugin._is_group_enabled)
+        await self.notifier().run(
+            context(platform(bot)), plugin._is_update_notice_group_enabled,
+        )
         bot.send_group_forward_msg.assert_awaited_once()
         self.assertEqual(bot.send_group_forward_msg.await_args.kwargs['group_id'], 100)
 
@@ -445,9 +447,32 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
             await notice.run(context(), lambda group: True)
             self.assertEqual(send.await_count, 2)
             sleep.assert_awaited_once_with(60)
-        with patch.object(notice, 'send_pending', AsyncMock(side_effect=asyncio.CancelledError)):
+        self.seed()
+        cancelled = self.notifier()
+        with patch.object(cancelled, 'send_pending', AsyncMock(side_effect=asyncio.CancelledError)):
             with self.assertRaises(asyncio.CancelledError):
-                await notice.run(context(), lambda group: True)
+                await cancelled.run(context(), lambda group: True)
+
+    async def test_retry_stops_after_one_retry_and_persists_completion(self):
+        self.seed()
+        notice = self.notifier()
+        with (patch.object(notice, 'send_pending', AsyncMock(return_value=False)) as send,
+              patch('data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_update_notice.asyncio.sleep', AsyncMock()) as sleep):
+            await notice.run(context(), lambda group: True)
+        self.assertEqual(send.await_count, 2)
+        sleep.assert_awaited_once_with(60)
+        self.assertEqual(self.state(), {'version': '1.5.1', 'pending': None})
+
+    async def test_retry_limit_survives_restart(self):
+        pending = {'version': '1.5.1', 'delivered': [], 'attempts': 1}
+        self.seed(pending=pending)
+        notice = self.notifier()
+        with (patch.object(notice, 'send_pending', AsyncMock(return_value=False)) as send,
+              patch('data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_update_notice.asyncio.sleep', AsyncMock()) as sleep):
+            await notice.run(context(), lambda group: True)
+        send.assert_awaited_once()
+        sleep.assert_not_awaited()
+        self.assertEqual(self.state(), {'version': '1.5.1', 'pending': None})
 
 
 class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
@@ -473,6 +498,7 @@ class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
         plugin.update_notice_task = None
         plugin.update_notifier = SimpleNamespace(run=AsyncMock(side_effect=run))
         plugin.context = context()
+        plugin.enabled_groups = {'100', '200'}
         plugin.disabled_groups = set()
         plugin.alias_push_task = None
         plugin.scheduler = SimpleNamespace(running=False)
@@ -482,6 +508,9 @@ class UpdateLifecycleTest(unittest.IsolatedAsyncioTestCase):
         await plugin.update_notice_on_platform()
         self.assertIs(plugin.update_notice_task, task)
         self.assertEqual(plugin.update_notifier.run.call_count, 1)
+        group_filter = plugin.update_notifier.run.call_args.args[1]
+        self.assertTrue(group_filter('100'))
+        self.assertFalse(group_filter('300'))
         await plugin.terminate()
         self.assertTrue(task.cancelled())
 
