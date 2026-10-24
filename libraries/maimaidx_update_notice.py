@@ -131,6 +131,10 @@ class UpdateNotifier:
                 raise ValueError('version.json 的 delivered 字段格式无效')
             if not isinstance(pending.get('initial', False), bool):
                 raise ValueError('version.json 的 initial 字段格式无效')
+            attempts = pending.get('attempts', 0)
+            if (not isinstance(attempts, int) or isinstance(attempts, bool)
+                    or not 0 <= attempts <= 2):
+                raise ValueError('version.json 的 attempts 字段格式无效')
         if current == recorded and (pending is None or Version(pending['version']) != current):
             return False
         if pending is None or Version(pending['version']) != Version(self.version):
@@ -192,7 +196,7 @@ class UpdateNotifier:
                             group_id=int(group_id), messages=forward_nodes,
                         ), timeout=30)
                     except Exception as exc:
-                        logger.warning(f'舞萌更新通知发送到群 {group_id} 失败，将稍后重试: {exc}')
+                        logger.warning(f'舞萌更新通知发送到群 {group_id} 失败: {exc}')
                         complete = False
                         continue
                     delivered.add(key)
@@ -209,9 +213,21 @@ class UpdateNotifier:
         try:
             if not await asyncio.to_thread(self._prepare):
                 return
-            while True:
+            pending = self.state['pending']
+            attempts = pending.get('attempts', 0)
+            while attempts < 2:
+                attempts += 1
+                pending['attempts'] = attempts
+                await asyncio.to_thread(self._save)
                 if await self.send_pending(context, is_group_enabled):
                     return
-                await asyncio.sleep(60)
+                if attempts < 2:
+                    logger.warning('舞萌更新通知未完成，将在 60 秒后重试一次')
+                    await asyncio.sleep(60)
+            async with self._lock:
+                if self.state['pending'] is not None:
+                    self.state = {'version': self.version, 'pending': None}
+                    await asyncio.to_thread(self._save)
+            logger.warning('舞萌更新通知重试一次后仍未完成，已停止继续重试')
         except Exception as exc:
             logger.error(f'舞萌更新通知已停止，保留版本记录以便排查: {exc}')

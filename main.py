@@ -202,7 +202,7 @@ class MaimaiDXPlugin(Star):
             return
         if self.update_notice_task is None or self.update_notice_task.done():
             self.update_notice_task = asyncio.create_task(
-                self.update_notifier.run(self.context, self._is_group_enabled),
+                self.update_notifier.run(self.context, self._is_update_notice_group_enabled),
             )
 
     @filter.on_astrbot_loaded()
@@ -260,6 +260,14 @@ class MaimaiDXPlugin(Star):
         if getattr(self, 'config', {}).get('maimaidxwhitelist', False):
             return group_id in getattr(self, 'enabled_groups', set())
         return True
+
+    def _is_update_notice_group_enabled(self, group_id: str) -> bool:
+        """检查群组是否明确开启舞萌功能并可接收更新通知。"""
+        group_id = str(group_id)
+        return (
+            group_id in getattr(self, 'enabled_groups', set())
+            and group_id not in self.disabled_groups
+        )
 
     def _load_arcade_enabled_groups(self):
         """加载已开启排卡功能的群组；文件不存在时默认全部关闭。"""
