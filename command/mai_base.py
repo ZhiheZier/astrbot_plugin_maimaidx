@@ -21,41 +21,36 @@ from ..libraries.tool import qqhash
 
 def extract_at_qqid(event: AstrMessageEvent):
     """
-    从消息中提取 @ 的 QQ ID
-    
-    Args:
-        event: AstrMessageEvent 对象
-    
+    从消息中提取 @ 的 QQ 号
+
+    QQ 官方机器人会把占位 At(qq="qq_official") 或 openid 塞在消息链最前面，
+    这类值不是 QQ 号，必须跳过，否则 `/b50 <QQ号>` 的参数会被它顶掉，
+    表现为查询结果永远是「查询的用户不存在」。
+
     Returns:
-        被 @ 的 QQ ID（字符串），如果没有 @ 消息则返回 None
+        被 @ 的 QQ 号（纯数字字符串），没有可用 @ 时返回 None
     """
     message_obj = getattr(event, 'message_obj', None)
     components = getattr(message_obj, 'message', None)
     if not components:
         return None
-    
-    # 遍历消息链，查找 At 组件
-    for component in components:
-        # 检查是否是 At 组件
-        # Comp.At 组件可能有 qq 属性，或者通过 type 和 data 访问
-        if hasattr(component, 'qq'):
-            qq_id = component.qq
-            if qq_id:
-                return str(qq_id)
-        elif hasattr(component, 'type') and component.type == 'at':
-            # 通过 data 字典访问
-            if hasattr(component, 'data') and 'qq' in component.data:
-                qq_id = component.data['qq']
-                if qq_id:
-                    return str(qq_id)
-            # 或者直接有 qq 属性
-            elif hasattr(component, 'qq'):
-                qq_id = component.qq
-                if qq_id:
-                    return str(qq_id)
-    
-    return None
 
+    for component in components:
+        qq_id = getattr(component, 'qq', None)
+        if qq_id is None and getattr(component, 'type', None) == 'at':
+            data = getattr(component, 'data', None) or {}
+            qq_id = data.get('qq') if isinstance(data, dict) else None
+        if not qq_id:
+            continue
+        qq_id = str(qq_id).strip()
+        # 占位符与 openid 都不是 QQ 号；At 段只有真 QQ 号才可当查询对象
+        if qq_id in {'qq_official', 'unknown_selfid', 'all'}:
+            continue
+        if not qq_id.isdigit():
+            continue
+        return qq_id
+
+    return None
 
 def get_plain_message_text(event: AstrMessageEvent) -> str:
     """Return user-entered plain text without At or other message segments."""
