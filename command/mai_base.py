@@ -19,6 +19,17 @@ from ..libraries.maimaidx_player_score import rating_ranking_data
 from ..libraries.tool import qqhash
 
 
+# 纯数字参数的判定阈值：>= 9 位的纯数字按 QQ 号处理，<= 8 位按查分器（水鱼）用户名处理。
+# 水鱼允许纯数字用户名，旧实现把所有纯数字都当 QQ 号，导致这类用户名永远查不到。
+QQ_MIN_DIGITS = 9
+
+
+def looks_like_qq(value: str) -> bool:
+    """纯数字且长度达到阈值才视为 QQ 号（现代 QQ 号 9~11 位）。"""
+    value = str(value).strip()
+    return value.isascii() and value.isdigit() and len(value) >= QQ_MIN_DIGITS
+
+
 def extract_at_qqid(event: AstrMessageEvent):
     """
     从消息中提取 @ 的 QQ ID
@@ -78,7 +89,7 @@ def parse_player_target(event: AstrMessageEvent, argument: str = ''):
     player = re.sub(r'\[MSG_ID:[^\]]*\]', '', argument).strip()
     if not player:
         return event.get_sender_id(), ''
-    if player.isascii() and player.isdigit():
+    if looks_like_qq(player):
         return int(player), ''
     return None, player
 
