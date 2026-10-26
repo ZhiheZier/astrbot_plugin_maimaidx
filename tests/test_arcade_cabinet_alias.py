@@ -56,7 +56,7 @@ class CabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.record.person, 2)
 
     async def test_batch_and_case_insensitive_aliases_use_exact_ids(self):
-        result = await self.report('/123 MML3 抬手乐4')
+        result = await self.report('/别名 MML3 抬手乐4')
         self.assertIn('mml：本地更新成功', result)
         self.assertIn('抬手乐：本地更新成功', result)
         writes = [call.kwargs['payload']['games'] for call in self.api._request.await_args_list if call.args[0] == 'POST']
@@ -188,7 +188,7 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         return '\n'.join(await collect(mai_arcade.arcade_person_handler, event(text=text), self.api))
 
     async def test_native_alias_reports_use_only_the_exact_game_id(self):
-        for text, game_id, count in (('456mml3', 456001, 3), ('测试机厅抬手乐4', 456002, 4),
+        for text, game_id, count in (('测试机厅mml3', 456001, 3), ('测试机厅抬手乐4', 456002, 4),
                                      ('/别名 MML+1', 456001, 4)):
             with self.subTest(text=text):
                 result = await self.report(text)
@@ -199,10 +199,10 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.counts[456000], 5)
 
     async def test_native_alias_batch_and_family_total_reports_can_coexist(self):
-        result = await self.report('456mml3抬手乐4')
+        result = await self.report('测试机厅mml3抬手乐4')
         self.assertIn('云端同步成功', result)
         self.assertEqual(self.counts, {456000: 5, 456001: 3, 456002: 4})
-        result = await self.report('456mai9')
+        result = await self.report('测试机厅mai9')
         self.assertIn('已同步 nearcade', result)
         self.assertEqual(self.counts, {456000: 6, 456001: 3, 456002: 4})
 
@@ -215,18 +215,18 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
         summary = '\n'.join(await collect(mai_arcade.arcade_query_multiple_handler, event(text='机厅几人'), self.api))
         self.assertEqual(summary, '店名：测试机厅\n  - 舞萌 DX（CN1.56-A）：5人\n'
                          '  - 舞萌 DX（mml）：2人\n  - 中二节奏（mml）：1人')
-        details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='456几人'), self.api))
+        details = '\n'.join(await collect(mai_arcade.arcade_query_person_handler, event(text='测试机厅几人'), self.api))
         self.assertEqual(details.count('舞萌 DX（mml）：'), 1)
         self.assertEqual(details.count('中二节奏（mml）：'), 1)
         self.assertNotIn('抬手乐', details)
         self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
 
     async def test_native_alias_is_available_again_after_restart(self):
-        await self.report('456mml3')
+        await self.report('测试机厅mml3')
         self.api._cabinet_aliases.clear()
         self.api._catalog = NearcadeArcadeList(self.path)
         self.record = self.api.catalog[0]
-        result = await self.report('456mml+1')
+        result = await self.report('测试机厅mml+1')
         self.assertIn('已同步 nearcade', result)
         self.assertEqual(self.counts[456001], 4)
 
@@ -238,7 +238,7 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
                 self.api.config['nearcade_game_aliases'] = entries
                 self.api._request.reset_mock()
                 before = self.record.model_dump()
-                result = await self.report('456mml3')
+                result = await self.report('测试机厅mml3')
                 self.assertIn('未执行', result)
                 self.assertEqual(self.record.model_dump(), before)
                 self.assertFalse(any(call.args[0] == 'POST' for call in self.api._request.await_args_list))
@@ -246,7 +246,7 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
     async def test_alias_config_does_not_allow_updates_to_unsubscribed_shops(self):
         self.record.group = []
         before = self.record.model_dump()
-        await self.report('456mml3')
+        await self.report('测试机厅mml3')
         self.assertEqual(self.record.model_dump(), before)
         self.api._request.assert_not_awaited()
 
@@ -259,7 +259,7 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_native_alias_game_type_is_not_inferred_from_its_text(self):
         self.api.config['nearcade_game_aliases'] = ['456[mai手台]=456002']
-        result = await self.report('456mai手台4')
+        result = await self.report('测试机厅mai手台4')
         self.assertIn('已同步 nearcade', result)
         selected = next(item for item in self.api.games_for('456') if item.name == 'mai手台')
         self.assertEqual(selected.family_key, 'chu')
@@ -285,7 +285,7 @@ class NativeCabinetAliasTest(unittest.IsolatedAsyncioTestCase):
             return await original(method, path, **kwargs)
 
         self.api._request.side_effect = request
-        self.assertIn('已同步 nearcade', await self.report('456mml3'))
-        self.assertIn('已同步 nearcade', await self.report('457mml4'))
+        self.assertIn('已同步 nearcade', await self.report('测试机厅mml3'))
+        self.assertIn('已同步 nearcade', await self.report('另一机厅mml4'))
         self.assertEqual(self.counts[456001], 3)
         self.assertEqual(other_count, 4)

@@ -178,7 +178,7 @@ class UpdateNotifier:
                         {'type': 'node', 'data': {
                             'user_id': bot_id,
                             'nickname': login_info.get('nickname') or '舞萌DX更新通知',
-                            'content': [{'type': 'text', 'data': {'text': chunk}}],
+                            'content': [{'type': 'text', 'data': {'text': chunk.strip('\r\n')}}],
                         }}
                         for chunk in update_message_chunks(message)
                     ]
