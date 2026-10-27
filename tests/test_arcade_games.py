@@ -40,14 +40,14 @@ class ArcadeGameParserTest(unittest.TestCase):
         ):
             self.assertEqual((split_arcade_game(target)[0], split_arcade_game(target)[1].key), (name, key))
 
-    def test_exact_shop_names_take_precedence_and_ids_are_supported(self):
+    def test_exact_shop_names_take_precedence_and_numeric_ids_are_ignored(self):
         record = arcade(name='某店chu')
         records = a.ArcadeList([record])
         matches, selected = mai_arcade._arcade_target(records, '某店chu')
         self.assertEqual(matches, [record])
         self.assertEqual(selected, DEFAULT_ARCADE_GAME)
         matches, selected = mai_arcade._arcade_target(records, '123 chu')
-        self.assertEqual(matches, [record])
+        self.assertEqual(matches, [])
         self.assertEqual(selected.key, 'chu')
         matches, selected = mai_arcade._arcade_target(records, '别名中二人数')
         self.assertEqual(matches, [record])
@@ -169,7 +169,7 @@ class MultiGameCommandTest(unittest.IsolatedAsyncioTestCase):
                 ('测试机厅 mai 4人', DEFAULT_ARCADE_GAME, 4),
                 ('测试机厅中二3人', resolve_arcade_game('chu'), 3),
                 ('/别名 CHU 5人', resolve_arcade_game('chu'), 5),
-                ('123 太鼓2人', resolve_arcade_game('太鼓'), 2),
+                ('别名 太鼓2人', resolve_arcade_game('太鼓'), 2),
             ):
                 with self.subTest(text=text):
                     pattern = command_decorators()['arcade_person'][1]
@@ -192,8 +192,8 @@ class MultiGameCommandTest(unittest.IsolatedAsyncioTestCase):
             for text, key, count in (
                 ('测试机厅3', 'mai', 3), ('测试机厅mai4', 'mai', 4),
                 ('/别名 CHU 5', 'chu', 5), ('测试机厅中二0', 'chu', 0),
-                ('123 太鼓2', 'taiko', 2), ('123 6', 'mai', 6),
-                ('123mai7', 'mai', 7),
+                ('别名 太鼓2', 'taiko', 2), ('别名 6', 'mai', 6),
+                ('别名mai7', 'mai', 7),
             ):
                 with self.subTest(text=text):
                     self.assertIsNotNone(re.fullmatch(command_decorators()['arcade_person'][1], text))
@@ -244,7 +244,7 @@ class MultiGameCommandTest(unittest.IsolatedAsyncioTestCase):
         with (patch.object(mai_arcade.arcade, 'total', records, create=True),
               patch.object(a.ArcadeList, 'save_arcade', AsyncMock())):
             for text, key, count in (('测试机厅中二=5', 'chu', 5), ('测试机厅 chu+1', 'chu', 6),
-                                     ('别名太鼓=4', 'taiko', 4), ('123 taiko-1', 'taiko', 3)):
+                                     ('别名太鼓=4', 'taiko', 4), ('别名 taiko-1', 'taiko', 3)):
                 result = await collect(mai_arcade.arcade_person_handler, event(text=text), api)
                 self.assertIn('已同步', result[0])
                 self.assertEqual(record.person, 2)
@@ -318,7 +318,7 @@ class NamedArcadePartitionTest(unittest.IsolatedAsyncioTestCase):
         ])
         for text, selected, count, game_id in (
             ('测试机厅maiA区3人', self.zone_a, 3, 456000),
-            ('123 maiB区+1', self.zone_b, 1, 456001),
+            ('别名 maiB区+1', self.zone_b, 1, 456001),
         ):
             result = await self.report(text)
             self.assertIn(f'已同步 nearcade：{selected.name} {count} 人', result[0])
@@ -349,7 +349,7 @@ class NamedArcadePartitionTest(unittest.IsolatedAsyncioTestCase):
         with patch.object(mai_arcade.arcade, 'total', self.records, create=True):
             for handler, text in ((mai_arcade.arcade_query_multiple_handler, '机厅几人'),
                                   (mai_arcade.arcade_query_person_handler, '测试机厅几人'),
-                                  (mai_arcade.arcade_query_person_handler, '123几人')):
+                                  (mai_arcade.arcade_query_person_handler, '别名几人')):
                 result = (await collect(handler, event(text=text), self.api))[0]
                 if handler is mai_arcade.arcade_query_multiple_handler:
                     self.assertIn('maiA区：5人', result)
@@ -480,7 +480,7 @@ class BatchArcadeReportTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_main_routes_compact_batch_commands(self):
         pattern = command_decorators()['arcade_person'][1]
-        for text in ('测试机厅mai3chu2', '/别名 MAI3 CHU2', '123舞萌3人中二2人',
+        for text in ('测试机厅mai3chu2', '/别名 MAI3 CHU2', '别名舞萌3人中二2人',
                      '测试机厅maiA区3maiB区2', 'mai3chu2太鼓1', '测试机厅mai+1chu-1'):
             self.assertIsNotNone(re.fullmatch(pattern, text), text)
 
@@ -494,7 +494,7 @@ class BatchArcadeReportTest(unittest.IsolatedAsyncioTestCase):
                          [('123', 3), ('123', 2, self.chu)])
 
     async def test_alias_id_and_single_subscription_can_target_the_same_shop(self):
-        for text in ('/别名 MAI3 CHU2', '123 mai3 chu2', 'mai3chu2'):
+        for text in ('/别名 MAI3 CHU2', '别名 mai3 chu2', 'mai3chu2'):
             self.record.person = 2
             self.record.game_attendance.clear()
             result = (await self.report(text))[0]
@@ -617,7 +617,7 @@ class BatchArcadeReportTest(unittest.IsolatedAsyncioTestCase):
     async def test_ambiguous_shop_requires_explicit_name_and_never_updates_both(self):
         self.records.append(arcade(name='另一机厅', id='124'))
         result = (await self.report('mai3chu2'))[0]
-        self.assertIn('指定机厅名称或ID', result)
+        self.assertIn('指定机厅名称或别名', result)
         self.api.upload_attendance.assert_not_awaited()
 
     async def test_batch_lock_prevents_interleaving_with_another_report_on_same_shop(self):

@@ -250,8 +250,34 @@ class UpdateNotifierTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(content[0]['type'], 'text')
             texts.append(content[0]['data']['text'])
         self.assertTrue(all(0 < len(text) <= NOTICE_TEXT_LIMIT for text in texts))
-        self.assertEqual(''.join(texts), update_message(changelog, '1.5.0', '1.5.2'))
+        expected = update_message_chunks(update_message(changelog, '1.5.0', '1.5.2'))
+        self.assertEqual(texts, [chunk.strip('\r\n') for chunk in expected])
         self.assertEqual(self.state(), {'version': '1.5.2', 'pending': None})
+
+    async def test_sent_nodes_have_no_outer_blank_lines_and_keep_internal_spacing(self):
+        long_changelog = CHANGELOG.replace('- 最新功能', '- 最新功能\n' * 600)
+        for changelog, previous, version in (
+            (CHANGELOG, None, '1.5.1'),
+            (CHANGELOG, '1.5.0', '1.5.1'),
+            (CHANGELOG, '1.5.0', '1.5.2'),
+            (long_changelog, '1.5.0', '1.5.2'),
+            ('', '1.5.0', '1.5.1'),
+        ):
+            with self.subTest(previous=previous, version=version, length=len(changelog)):
+                self.path.unlink(missing_ok=True)
+                if previous is not None:
+                    self.seed(previous)
+                self.changelog.write_text(changelog, encoding='utf-8')
+                bot = client((100,))
+                await self.notifier(version).run(context(platform(bot)), lambda group: True)
+                nodes = bot.send_group_forward_msg.await_args.kwargs['messages']
+                texts = [node['data']['content'][0]['data']['text'] for node in nodes]
+                for text in texts:
+                    self.assertTrue(text.strip())
+                    self.assertEqual(text, text.strip('\r\n'))
+                if changelog:
+                    self.assertTrue(any('\n\n━━' in text for text in texts))
+                self.assertIn('\n\n功能使用说明请通过 /maihelp 查看。', texts[-1])
 
     async def test_all_lengths_use_forward_messages(self):
         for length in (1, NOTICE_TEXT_LIMIT, NOTICE_TEXT_LIMIT + 1):

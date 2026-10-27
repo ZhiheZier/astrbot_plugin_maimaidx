@@ -22,7 +22,7 @@ from ..libraries.maimaidx_arcade import (
 )
 from .permissions import can_manage_group as is_admin
 from ..libraries.maimaidx_nearcade import NearcadeClient, NearcadeError
-from ..libraries.maimaidx_arcade_games import DEFAULT_ARCADE_GAME, split_arcade_game, parse_arcade_reports, resolve_arcade_game
+from ..libraries.maimaidx_arcade_games import ARCADE_GAMES, DEFAULT_ARCADE_GAME, split_arcade_game, parse_arcade_reports, resolve_arcade_game
 from ..libraries.maimaidx_arcade_messages import attendance_machine_count, format_attendance_lines
 from .mai_arcade_queries import query_arcade_blocks, query_arcade_messages
 from .mai_arcade_catalog import catalog_management_handler
@@ -33,28 +33,32 @@ def _arcade_records(nearcade=None):
     return nearcade.catalog if nearcade and nearcade.uses_cloud_catalog else arcade.total
 
 
-async def _cloud_query_target(nearcade, name, group_id):
-    records = nearcade.catalog
-    if not name or name == '机厅':
-        return records.group_subscribe_arcade(group_id), None
-    await nearcade.prepare_cabinet_aliases((record.id for record in records), strict=False)
-    configured = _configured_games(records, nearcade, strict=False)
-    named = _named_games_for_target(records, name, configured, group_id)
-    shop_name, game = split_arcade_game(name, named)
-    if _matching_arcades(records, name, group_id):
-        return await nearcade.find_catalog(name, group_id=group_id), None
-    if not shop_name or shop_name == '机厅':
-        return records.group_subscribe_arcade(group_id), game
-    found = await nearcade.find_catalog(name, group_id=group_id)
-    if any(item.name == name or item.id == name or name in item.aliases_for(group_id) for item in found):
-        return found, None
-    if shop_name != name:
-        return await nearcade.find_catalog(shop_name, group_id=group_id), game
-    return found, None
-
-
 def _matching_arcades(records, name, group_id=None):
     return match_arcades(records, name, group_id)
+
+
+def _attendance_labels(record, group_id=None):
+    return [label for label in (record.name, *record.aliases_for(group_id)) if label and not label.isdigit()]
+
+
+def _matching_attendance_arcades(records, name, group_id=None):
+    return [] if name.isdigit() else _matching_arcades(records, name, group_id)
+
+
+def _attendance_text_allowed(records, text, nearcade=None, group_id=None):
+    if not records:
+        return False
+    if any(text.startswith(label) for record in records for label in _attendance_labels(record, group_id)):
+        return True
+    # Reject numeric IDs before resolving mappings or making any cloud requests.
+    if text[:1].isdigit():
+        return False
+    text = text.removeprefix('机厅').lstrip()
+    if not text or text == '机厅' or re.match(r'^(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)', text):
+        return True
+    configured = _configured_games(records, nearcade, strict=False)
+    games = [*ARCADE_GAMES, *(game for choices in configured.values() for game in choices if game.is_named)]
+    return any(text.casefold().startswith(alias.casefold()) for game in games for alias in game.aliases)
 
 
 def _configured_games(records, nearcade=None, *, strict=True):
@@ -72,19 +76,20 @@ def _configured_games(records, nearcade=None, *, strict=True):
 
 
 def _named_games_for_target(records, target, configured, group_id=None):
-    labels = [label for record in records for label in (record.name, record.id, *record.aliases_for(group_id))
+    labels = [label for record in records for label in _attendance_labels(record, group_id)
               if label and target.startswith(label)]
-    scoped = _matching_arcades(records, max(labels, key=len), group_id) if labels else records
+    scoped = _matching_attendance_arcades(records, max(labels, key=len), group_id) if labels else records
     return [game for record in scoped for game in configured.get(record.id, []) if game.is_named]
 
 
-def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_GAME, *, group_id=None, scope_records=None):
+def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_GAME, *, group_id=None, scope_records=None,
+                   configured=None):
     target = target.strip()
     allowed = {record.id for record in records}
 
     def matching(name):
         scope = records if scope_records is None else scope_records
-        return [record for record in _matching_arcades(scope, name, group_id) if record.id in allowed]
+        return [record for record in _matching_attendance_arcades(scope, name, group_id) if record.id in allowed]
 
     # An exact subscribed name takes precedence over game-like words in shop names.
     if matches := matching(target):
@@ -95,7 +100,8 @@ def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_G
             break
     if matches := matching(target):
         return matches, default_game
-    configured = _configured_games(records, nearcade)
+    if configured is None:
+        configured = _configured_games(records, nearcade)
     named = _named_games_for_target(records, target, configured, group_id)
     name, game = split_arcade_game(target, named)
     if name == target:
@@ -104,19 +110,22 @@ def _arcade_target(records, target, nearcade=None, default_game=DEFAULT_ARCADE_G
         if game and game.is_named:
             matches = [record for record in matches if any(item.key == game.key for item in configured[record.id])]
         return matches, game
-    if not name:
-        return list(records), game
+    if not name or name == '机厅':
+        matches = list(records)
+        if game and game.is_named:
+            matches = [record for record in matches if any(item.key == game.key for item in configured[record.id])]
+        return matches, game
     return [], game
 
 
 def _batch_arcade_reports(records, text, nearcade=None, *, group_id=None, scope_records=None):
-    candidates = [(label, record) for record in records for label in (record.name, record.id, *record.aliases_for(group_id))
+    candidates = [(label, record) for record in records for label in _attendance_labels(record, group_id)
                   if label and text.startswith(label)]
     if candidates:
         prefix = max((label for label, _ in candidates), key=len)
         allowed = {record.id for record in records}
         scope = records if scope_records is None else scope_records
-        records = [record for record in _matching_arcades(scope, prefix, group_id) if record.id in allowed]
+        records = [record for record in _matching_attendance_arcades(scope, prefix, group_id) if record.id in allowed]
         tail = text[len(prefix):].strip()
     else:
         tail = text
@@ -177,7 +186,7 @@ async def _batch_arcade_report_message(event, records, reports, nearcade):
     if not records:
         return '本群尚未订阅该别名对应的机厅，请先订阅后再报人数'
     if len(records) != 1:
-        return '已订阅多个机厅，请指定机厅名称或ID后报人数'
+        return '已订阅多个机厅，请指定机厅名称或别名后报人数'
     record = records[0]
     choices = _configured_games(records, nearcade)[record.id]
     sender = await event.bot.get_group_member_info(group_id=int(event.message_obj.group_id), user_id=event.get_sender_id())
@@ -229,7 +238,7 @@ sv_help = """排卡指令如下：
 同时报多个游戏：机厅mai3chu2；可加空格，逐项返回本地及云端结果
 游戏支持舞萌/mai、中二/chu、太鼓/taiko、sdvx、iidx、音击/ongeki、wacca、jubeat等；省略默认舞萌
 <店名/别名>=-1 闭店，清空人数并标记为闭店状态
-<店名/别名/ID> [游戏]几人 查看所选游戏的排卡人数，也可用几、j、jr等后缀，如14871几人、14871mai几；本地模式用本地ID，nearcade模式用云端ID
+<店名/别名> [游戏]几人 查看本群已订阅机厅的人数，也可用几、j、jr等后缀，如天街几人、天街mai几；人数查询和报数不支持机厅ID，未匹配到已订阅机厅时不回复
 机厅几人 / jtj 按已订阅机厅分组，云端游戏记录逐行列出，不显示等待等详情，长列表折叠为聊天记录
 已映射机厅优先读取nearcade人数及机台数量，无需Token，失败标明本地；查询不上传、不覆盖本地记录
 更新及单机厅查询保留人数、机台数量、更新者和时间；不显示等待时间、轮次、每轮容量及出勤建议
@@ -238,7 +247,7 @@ sv_help = """排卡指令如下：
 nearcade模式直接查找、订阅云端店铺ID，无需本地机厅或映射；同类记录合并人数和机台数，官机、MML、手台等舞萌DX描述不分区
 同类多条记录按总人数最少改动分配：增加和减少均优先人数最多、同人数靠前的，减少不足再扣下一条；调整后合计等于汇报值，不修改其他游戏
 local模式可配置机台别名，如123[mml]=456:456000，报数用某机厅mml3；别名无需游戏前缀，按gameId精确更新
-nearcade模式可在nearcade_game_aliases中配置14871[mml]=14871002，使用云端ID或店名加别名报数，如14871mml3
+nearcade模式可在nearcade_game_aliases中配置14871[mml]=14871002，使用机厅名或别名报数，如萌动mml3；查找、订阅及管理指令仍支持ID
 各游戏人数可选同步nearcade（需Token和上传开关；仅local模式还需机厅映射，闭店不上传）"""
 
 
@@ -617,12 +626,16 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
     except NearcadeError as exc:
         yield event.plain_result(str(exc))
         return
+    if not _attendance_text_allowed(arcade_list, message_str, nearcade, group_id):
+        return
     if arcade_list:
         try:
             if nearcade:
                 await nearcade.prepare_cabinet_aliases(record.id for record in arcade_list)
             batch = _batch_arcade_reports(arcade_list, message_str, nearcade, group_id=group_id, scope_records=all_records)
             if batch:
+                if not batch[0]:
+                    return
                 yield event.plain_result(await _batch_arcade_report_message(event, *batch, nearcade))
                 return
         except (NearcadeError, ValueError) as exc:
@@ -633,14 +646,13 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
             yield event.plain_result('批量更新机厅人数异常，请查询核对当前人数后重试')
             return
     match = re.match(r'^(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?$', message_str)
-    implicit = match is None
     if match:
         target, value, person_str = match.group(1) or '', match.group(2), match.group(3)
     else:
         # A numeric message alone cannot distinguish a shop ID from a headcount.
         if message_str.isascii() and message_str.isdigit():
             return
-        labels = sorted({label for record in arcade_list for label in (record.name, record.id, *record.aliases_for(group_id))
+        labels = sorted({label for record in arcade_list for label in _attendance_labels(record, group_id)
                          if label and message_str.startswith(label)}, key=len, reverse=True)
         prefix = labels[0] if labels else ''
         count = re.fullmatch(r'(.*?)\s*([0-9]+)\s*(?:人|卡)?', message_str[len(prefix):])
@@ -654,9 +666,6 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
         return
     
     if not arcade_list:
-        if implicit:
-            return
-        yield event.plain_result('该群未订阅机厅，无法更改机厅人数')
         return
     
     person = int(person_str) if person_str.lstrip('-').isdigit() else 1
@@ -667,12 +676,9 @@ async def arcade_person_handler(event: AstrMessageEvent, nearcade: NearcadeClien
         yield event.plain_result(f'排卡映射配置有误：{exc}')
         return
     if not _arcade:
-        if implicit:
-            return
-        yield event.plain_result('已订阅的机厅中未找到该机厅，请检查名称和游戏名')
         return
     if len(_arcade) != 1:
-        yield event.plain_result('已订阅多个机厅，请指定机厅名称或ID后报人数')
+        yield event.plain_result('已订阅多个机厅，请指定机厅名称或别名后报人数')
         return
     try:
         choices = _configured_games(_arcade, nearcade)[_arcade[0].id]
@@ -758,39 +764,19 @@ async def arcade_query_person_handler(event: AstrMessageEvent, nearcade: Nearcad
         name = message_str.strip()
     
     try:
-        records = _arcade_records(nearcade)
-        if nearcade and nearcade.uses_cloud_catalog:
-            arcade_list, game = await _cloud_query_target(nearcade, name, int(group_id))
-            if not arcade_list:
-                yield event.plain_result('没有这样的机厅哦' if name and name != '机厅' else '该群未订阅任何机厅')
-                return
-            configured = _configured_games(arcade_list, nearcade, strict=False)
-            for message in await query_arcade_messages(arcade_list, configured, nearcade, selected=game,
-                                                       compact=not name or name == '机厅'):
-                yield event.plain_result(message)
+        all_records = _arcade_records(nearcade)
+        records = all_records.group_subscribe_arcade(int(group_id))
+        if not _attendance_text_allowed(records, name, nearcade, group_id):
             return
         if nearcade:
             await nearcade.prepare_cabinet_aliases((record.id for record in records), strict=False)
         configured = _configured_games(records, nearcade, strict=False)
         if name and name != '机厅':
-            if exact := _matching_arcades(records, name, group_id):
-                arcade_list, game = exact, None
-            else:
-                named = _named_games_for_target(records, name, configured, group_id)
-                shop_name, selected = split_arcade_game(name, named)
-                game = selected if shop_name != name else None
-                if not shop_name or shop_name == '机厅':
-                    arcade_list = records.group_subscribe_arcade(int(group_id))
-                else:
-                    arcade_list = (_matching_arcades(records, shop_name, group_id)
-                                   or records.search_name(shop_name, group_id=group_id))
-                if game and game.is_named:
-                    arcade_list = [record for record in arcade_list
-                                   if any(item.key == game.key for item in configured[record.id])]
+            arcade_list, game = _arcade_target(records, name, nearcade, default_game=None,
+                                               group_id=group_id, scope_records=all_records, configured=configured)
         else:
-            arcade_list, game = records.group_subscribe_arcade(int(group_id)), None
+            arcade_list, game = records, None
         if not arcade_list:
-            yield event.plain_result('没有这样的机厅哦' if name and name != '机厅' else '该群未订阅任何机厅')
             return
         for message in await query_arcade_messages(arcade_list, configured, nearcade, selected=game,
                                                   compact=not name or name == '机厅'):

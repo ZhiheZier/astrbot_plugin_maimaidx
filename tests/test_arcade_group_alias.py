@@ -122,7 +122,10 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
             own = '\n'.join(await collect(handler, event(text=text), *arguments))
             other = '\n'.join(await collect(handler, event(text=text, group='300'), *arguments))
             self.assertIn(self.first.name, own)
-            self.assertIn('没有这样的机厅', other)
+            if handler == mai_arcade.arcade_query_person_handler:
+                self.assertEqual(other, '')
+            else:
+                self.assertIn('没有这样的机厅', other)
         self.assertEqual(self.first.group, [200])
 
     async def test_single_and_batch_reports_use_group_alias_with_game_suffixes(self):
@@ -142,13 +145,13 @@ class ArcadeGroupAliasTest(unittest.IsolatedAsyncioTestCase):
         await collect(mai_arcade.arcade_person_handler, event(text='天街+1', group='300'), self.api)
         self.assertEqual(self.first.model_dump(), before)
 
-    async def test_all_count_query_suffixes_work_with_name_id_and_group_alias(self):
+    async def test_all_count_query_suffixes_work_with_name_and_group_alias(self):
         await self.change()
         patterns = command_decorators()
         suffixes = ('有多少人', '有几人', '有几卡', '多少人', '多少卡', '几人', '几卡', '有几', '几', 'jr', 'j')
         self.records.save_arcade.reset_mock()
         expected = await collect(mai_arcade.arcade_query_person_handler, event(text='天街几人'), self.api)
-        for name in (self.first.name, self.first.id, '天街'):
+        for name in (self.first.name, '天街'):
             for suffix in suffixes:
                 for prefix in ('', '/'):
                     text = prefix + name + suffix
