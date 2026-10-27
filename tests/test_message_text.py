@@ -51,6 +51,18 @@ class PlainMessageTextTest(unittest.TestCase):
 
         self.assertEqual(extract_at_qqid(event), '123456')
 
+    def test_skips_bot_mention_before_target(self):
+        event = SimpleNamespace(
+            message_obj=SimpleNamespace(message=[
+                Comp.At(qq='3889696027', name='bot'),
+                Comp.Plain('b50 '),
+                Comp.At(qq='123456', name='target'),
+            ]),
+            get_self_id=lambda: '3889696027',
+        )
+
+        self.assertEqual(extract_at_qqid(event), '123456')
+
 
 class AtTargetCommandTest(unittest.IsolatedAsyncioTestCase):
     async def test_b50_keeps_at_target_out_of_command_arguments(self):
@@ -75,6 +87,35 @@ class AtTargetCommandTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(results), 1)
         generate.assert_awaited_once()
         self.assertEqual(generate.await_args.args[:2], ('123456', ''))
+
+    async def test_b50_ignores_bot_mention_and_uses_following_player(self):
+        for bot_mention, components, expected in (
+            ('3889696027', [Comp.Plain('b50 ICYFISH')], (None, 'ICYFISH')),
+            ('qq_official', [Comp.Plain('b50 ICYFISH')], (None, 'ICYFISH')),
+            ('3889696027', [Comp.Plain('b50 '), Comp.At(qq='123456')], ('123456', '')),
+        ):
+            with self.subTest(bot_mention=bot_mention, expected=expected):
+                event = SimpleNamespace(
+                    message_obj=SimpleNamespace(
+                        message_id='message-id',
+                        message=[Comp.At(qq=bot_mention)] + components,
+                    ),
+                    get_self_id=lambda: '3889696027',
+                    get_sender_id=lambda: '654321',
+                    chain_result=lambda chain: chain,
+                )
+                generate = AsyncMock(return_value='ok')
+
+                with (
+                    patch.object(mai_score.mai, 'total_list', [object()]),
+                    patch.object(mai_score, 'generate', generate),
+                    patch.object(mai_score, 'is_reply_enabled', return_value=False),
+                ):
+                    results = [result async for result in best50_handler(event)]
+
+                self.assertEqual(len(results), 1)
+                generate.assert_awaited_once()
+                self.assertEqual(generate.await_args.args[:2], expected)
 
 
 if __name__ == '__main__':
