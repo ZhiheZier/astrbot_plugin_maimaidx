@@ -23,9 +23,9 @@ def extract_at_qqid(event: AstrMessageEvent):
     """
     从消息中提取 @ 的 QQ 号
 
-    QQ 官方机器人会把占位 At(qq="qq_official") 或 openid 塞在消息链最前面，
-    这类值不是 QQ 号，必须跳过，否则 `/b50 <QQ号>` 的参数会被它顶掉，
-    表现为查询结果永远是「查询的用户不存在」。
+    发给机器人的消息可能在消息链最前面带有机器人自身的 At。
+    QQ 官方平台还可能使用 At(qq="qq_official") 或 openid 作为占位值。
+    这些 At 不是要查询的玩家，必须跳过，才能继续解析后续 At 或正文参数。
 
     Returns:
         被 @ 的 QQ 号（纯数字字符串），没有可用 @ 时返回 None
@@ -34,6 +34,8 @@ def extract_at_qqid(event: AstrMessageEvent):
     components = getattr(message_obj, 'message', None)
     if not components:
         return None
+    get_self_id = getattr(event, 'get_self_id', None)
+    self_id = str(get_self_id()).strip() if callable(get_self_id) else ''
 
     for component in components:
         qq_id = getattr(component, 'qq', None)
@@ -43,8 +45,8 @@ def extract_at_qqid(event: AstrMessageEvent):
         if not qq_id:
             continue
         qq_id = str(qq_id).strip()
-        # 占位符与 openid 都不是 QQ 号；At 段只有真 QQ 号才可当查询对象
-        if qq_id in {'qq_official', 'unknown_selfid', 'all'}:
+        # 跳过机器人自身和平台占位 At，保留后续真正被 @ 的 QQ 用户。
+        if qq_id == self_id or qq_id in {'qq_official', 'unknown_selfid', 'all'}:
             continue
         if not qq_id.isdigit():
             continue
