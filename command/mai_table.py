@@ -5,7 +5,7 @@ import astrbot.api.message_components as Comp
 
 from astrbot.api.event import AstrMessageEvent
 
-from .. import comboRank, combo_rank, levelList, log, platecn, scoreRank, syncRank, is_reply_enabled
+from .. import CB_SYNC_MAP, comboRank, combo_rank, levelList, log, platecn, scoreRank, syncRank, is_reply_enabled
 from ..command.mai_base import (
     convert_message_segment_to_chain,
     get_plain_message_text,
@@ -27,12 +27,12 @@ from ..libraries.maimaidx_update_table import update_plate_table, update_rating_
 
 
 PLATE_TABLE_PATTERN = re.compile(
-    r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜彩])'
+    r'^([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉熊華华爽煌舞霸宙星祭祝双宴镜鏡彩])'
     r'([極极将舞神者]舞?)$'
 )
 TABLE_REQUEST_PATTERN = re.compile(r'^/?(.+?)完成表\s*([12])?$')
 PLATE_PROGRESS_PATTERN = re.compile(
-    r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])'
+    r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜鏡彩])'
     r'([極极将舞神者]舞?)进度(.*)$'
 )
 
@@ -137,7 +137,7 @@ async def table_pfm_handler(event: AstrMessageEvent):
     args, page, player = request
     qqid, username = parse_player_target(event, player)
     
-    rating = re.fullmatch(r'([0-9]+\+?)(app|fcp|ap|fc)?', args, re.IGNORECASE)
+    rating = re.fullmatch(r'([0-9]+\+?)\s*(app|fcp|fsdp|fsd|(?:ap|fc|fs|fdx|s{1,3})\+?)?', args, re.IGNORECASE)
     plate = parse_plate_table_args(args, page)
     
     if rating:
@@ -145,13 +145,14 @@ async def table_pfm_handler(event: AstrMessageEvent):
             yield event.plain_result('只有「舞」系和「霸者」完成表支持分页')
             return
         ra = rating.group(1)
-        plan = rating.group(2)
+        target = (rating.group(2) or '').lower()
+        target = {'app': 'ap+', 'fcp': 'fc+', 'fsd': 'fdx', 'fsdp': 'fdx+'}.get(target, target)
+        plan = CB_SYNC_MAP.get(target)
         if args in levelList[:5]:
             yield event.plain_result('只支持查询lv6-15的完成表')
             return
         elif ra in levelList[5:]:
-            pic = await draw_rating_table(qqid, ra, True if plan and plan.lower() in combo_rank else False,
-                                          username=username or None)
+            pic = await draw_rating_table(qqid, ra, bool(plan), username=username or None, plan=plan)
             chain = convert_message_segment_to_chain(pic)
             if is_reply_enabled():
                 chain.insert(0, Comp.Reply(id=event.message_obj.message_id))

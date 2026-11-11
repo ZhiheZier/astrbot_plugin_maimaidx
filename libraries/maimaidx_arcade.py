@@ -70,14 +70,17 @@ class ArcadeList(List[Arcade]):
     def __init__(self, *args):
         super().__init__(*args)
         self.alias_lock = asyncio.Lock()
+        self.save_lock = asyncio.Lock()
 
 
     async def save_arcade(self):
-        data = [record.model_dump() for record in self]
-        saved = await writefile(arcades_json, data)
-        if saved:
+        from .maimaidx_management_store import write_json
+
+        async with self.save_lock:
+            data = [record.model_dump() for record in self]
+            await asyncio.to_thread(write_json, arcades_json, data)
             arcade.arcades = data
-        return saved
+        return True
 
     async def reset_local_attendance(self):
         if not self:

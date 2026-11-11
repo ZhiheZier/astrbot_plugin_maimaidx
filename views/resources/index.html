@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>舞萌 DX · 管理控制台</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./management.css">
+  <link rel="stylesheet" href="./select.css">
+  <link rel="stylesheet" href="./extra.css">
+</head>
+<body>
+  <main>
+    <header class="page-header">
+      <div class="identity"><img class="brand-icon" src="./icons/settings.svg" alt=""><div><h1>舞萌 DX <span>管理控制台</span></h1><p id="page-context" class="page-context">资源与素材</p></div></div>
+      <div class="header-actions"><span class="version" id="version">—</span><button id="sidebar-toggle" class="icon-button" title="收起侧栏" aria-label="收起侧栏" aria-expanded="true" aria-controls="task-sidebar"><img src="./icons/chevron-right.svg" alt=""></button></div>
+    </header>
+
+    <nav class="management-tabs" role="tablist" aria-label="舞萌管理">
+      <button id="tab-resources" role="tab" aria-selected="true" aria-controls="pane-resources"><img src="./icons/folder-open.svg" alt="">资源</button>
+      <button id="tab-groups" role="tab" aria-selected="false" aria-controls="pane-groups" tabindex="-1"><img src="./icons/users.svg" alt="">群功能</button>
+      <button id="tab-arcades" role="tab" aria-selected="false" aria-controls="pane-arcades" tabindex="-1"><img src="./icons/map-pin.svg" alt="">机厅订阅</button>
+      <button id="tab-songs" role="tab" aria-selected="false" aria-controls="pane-songs" tabindex="-1"><img src="./icons/tag.svg" alt="">歌曲别名</button>
+      <button id="tab-players" role="tab" aria-selected="false" aria-controls="pane-more" tabindex="-1"><img src="./icons/users.svg" alt="">玩家管理</button>
+      <button id="tab-more" role="tab" aria-selected="false" aria-controls="pane-more" tabindex="-1"><img src="./icons/settings.svg" alt="">更多管理</button>
+    </nav>
+    <div id="manage-notice" class="notice" role="status" hidden></div>
+    <div id="console-layout" class="console-layout"><div class="console-content">
+    <div id="pane-resources" role="tabpanel" aria-labelledby="tab-resources">
+    <div class="resource-toolbar"><div class="resource-location"><span class="muted">资源目录</span><div class="path-line"><code id="resource-path">—</code><button class="icon-button" id="copy-path" title="复制资源目录" aria-label="复制资源目录"><img src="./icons/copy.svg" alt=""></button></div></div><button class="secondary" id="rescan"><img src="./icons/refresh-cw.svg" alt="">重新检测</button></div>
+    <div id="notice" class="notice" role="alert" hidden></div>
+    <section class="readiness" aria-label="资源状态"><div><span id="ready-label" class="status-label">正在连接</span><strong id="ready-title">检查资源状态</strong></div><span id="ready-count" class="muted">—</span></section>
+
+    <div class="workspace">
+      <div class="content-column">
+        <section class="inventory-section"><div class="section-heading"><h2>资源检查</h2><span class="muted">基础素材与字体</span></div><div id="inventory" aria-live="polite"></div></section>
+
+        <section class="packages-section"><div class="section-heading"><h2>在线资源包</h2><span class="muted">上游提供</span></div>
+          <div class="package-head"><span>资源包</span><span>版本</span><span>类型</span><span></span></div><div id="packages"></div>
+        </section>
+
+        <section class="upload-section"><div class="section-heading"><h2>本地资源包</h2></div>
+          <div class="drop-zone" id="drop-zone"><img class="upload-symbol" src="./icons/upload.svg" alt=""><div><strong>ZIP / 7z</strong><span class="muted">最大 1 GB</span></div><button class="secondary" id="choose-file"><img src="./icons/upload.svg" alt="">上传并安装</button><input id="file-input" type="file" accept=".zip,.7z" hidden></div>
+        </section>
+
+        <section class="tables-section"><div class="section-heading"><h2>派生表格</h2><button class="secondary" id="rebuild"><img src="./icons/refresh-cw.svg" alt="">生成表格</button></div><div id="tables" class="table-status"></div></section>
+      </div>
+
+    </div>
+    </div>
+
+    <section id="pane-groups" class="manage-pane" role="tabpanel" aria-labelledby="tab-groups" hidden>
+      <div class="manage-heading"><h2>群功能</h2><div class="mode-list" id="group-modes"></div></div>
+      <form class="manage-toolbar" id="groups-search"><label class="search-field"><img src="./icons/search.svg" alt=""><input id="groups-q" maxlength="20" inputmode="numeric" placeholder="群号" aria-label="搜索或添加群号"></label><button type="submit" class="secondary"><img src="./icons/search.svg" alt="">查找</button><button type="button" class="icon-button" id="groups-refresh" title="刷新群设置" aria-label="刷新群设置"><img src="./icons/refresh-cw.svg" alt=""></button></form>
+      <div id="groups-pages-top" class="pagination pagination-top"></div><div class="manage-table-wrap"><table class="manage-table groups-table"><thead><tr><th>群号</th><th>舞萌功能</th><th>排卡</th><th>猜歌</th><th>别名推送</th><th>机厅订阅</th></tr></thead><tbody id="groups-body"></tbody></table></div><div id="groups-pages" class="pagination"></div>
+    </section>
+
+    <section id="pane-arcades" class="manage-pane" role="tabpanel" aria-labelledby="tab-arcades" hidden>
+      <div class="manage-heading"><h2>机厅与订阅</h2><button class="secondary" id="arcade-add"><img src="./icons/plus.svg" alt="">添加本地机厅</button></div>
+      <form class="manage-toolbar" id="arcades-search"><label>数据源<select id="arcades-source"><option value="local">本地</option><option value="nearcade">nearcade</option></select></label><label class="search-field wide"><img src="./icons/search.svg" alt=""><input id="arcades-q" maxlength="150" placeholder="机厅名称 / ID / 别名" aria-label="搜索机厅"></label><label>群号<input id="arcades-group" maxlength="20" inputmode="numeric" placeholder="可选"></label><label class="check-field"><input type="checkbox" id="arcades-subscribed">仅已订阅</label><button type="submit" class="secondary"><img src="./icons/search.svg" alt="">查询</button><button type="button" class="secondary" id="arcades-remote" hidden><img src="./icons/download.svg" alt="">查云端</button></form>
+      <p id="arcades-source-note" class="source-note"></p>
+      <div id="arcades-pages-top" class="pagination pagination-top"></div><div class="manage-table-wrap"><table class="manage-table arcades-table"><thead><tr><th>机厅</th><th>舞萌机台</th><th>订阅群</th><th>别名</th><th>操作</th></tr></thead><tbody id="arcades-body"></tbody></table></div><div id="arcades-pages" class="pagination"></div>
+    </section>
+
+    <section id="pane-songs" class="manage-pane" role="tabpanel" aria-labelledby="tab-songs" hidden>
+      <div class="manage-heading"><h2>歌曲本地别名</h2><span class="muted">外部别名只读</span></div>
+      <form class="manage-toolbar" id="songs-search"><label class="search-field wide"><img src="./icons/search.svg" alt=""><input id="songs-q" maxlength="150" placeholder="歌曲名称 / ID / 别名" aria-label="搜索歌曲"></label><label class="check-field"><input type="checkbox" id="songs-local">仅含本地别名</label><button type="submit" class="secondary"><img src="./icons/search.svg" alt="">查询</button><button type="button" class="icon-button" id="songs-refresh" title="刷新歌曲别名" aria-label="刷新歌曲别名"><img src="./icons/refresh-cw.svg" alt=""></button></form>
+      <div id="songs-pages-top" class="pagination pagination-top"></div><div class="manage-table-wrap"><table class="manage-table songs-table"><thead><tr><th>歌曲</th><th>本地别名</th><th>其他已合并别名</th><th>操作</th></tr></thead><tbody id="songs-body"></tbody></table></div><div id="songs-pages" class="pagination"></div>
+    </section>
+    <section id="pane-more" class="manage-pane" role="tabpanel" aria-labelledby="tab-more" hidden>
+      <nav id="extra-tabs" class="extra-tabs" role="tablist" aria-label="维护模块"></nav>
+      <div id="extra-content">
+      <div class="manage-heading"><h2 id="extra-title">机台映射</h2><div class="heading-actions"><button id="extra-add" class="secondary"><img src="./icons/plus.svg" alt="">添加映射</button><button id="extra-refresh" type="button" class="icon-button" title="刷新管理记录" aria-label="刷新管理记录"><img src="./icons/refresh-cw.svg" alt=""></button></div></div>
+      <form class="manage-toolbar" id="extra-search"><label id="extra-source-label">模式<select id="extra-source"><option value="local">本地映射</option><option value="nearcade">nearcade 别名</option></select></label><label class="search-field wide"><img src="./icons/search.svg" alt=""><input id="extra-q" maxlength="150" placeholder="映射 / 机台别名 / ID" aria-label="搜索管理记录"></label><button type="submit" class="secondary"><img src="./icons/search.svg" alt="">查询</button></form>
+      <div id="extra-actions" class="manage-toolbar"></div><div id="extra-meta"></div><p id="extra-job" class="source-note" role="status" hidden></p>
+      <div id="extra-pages-top" class="pagination pagination-top"></div><div id="extra-table-wrap" class="manage-table-wrap"><table class="manage-table extra-table"><thead id="extra-head"></thead><tbody id="extra-body"></tbody></table></div><div id="extra-pages" class="pagination"></div>
+      </div>
+    </section>
+    </div>
+    <aside id="task-sidebar" class="task-column" aria-label="任务与运行日志">
+      <section class="task-summary"><div class="section-heading"><h2>资源任务</h2><button class="icon-button" id="cancel" title="取消任务" aria-label="取消任务" disabled><img src="./icons/x.svg" alt=""></button></div>
+        <p id="task-idle" class="source-note">暂无进行中的资源任务</p>
+        <div id="job-details" hidden><span id="job-phase" class="phase">暂无任务</span><h3 id="job-title">等待操作</h3><p id="job-message" class="job-message">—</p><progress id="progress" max="100" value="0" aria-label="资源任务进度"></progress><div class="progress-info"><span id="progress-label">—</span><span id="progress-percent"></span></div>
+        <button class="secondary retry-button" id="retry" hidden><img src="./icons/refresh-cw.svg" alt="">重新下载</button>
+        <details id="digest-details" hidden><summary>文件摘要</summary><code id="digest"></code></details>
+        <details id="task-records" hidden><summary>任务记录</summary><ol id="events" class="events" aria-live="polite"></ol></details></div>
+      </section>
+      <section class="activity-section"><div class="section-heading"><h2>运行日志</h2><button id="activity-refresh" class="icon-button" title="刷新日志" aria-label="刷新日志"><img src="./icons/refresh-cw.svg" alt=""></button></div>
+        <div id="activity-scopes" class="activity-scopes" role="group" aria-label="日志类型"><button data-scope="all" aria-pressed="true">全部</button><button data-scope="chat" aria-pressed="false">功能</button><button data-scope="web" aria-pressed="false">管理</button><button data-scope="resource" aria-pressed="false">资源</button></div>
+        <div class="activity-pager"><span id="activity-count">—</span><button id="activity-prev" class="icon-button" title="上一页日志" aria-label="上一页日志" disabled><img src="./icons/chevron-left.svg" alt=""></button><span id="activity-page">1 / 1</span><button id="activity-next" class="icon-button" title="下一页日志" aria-label="下一页日志" disabled><img src="./icons/chevron-right.svg" alt=""></button></div>
+        <p id="activity-error" class="source-note" role="status" hidden></p><p id="activity-empty" class="source-note">暂无运行日志</p><ol id="activity-events" class="activity-events" aria-live="polite"></ol>
+      </section>
+    </aside></div>
+  </main>
+
+  <dialog id="extra-dialog" class="editor-dialog"><div class="editor-header"><h2 id="extra-dialog-title"></h2><button class="icon-button" id="extra-dialog-close" title="关闭" aria-label="关闭管理窗口"><img src="./icons/x.svg" alt=""></button></div><div id="extra-error" class="notice" role="status" hidden></div><div id="extra-editor" class="editor-section"></div><footer class="editor-footer"><button class="secondary" id="extra-editor-close">关闭</button></footer></dialog>
+  <dialog id="extra-confirm"><form method="dialog"><h2 id="extra-confirm-title"></h2><p id="extra-confirm-message"></p><label>确认内容<input id="extra-confirm-input" autocomplete="off" required></label><div class="dialog-actions"><button class="secondary" value="cancel" formnovalidate>取消</button><button class="primary" value="confirm">确认</button></div></form></dialog>
+
+  <dialog id="arcade-dialog" class="editor-dialog"><div class="editor-header"><div><h2 id="arcade-title">机厅设置</h2><p id="arcade-subtitle" class="muted"></p></div><button class="icon-button close-editor" title="关闭" aria-label="关闭机厅设置"><img src="./icons/x.svg" alt=""></button></div><div id="arcade-error" class="notice" role="alert" hidden></div>
+    <section class="editor-section"><h3>机厅资料</h3><form id="arcade-fields" class="editor-grid"><label class="span-two">店名<input id="arcade-name" required maxlength="150"></label><label class="span-two">地址<input id="arcade-location" required maxlength="500"></label><label>省份<input id="arcade-province" maxlength="50"></label><label>商场<input id="arcade-mall" maxlength="150"></label><label>舞萌机台数量<input id="arcade-num" type="number" min="0" max="9999" step="1" value="1" required></label><div class="editor-action"><button type="submit" class="primary" id="arcade-save"><img src="./icons/save.svg" alt="">保存资料</button></div></form></section>
+    <section class="editor-section" id="arcade-alias-section"><h3>全局别名</h3><label>别名（每行一个）<textarea id="arcade-aliases" rows="3" maxlength="4100"></textarea></label><button id="arcade-save-aliases" class="secondary"><img src="./icons/save.svg" alt="">保存全局别名</button></section>
+    <section class="editor-section" id="arcade-group-section"><h3>群订阅与别名</h3><div class="manage-toolbar"><label>群号<input id="arcade-group" maxlength="20" inputmode="numeric"></label><button id="arcade-subscribe" class="secondary">订阅</button></div><p class="source-note" id="arcade-subscription-state"></p><label>群别名（每行一个）<textarea id="arcade-group-aliases" rows="3" maxlength="4100"></textarea></label><button id="arcade-save-group-aliases" class="secondary"><img src="./icons/save.svg" alt="">保存群别名</button><div id="arcade-subscribers" class="subscribers"></div></section>
+    <footer class="editor-footer"><button id="arcade-delete" class="danger"><img src="./icons/trash.svg" alt="">删除机厅</button><button class="secondary close-editor">关闭</button></footer>
+  </dialog>
+
+  <dialog id="song-dialog" class="editor-dialog"><div class="editor-header"><div><h2 id="song-title">歌曲别名</h2><p id="song-subtitle" class="muted"></p></div><button class="icon-button close-editor" title="关闭" aria-label="关闭歌曲别名"><img src="./icons/x.svg" alt=""></button></div><div id="song-error" class="notice" role="alert" hidden></div><section class="editor-section"><h3>本地别名</h3><div id="song-local-aliases" class="alias-list"></div><form id="song-alias-form" class="manage-toolbar"><input id="song-new-alias" required maxlength="100" placeholder="新别名" aria-label="新别名"><button type="submit" class="primary"><img src="./icons/plus.svg" alt="">添加</button></form></section><section class="editor-section"><h3>其他已合并别名</h3><div id="song-other-aliases" class="alias-list"></div></section><footer class="editor-footer"><button class="secondary close-editor">关闭</button></footer></dialog>
+
+  <dialog id="manage-confirm"><form method="dialog"><h2 id="manage-confirm-title"></h2><p id="manage-confirm-message"></p><label id="manage-confirm-label" hidden>机厅 ID<input id="manage-confirm-input" autocomplete="off"></label><div class="dialog-actions"><button class="secondary" value="cancel">取消</button><button class="primary" value="confirm">确认</button></div></form></dialog>
+
+  <dialog id="confirm-dialog"><form method="dialog"><h2 id="confirm-title">安装资源包</h2><p id="confirm-message"></p><div class="dialog-actions"><button class="secondary" value="cancel">取消</button><button class="primary" value="confirm">确认安装</button></div></form></dialog>
+  <script type="module" src="./app.js"></script>
+  <script type="module" src="./management.js"></script>
+  <script type="module" src="./select.js"></script>
+  <script type="module" src="./extra.js"></script>
+  <script type="module" src="./sidebar.js"></script>
+  <script type="module" src="./activity.js"></script>
+</body>
+</html>

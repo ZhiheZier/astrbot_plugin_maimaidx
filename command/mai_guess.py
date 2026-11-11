@@ -65,7 +65,7 @@ async def convert_chain_to_onebot_format(chain: List[Any]):
     return result
 
 
-async def guess_music_handler(event: AstrMessageEvent):
+async def guess_music_handler(event: AstrMessageEvent, resources=None):
     """猜歌命令处理"""
     group_id = event.message_obj.group_id
     if not group_id:
@@ -172,7 +172,9 @@ async def guess_music_handler(event: AstrMessageEvent):
                 
                 # 发送答案
                 guess.Group[gid].end = True
-                pic = await draw_music_info(guess.Group[gid].music)
+                from ..libraries.maimaidx_resources import background_music_info
+
+                pic = await background_music_info(guess.Group[gid].music, draw_music_info, resources)
                 answer_chain: List[Any] = convert_message_segment_to_chain(pic)
                 answer_chain.insert(0, Comp.Plain('答案是：\n'))
                 
@@ -193,7 +195,7 @@ async def guess_music_handler(event: AstrMessageEvent):
     asyncio.create_task(send_hints())
 
 
-async def guess_pic_handler(event: AstrMessageEvent):
+async def guess_pic_handler(event: AstrMessageEvent, resources=None):
     """猜曲绘命令处理"""
     group_id = event.message_obj.group_id
     if not group_id:
@@ -259,7 +261,9 @@ async def guess_pic_handler(event: AstrMessageEvent):
         
         # 发送答案
         guess.Group[gid].end = True
-        pic = await draw_music_info(guess.Group[gid].music)
+        from ..libraries.maimaidx_resources import background_music_info
+
+        pic = await background_music_info(guess.Group[gid].music, draw_music_info, resources)
         answer_chain: List[Any] = convert_message_segment_to_chain(pic)
         answer_chain.insert(0, Comp.Plain('答案是：\n'))
         
@@ -279,7 +283,7 @@ async def guess_pic_handler(event: AstrMessageEvent):
     asyncio.create_task(send_answer())
 
 
-async def guess_music_solve_handler(event: AstrMessageEvent):
+async def guess_music_solve_handler(event: AstrMessageEvent, resources=None):
     """猜歌答案处理（监听所有群消息）"""
     group_id = event.message_obj.group_id
     if not group_id:
@@ -299,7 +303,9 @@ async def guess_music_solve_handler(event: AstrMessageEvent):
     answer_list_lower = [str(a).lower() for a in answer_list]
     if ans in answer_list_lower:
         guess.Group[gid].end = True
-        pic = await draw_music_info(guess.Group[gid].music)
+        from ..libraries.maimaidx_resources import background_music_info
+
+        pic = await background_music_info(guess.Group[gid].music, draw_music_info, resources)
         answer_chain: List[Any] = convert_message_segment_to_chain(pic)
         # event.chain_result 需要消息组件对象
         answer_chain.insert(0, Comp.At(qq=event.get_sender_id()))

@@ -1,10 +1,14 @@
 from collections import namedtuple
 from typing import Any, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 ##### Songs
+def is_regular_chart(song_id: int, level_index: int) -> bool:
+    return 0 < song_id < 100000 and 0 <= level_index <= 4
+
+
 class Stats(BaseModel):
     
     cnt: Optional[float] = None
@@ -211,6 +215,18 @@ class AliasesPush(Switch):
 
 
 ##### Best50
+class RecordsQueryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+    song_id: Optional[int] = None
+    level: Optional[str] = None
+    level_index: Optional[int] = None
+    level_value: Optional[float] = Field(default=None, serialization_alias='ds')
+    fullcombo: Union[str, List[str], None] = Field(default=None, serialization_alias='fc')
+    fullsync: Union[str, List[str], None] = Field(default=None, serialization_alias='fs')
+    plate: Optional[str] = None
+    version: Optional[List[str]] = None
+
+
 class PlayInfo(BaseModel):
     
     achievements: float
@@ -230,6 +246,7 @@ class ChartInfo(PlayInfo):
     
     level_label: str
     song_id: int
+    play_count: Optional[int] = None
 
 
 class Data(BaseModel):
@@ -283,7 +300,7 @@ class RiseScore(BaseModel):
     rate: str
     achievements: float
     oldra: Optional[int] = 0
-    oldrate: Optional[str] = 'D'
+    oldrate: Optional[str] = 'd'
     oldachievements: Optional[float] = 0
 
 

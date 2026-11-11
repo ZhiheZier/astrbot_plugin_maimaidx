@@ -112,7 +112,7 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
         _, kwargs = request.await_args
         self.assertEqual(kwargs['request_headers'], {})
 
-    async def test_plate_uses_new_endpoint_and_only_sends_versions(self):
+    async def test_plate_uses_records_endpoint_and_only_sends_versions(self):
         with (
             patch.object(
                 self.api,
@@ -122,7 +122,8 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
             patch.object(
                 self.api,
                 '_requestmai',
-                AsyncMock(return_value={'verlist': []}),
+                AsyncMock(return_value={'additional_rating': 0, 'nickname': 'Tester', 'rating': 0,
+                                        'username': 'tester', 'records': []}),
             ) as request,
         ):
             result = await self.api.query_user_plate(
@@ -132,8 +133,8 @@ class DivingFishOAuthTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, [])
         args, kwargs = request.await_args
-        self.assertEqual(args, ('POST', '/player/plate'))
-        self.assertEqual(kwargs['json'], {'version': ['maimai']})
+        self.assertEqual(args, ('GET', '/player/records'))
+        self.assertEqual(kwargs['params'], {'version': ['maimai']})
 
     async def test_expired_bearer_token_is_replaced_once(self):
         access_token = AsyncMock(side_effect=['expired-token', 'fresh-token'])

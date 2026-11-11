@@ -17,6 +17,8 @@ from .libraries.maimaidx_api_data import maiApi
 from .libraries.maimaidx_music import mai
 from .command.mai_alias import sse_alias_server
 from .command.mai_base import get_plain_message_text
+from .libraries.maimaidx_resources import requires_resources
+from .libraries.maimaidx_activity import ActivityLog, usage_logged
 import sys
 
 @register("astrbot_plugin_maimaidx", "ZhiheZier", "maimaiDX插件", __version__)
@@ -25,7 +27,8 @@ class MaimaiDXPlugin(Star):
         super().__init__(context)
         from .libraries.maimaidx_plugin_config import load_plugin_config
 
-        self.config = load_plugin_config(config if config is not None else {})
+        self._raw_plugin_config = config if config is not None else {}
+        self.config = load_plugin_config(self._raw_plugin_config)
         from .libraries.maimaidx_nearcade import NearcadeClient
 
         self.nearcade = NearcadeClient(self.config)
@@ -43,6 +46,20 @@ class MaimaiDXPlugin(Star):
         # 将 static 读取路径指向持久化目录（重装不丢失资源）
         plugin_data_root = StarTools.get_data_dir("astrbot_plugin_maimaidx")
         init_static_dir(plugin_data_root)
+        self.activity = ActivityLog(plugin_data_root / 'activity_log.json')
+        from .libraries.maimaidx_resource_manager import ResourceManager
+
+        self.resources = ResourceManager(plugin_data_root, self._reload_resources, self._rebuild_resource_tables,
+                                         self._prepare_resource_install, on_phase=self.activity.resource_phase)
+        if callable(getattr(context, 'register_web_api', None)):
+            try:
+                from .libraries.maimaidx_resource_web import ResourceWeb
+                from .libraries.maimaidx_management import MaimaiManagement
+
+                self.management = MaimaiManagement(self)
+                self.resource_web = ResourceWeb(context, self.resources, self.management)
+            except ImportError:
+                log.warning('当前 AstrBot 不支持资源管理视图接口，请升级 AstrBot 或按 README 手动安装资源。')
         from .libraries.maimaidx_music import alias
 
         alias.reload()
@@ -61,6 +78,10 @@ class MaimaiDXPlugin(Star):
         from .libraries.maimaidx_ranking import SongRankingStore
 
         self.song_ranking_store = SongRankingStore(plugin_data_root / 'song_ranking.json')
+        from .libraries.maimaidx_sync import ScoreSync
+
+        self.score_sync = ScoreSync(plugin_data_root, self.config)
+        maiApi.config.official_sync_enabled = bool(self.config.get('official_sync_enabled', False))
         from .libraries.maimaidx_update_notice import UpdateNotifier
 
         self.update_notifier = UpdateNotifier(
@@ -82,8 +103,6 @@ class MaimaiDXPlugin(Star):
         # 从插件配置中读取 bot 名称并设置到 __init__.py
         bot_name = self.config.get("bot_name", "Bot")
         enable_reply = bool(self.config.get("enable_reply", True))
-        # 从插件配置中读取开发者 token
-        plugin_token = str(self.config.get("maimaidxtoken", "") or "").strip()
         if pkg_name in sys.modules:
             setattr(pkg, '_BOTNAME', bot_name)
             setattr(pkg, 'BOTNAME', bot_name)
@@ -92,7 +111,6 @@ class MaimaiDXPlugin(Star):
             log.info(f'引用回复（Reply）: {"开启" if enable_reply else "关闭"}')
 
         # 注入水鱼凭据并立即生效（不落盘）
-        maiApi.config.maimaidxtoken = plugin_token or None
         for _key in ('df_client_id', 'df_client_secret'):
             _val = str(self.config.get(_key, '') or '').strip()
             setattr(maiApi.config, _key, _val or None)
@@ -127,12 +145,7 @@ class MaimaiDXPlugin(Star):
                 log.warning(
                     '水鱼 OAuth 配置不完整，需要同时填写 df_client_id 与 df_client_secret'
                 )
-            if maiApi.config.maimaidxtoken:
-                log.warning(
-                    '检测到仅配置了水鱼 Developer-Token，尚未完成 OAuth 迁移。'
-                    '旧版成绩查询接口将于 2027-01-01 00:00（UTC+8）停止服务，'
-                    '请尽快配置 df_client_id 与 df_client_secret。'
-                )
+            log.warning('水鱼未配置 OAuth 应用，仅公开 B50 查询可用；请配置 df_client_id 与 df_client_secret。')
         
         # 从 astrbot 配置文件中获取管理员ID列表
         # 根据文档：https://docs.astrbot.app/dev/star/plugin.html
@@ -150,6 +163,9 @@ class MaimaiDXPlugin(Star):
     async def initialize(self):
         """插件初始化，加载数据并设置定时任务"""
         try:
+            activity = getattr(self, 'activity', None)
+            if activity is not None:
+                await activity.load()
             # 加载禁用群组列表
             self._load_disabled_groups()
             self._load_arcade_enabled_groups()
@@ -157,14 +173,18 @@ class MaimaiDXPlugin(Star):
             # 设置配置
             self._setup_configuration()
             
-            # 加载maimai数据
-            await self._load_maimai_data()
+            await self.resources.refresh()
+            # Data networking and optional image files must not block the resource page.
+            try:
+                await self._load_maimai_data()
+            except Exception:
+                log.warning('曲库暂未就绪，资源管理页仍可使用，可稍后更新数据。')
             
             # 加载机厅数据
             await self._load_arcade_data()
             
             # 加载图片到内存（如果配置了）
-            self._load_images_to_memory()
+            await self._reload_resources()
             
             # 执行初始检查
             self._perform_initial_checks()
@@ -182,6 +202,12 @@ class MaimaiDXPlugin(Star):
 
     async def terminate(self):
         """停止插件创建的后台任务。"""
+        resources = getattr(self, 'resources', None)
+        if resources is not None:
+            await resources.shutdown()
+        management = getattr(self, 'management', None)
+        if management is not None:
+            await management.extra.shutdown()
         if self.update_notice_task and not self.update_notice_task.done():
             self.update_notice_task.cancel()
             try:
@@ -196,6 +222,9 @@ class MaimaiDXPlugin(Star):
                 pass
         if self.scheduler.running:
             self.scheduler.shutdown(wait=False)
+        activity = getattr(self, 'activity', None)
+        if activity is not None:
+            await activity.shutdown()
 
     def _start_update_notice(self):
         if not self.config.get('update_notice', True) or not self._group_settings_valid:
@@ -319,7 +348,7 @@ class MaimaiDXPlugin(Star):
             log.info('别名推送为「开启」状态')
             # 启动别名推送 SSE 服务器
             if not self.alias_push_task or self.alias_push_task.done():
-                self.alias_push_task = asyncio.create_task(sse_alias_server(self.context))
+                self.alias_push_task = asyncio.create_task(sse_alias_server(self.context, getattr(self, 'resources', None)))
         else:
             log.info('别名推送为「关闭」状态')
 
@@ -362,9 +391,58 @@ class MaimaiDXPlugin(Star):
 
     def _load_images_to_memory(self):
         """如果配置了，将图片加载到内存中"""
+        if hasattr(self, 'resources') and not self.resources.ready:
+            log.warning('绘图资源尚未就绪，请在插件详情的「舞萌管理 → 资源」页安装资源包。')
+            return
         if maiApi.config.saveinmem:
             ScoreBaseImage._load_image()
             log.info('已将图片保存在内存中')
+
+    async def _prepare_resource_install(self):
+        await asyncio.to_thread(self._release_resource_images)
+
+    @staticmethod
+    def _release_resource_images():
+        closed = set()
+
+        def close(image):
+            if image is not None and id(image) not in closed:
+                image.close()
+                closed.add(id(image))
+
+        for name in ('_diff', '_rise'):
+            for image in getattr(ScoreBaseImage, name):
+                close(image)
+            setattr(ScoreBaseImage, name, [])
+        for image in ScoreBaseImage._themed_images.values():
+            close(image)
+        ScoreBaseImage._themed_images.clear()
+        for name in ('title_bg', 'title_lengthen_bg', 'design_bg', 'aurora_bg', 'shines_bg',
+                     'pattern_bg', 'rainbow_bg', 'rainbow_bottom_bg'):
+            image = getattr(ScoreBaseImage, name)
+            close(image)
+            setattr(ScoreBaseImage, name, None)
+
+    async def _reload_resources(self):
+        await self.resources.refresh()
+        await self._prepare_resource_install()
+        try:
+            await asyncio.to_thread(self._load_images_to_memory)
+        except (OSError, ValueError):
+            self.resources.inventory['ready'] = False
+            log.warning('部分绘图资源无法加载，请在资源管理页检查或重新安装资源。')
+
+    async def _rebuild_resource_tables(self):
+        if not getattr(mai, 'total_list', None):
+            raise ValueError('music catalogue not ready')
+        from .libraries.maimaidx_update_table import update_plate_table, update_rating_table
+
+        async def generate():
+            for update in (update_rating_table, update_plate_table):
+                result = await update()
+                if isinstance(result, str) and ('失败' in result or '错误' in result):
+                    raise ValueError('table generation failed')
+        await asyncio.to_thread(lambda: asyncio.run(generate()))
 
     def _perform_initial_checks(self):
         """执行对目录和数据的初始检查"""
@@ -474,6 +552,7 @@ class MaimaiDXPlugin(Star):
     # 注册命令处理函数
     # 群组开关命令（管理员专用）
     @filter.regex(r'^/?(开启|关闭)舞萌功能$')
+    @usage_logged
     async def toggle_maimai_feature(self, event: AstrMessageEvent):
         """开启/关闭舞萌功能（管理员专用）"""
         # 检查是否为管理员
@@ -512,6 +591,7 @@ class MaimaiDXPlugin(Star):
     
     # 基础命令
     @filter.command("更新maimai数据")
+    @usage_logged
     async def update_data(self, event: AstrMessageEvent):
         """更新maimai数据"""
         from .command.mai_base import update_data_handler
@@ -519,6 +599,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:帮助maimaidx|helpmaimaidx)$')
+    @usage_logged
+    @requires_resources
     async def maimaidxhelp(self, event: AstrMessageEvent):
         """帮助maimaiDX"""
         # 检查群组是否启用
@@ -531,6 +613,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:maihelp)$')
+    @usage_logged
+    @requires_resources
     async def maihelp(self, event: AstrMessageEvent):
         """代码生成的完整帮助图"""
         group_id = event.message_obj.group_id
@@ -541,6 +625,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(项目地址maimaiDX|项目地址maimaidx)$')
+    @usage_logged
     async def maimaidxrepo(self, event: AstrMessageEvent):
         """项目地址"""
         group_id = event.message_obj.group_id
@@ -551,6 +636,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(今日mai|今日舞萌|今日运势)$')
+    @usage_logged
+    @requires_resources
     async def mai_today(self, event: AstrMessageEvent):
         """今日运势"""
         group_id = event.message_obj.group_id
@@ -561,6 +648,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'.*mai.*什么(.+)?')
+    @usage_logged
+    @requires_resources
     async def mai_what(self, event: AstrMessageEvent):
         """mai什么"""
         group_id = event.message_obj.group_id
@@ -571,6 +660,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?[来随给]个((?:dx|sd|标准))?([绿黄红紫白]?)([0-9]+\+?)$')
+    @usage_logged
+    @requires_resources
     async def random_song(self, event: AstrMessageEvent):
         """随机歌曲"""
         group_id = event.message_obj.group_id
@@ -581,6 +672,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(查看排名|查看排行)$')
+    @usage_logged
+    @requires_resources
     async def rating_ranking(self, event: AstrMessageEvent):
         """查看排名"""
         group_id = event.message_obj.group_id
@@ -591,6 +684,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(我的排名)$')
+    @usage_logged
     async def my_rating_ranking(self, event: AstrMessageEvent):
         """我的排名"""
         group_id = event.message_obj.group_id
@@ -601,6 +695,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?:加入排行榜|退出排行榜)$')
+    @usage_logged
     async def ranking_membership(self, event: AstrMessageEvent):
         """加入或退出当前群的单曲排行榜。"""
         group_id = event.message_obj.group_id
@@ -612,6 +707,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:wmrk).*$')
+    @usage_logged
+    @requires_resources
     async def song_ranking(self, event: AstrMessageEvent):
         """wmrk 歌曲 [难度]。"""
         group_id = event.message_obj.group_id
@@ -623,6 +720,7 @@ class MaimaiDXPlugin(Star):
 
     # 数据源 / 主题 / 查分器绑定命令
     @filter.regex(r'^/?数据源(\s+.*)?$')
+    @usage_logged
     async def data_source(self, event: AstrMessageEvent):
         """数据源 切换查分器"""
         group_id = event.message_obj.group_id
@@ -633,6 +731,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:主题|theme)(\s+.*)?$')
+    @usage_logged
     async def theme(self, event: AstrMessageEvent):
         """主题 切换成绩图主题"""
         group_id = event.message_obj.group_id
@@ -643,6 +742,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(绑定落雪|绑定lx|绑定lxns|lxbind)$')
+    @usage_logged
     async def bind_lxns(self, event: AstrMessageEvent):
         """绑定落雪 引导 OAuth 授权"""
         group_id = event.message_obj.group_id
@@ -653,6 +753,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(绑定水鱼|绑定df|dfbind)$')
+    @usage_logged
     async def bind_divingfish(self, event: AstrMessageEvent):
         """绑定水鱼 引导确认码回填授权"""
         group_id = event.message_obj.group_id
@@ -663,6 +764,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:水鱼授权码|落雪授权码|授权码|code)\s+.+$')
+    @usage_logged
     async def auth_code(self, event: AstrMessageEvent):
         """授权码 按待绑定查分器完成 OAuth 绑定"""
         group_id = event.message_obj.group_id
@@ -673,7 +775,48 @@ class MaimaiDXPlugin(Star):
             yield result
 
     # 成绩查询命令
+    @filter.regex(r'^/?(?:同步成绩|更新成绩|导|更新(?i:b50)|更新乐曲数据)(?:\s+.*)?$|^/?(?:重传成绩|取消成绩更新|删除PC数据)$')
+    @usage_logged
+    async def sync_official_scores(self, event: AstrMessageEvent):
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_sync import sync_command_handler
+        async for result in sync_command_handler(event, self.score_sync):
+            yield result
+
+    @filter.event_message_type(EventMessageType.ALL)
+    @usage_logged
+    async def official_score_input(self, event: AstrMessageEvent):
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        if not self.score_sync.waiting(event):
+            return
+        text = get_plain_message_text(event)
+        from .libraries.maimaidx_sync_input import SYNC_COMMAND, credential_images, credential_text
+        if SYNC_COMMAND.fullmatch(text):
+            return
+        if not (text.startswith('SGWCMAID') or credential_text(text) or credential_images(event)):
+            return
+        from .command.mai_sync import sync_input_handler
+        async for result in sync_input_handler(event, self.score_sync, text, require_pending=True):
+            yield result
+
+    @filter.regex(r'^/?(?i:pc50)$')
+    @usage_logged
+    @requires_resources
+    async def pc50(self, event: AstrMessageEvent):
+        group_id = event.message_obj.group_id
+        if group_id and not self._is_group_enabled(str(group_id)):
+            return
+        from .command.mai_sync import pc_handler
+        async for result in pc_handler(event, self.score_sync):
+            yield result
+
     @filter.regex(r'^/?(b50|B50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def best50(self, event: AstrMessageEvent):
         """b50/B50 命令"""
         # 检查群组是否启用
@@ -686,6 +829,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:全曲b50|allb50|ab50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def all_songs_best50(self, event: AstrMessageEvent):
         """全曲b50/allb50/ab50：不分新旧曲查询 Rating 最高的 50 项。"""
         group_id = event.message_obj.group_id
@@ -696,6 +841,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?:含金量分析|含金量)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def gold_analysis(self, event: AstrMessageEvent):
         """含金量分析：分析当前 B50 的拟合定数与官方定数差值"""
         group_id = event.message_obj.group_id
@@ -706,6 +853,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?:水分分析|含水量分析|含水量)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def water_analysis(self, event: AstrMessageEvent):
         """水分分析：分析当前 B50 的官方定数与拟合定数差值"""
         group_id = event.message_obj.group_id
@@ -716,6 +865,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:ap50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def ap50(self, event: AstrMessageEvent):
         """ap50 命令（全 AP 成绩）"""
         group_id = event.message_obj.group_id
@@ -726,6 +877,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?([一二三四五])星(?i:b50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def dx_star_best50(self, event: AstrMessageEvent):
         """一星b50～五星b50：查询 DX SCORE 至少对应星级的 Best 50"""
         group_id = event.message_obj.group_id
@@ -744,6 +897,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:拟合b50|f50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def fitted_best50(self, event: AstrMessageEvent):
         """拟合b50/f50：按谱面拟合定数重算 Rating 后生成 Best 50"""
         group_id = event.message_obj.group_id
@@ -754,6 +909,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:ap\+50|理论b50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def ap_plus50(self, event: AstrMessageEvent):
         """ap+50/理论b50：查询玩家实际 AP+ Best 50"""
         group_id = event.message_obj.group_id
@@ -764,6 +921,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:越级b50|越级50|a50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def under_s_best50(self, event: AstrMessageEvent):
         """越级50/a50：查询达成率低于 97% 的 Best 50"""
         group_id = event.message_obj.group_id
@@ -774,6 +933,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:寸b50|寸50|c50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def near_best50(self, event: AstrMessageEvent):
         """寸50/c50：查询略低于 SSS 或 SSS+ 的 Best 50"""
         group_id = event.message_obj.group_id
@@ -784,6 +945,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?i:锁血b50|锁血50|s50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def lock_best50(self, event: AstrMessageEvent):
         """锁血50/s50：查询略高于 SSS 或 SSS+ 的 Best 50"""
         group_id = event.message_obj.group_id
@@ -794,6 +957,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?([白紫红黄绿])谱(?i:b50)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def difficulty_best50(self, event: AstrMessageEvent):
         """白/紫/红/黄/绿谱 b50：按谱面难度筛选 Best 50"""
         group_id = event.message_obj.group_id
@@ -814,6 +979,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(minfo|Minfo|MINFO|info|Info|INFO)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def minfo(self, event: AstrMessageEvent):
         """minfo/info 命令"""
         group_id = event.message_obj.group_id
@@ -824,6 +991,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(ginfo|Ginfo|GINFO)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def ginfo(self, event: AstrMessageEvent):
         """ginfo 命令"""
         group_id = event.message_obj.group_id
@@ -834,6 +1003,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?容错计算\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def tolerance(self, event: AstrMessageEvent):
         """查询指定谱面各判定的达成率损失表。"""
         group_id = event.message_obj.group_id
@@ -844,6 +1015,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?分数线\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def score(self, event: AstrMessageEvent):
         """分数线命令"""
         group_id = event.message_obj.group_id
@@ -854,6 +1027,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?([0-9]*\.?[0-9]+)的([0-9]*\.?[0-9]+)是多少分$')
+    @usage_logged
+    @requires_resources
     async def calculate_score(self, event: AstrMessageEvent):
         """计算分数命令"""
         group_id = event.message_obj.group_id
@@ -865,6 +1040,8 @@ class MaimaiDXPlugin(Star):
 
     # 搜索命令
     @filter.regex(r'^/?(查歌|search)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def search_music(self, event: AstrMessageEvent):
         """查歌/search 命令"""
         group_id = event.message_obj.group_id
@@ -875,6 +1052,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(定数查歌|search base)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def search_base(self, event: AstrMessageEvent):
         """定数查歌命令"""
         group_id = event.message_obj.group_id
@@ -885,6 +1064,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(bpm查歌|search bpm)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def search_bpm(self, event: AstrMessageEvent):
         """bpm查歌命令"""
         group_id = event.message_obj.group_id
@@ -895,6 +1076,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(曲师查歌|search artist)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def search_artist(self, event: AstrMessageEvent):
         """曲师查歌命令"""
         group_id = event.message_obj.group_id
@@ -905,6 +1088,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(谱师查歌|search charter)\s*(.*)$')
+    @usage_logged
+    @requires_resources
     async def search_charter(self, event: AstrMessageEvent):
         """谱师查歌命令"""
         group_id = event.message_obj.group_id
@@ -915,6 +1100,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(.+?)(是什么歌|是啥歌)$')
+    @usage_logged
+    @requires_resources
     async def search_alias_song(self, event: AstrMessageEvent):
         """是什么歌/是啥歌命令"""
         group_id = event.message_obj.group_id
@@ -925,6 +1112,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?id\s?([0-9]+)$')
+    @usage_logged
+    @requires_resources
     async def query_chart(self, event: AstrMessageEvent):
         """id 命令"""
         group_id = event.message_obj.group_id
@@ -936,26 +1125,31 @@ class MaimaiDXPlugin(Star):
 
     # 猜歌命令
     @filter.regex(r'^/?猜歌$')
+    @usage_logged
+    @requires_resources
     async def guess_music(self, event: AstrMessageEvent):
         """猜歌命令"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_guess import guess_music_handler
-        async for result in guess_music_handler(event):
+        async for result in guess_music_handler(event, getattr(self, 'resources', None)):
             yield result
 
     @filter.regex(r'^/?猜曲绘$')
+    @usage_logged
+    @requires_resources
     async def guess_pic(self, event: AstrMessageEvent):
         """猜曲绘命令"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_guess import guess_pic_handler
-        async for result in guess_pic_handler(event):
+        async for result in guess_pic_handler(event, getattr(self, 'resources', None)):
             yield result
 
     @filter.regex(r'^/?重置猜歌$')
+    @usage_logged
     async def reset_guess(self, event: AstrMessageEvent):
         """重置猜歌命令"""
         group_id = event.message_obj.group_id
@@ -966,6 +1160,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(开启|关闭)mai猜歌$')
+    @usage_logged
     async def guess_on_off(self, event: AstrMessageEvent):
         """开启/关闭mai猜歌命令"""
         group_id = event.message_obj.group_id
@@ -976,17 +1171,20 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
+    @usage_logged
     async def guess_music_solve(self, event: AstrMessageEvent):
         """猜歌答案监听（监听所有群消息）"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_guess import guess_music_solve_handler
-        async for result in guess_music_solve_handler(event):
+        async for result in guess_music_solve_handler(event, getattr(self, 'resources', None)):
             yield result
 
     # 定数表/完成表命令
     @filter.command("更新定数表")
+    @usage_logged
+    @requires_resources
     async def update_table(self, event: AstrMessageEvent):
         """更新定数表命令"""
         group_id = event.message_obj.group_id
@@ -997,6 +1195,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.command("更新完成表")
+    @usage_logged
+    @requires_resources
     async def update_plate(self, event: AstrMessageEvent):
         """更新完成表命令"""
         group_id = event.message_obj.group_id
@@ -1007,6 +1207,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?!更新)(.+?)定数表$')
+    @usage_logged
+    @requires_resources
     async def rating_table(self, event: AstrMessageEvent):
         """定数表命令"""
         group_id = event.message_obj.group_id
@@ -1017,6 +1219,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(?!更新)(.+?)完成表(?:\s*[12])?(?:\s+.+)?\s*$')
+    @usage_logged
+    @requires_resources
     async def table_pfm(self, event: AstrMessageEvent):
         """完成表命令"""
         group_id = event.message_obj.group_id
@@ -1027,6 +1231,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?牌子条件$')
+    @usage_logged
+    @requires_resources
     async def plate_condition(self, event: AstrMessageEvent):
         """牌子条件 说明图"""
         group_id = event.message_obj.group_id
@@ -1037,6 +1243,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?我要在?([0-9]+\+?)?[上加\+]([0-9]+)?分\s?(.+)?$')
+    @usage_logged
+    @requires_resources
     async def rise_score(self, event: AstrMessageEvent):
         """我要在x+上x分命令"""
         group_id = event.message_obj.group_id
@@ -1046,7 +1254,9 @@ class MaimaiDXPlugin(Star):
         async for result in rise_score_handler(event):
             yield result
 
-    @filter.regex(r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜彩])([極极将舞神者]舞?)进度.*$')
+    @filter.regex(r'^/?([真超檄橙暁晓桃櫻樱紫菫堇白雪輝辉舞霸熊華华爽煌星宙祭祝双宴镜鏡彩])([極极将舞神者]舞?)进度.*$')
+    @usage_logged
+    @requires_resources
     async def plate_process(self, event: AstrMessageEvent):
         """牌子进度命令"""
         group_id = event.message_obj.group_id
@@ -1057,6 +1267,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?([0-9]+\+?)\s?([abcdsfxp\+]+)\s?([\u4e00-\u9fa5]+)?进度\s?([0-9]+)?\s?(.+)?$')
+    @usage_logged
+    @requires_resources
     async def level_process(self, event: AstrMessageEvent):
         """等级进度命令"""
         group_id = event.message_obj.group_id
@@ -1067,6 +1279,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?([0-9]+\.?[0-9]?\+?)分数列表\s?([0-9]+)?\s?(.+)?$')
+    @usage_logged
+    @requires_resources
     async def level_achievement_list(self, event: AstrMessageEvent):
         """分数列表命令"""
         group_id = event.message_obj.group_id
@@ -1078,6 +1292,7 @@ class MaimaiDXPlugin(Star):
 
     # 别名相关命令
     @filter.command("更新别名库")
+    @usage_logged
     async def update_alias(self, event: AstrMessageEvent):
         """更新别名库命令"""
         group_id = event.message_obj.group_id
@@ -1088,6 +1303,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(全局开启别名推送|全局关闭别名推送)$')
+    @usage_logged
     async def alias_switch_on_off(self, event: AstrMessageEvent):
         """全局开启/关闭别名推送命令"""
         group_id = event.message_obj.group_id
@@ -1098,6 +1314,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(添加本地别名|添加本地别称)\s+(.+)$')
+    @usage_logged
     async def alias_local_apply(self, event: AstrMessageEvent):
         """添加本地别名命令"""
         group_id = event.message_obj.group_id
@@ -1108,6 +1325,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(删除本地别名|删除本地别称)\s+(.+)$')
+    @usage_logged
     async def alias_local_delete(self, event: AstrMessageEvent):
         """删除本地别名命令"""
         group_id = event.message_obj.group_id
@@ -1118,6 +1336,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(添加别名|增加别名|增添别名|添加别称)\s+(.+)$')
+    @usage_logged
     async def alias_apply(self, event: AstrMessageEvent):
         """添加别名命令"""
         group_id = event.message_obj.group_id
@@ -1128,6 +1347,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(同意别名|同意别称)\s+(.+)$')
+    @usage_logged
     async def alias_agree(self, event: AstrMessageEvent):
         """同意别名命令"""
         group_id = event.message_obj.group_id
@@ -1138,6 +1358,8 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(当前投票|当前别名投票|当前别称投票)\s*([0-9]+)?$')
+    @usage_logged
+    @requires_resources
     async def alias_status(self, event: AstrMessageEvent):
         """当前投票命令"""
         group_id = event.message_obj.group_id
@@ -1148,6 +1370,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(开启|关闭)(别名推送|别称推送)$')
+    @usage_logged
     async def alias_switch(self, event: AstrMessageEvent):
         """别名推送开关命令"""
         group_id = event.message_obj.group_id
@@ -1158,6 +1381,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(id)?\s?(.+)\s?有什么别[名称]$')
+    @usage_logged
     async def alias_song(self, event: AstrMessageEvent):
         """有什么别名命令"""
         group_id = event.message_obj.group_id
@@ -1169,6 +1393,7 @@ class MaimaiDXPlugin(Star):
 
     # 机厅相关命令
     @filter.event_message_type(EventMessageType.ALL)
+    @usage_logged
     async def nearby_arcades(self, event: AstrMessageEvent):
         """开启位置查询后，直接响应 QQ 位置卡。"""
         if event.get_platform_name() != 'aiocqhttp' or not self.nearcade.location_enabled:
@@ -1182,6 +1407,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(开启|关闭)(?:机厅)?排卡$')
+    @usage_logged
     async def toggle_arcade(self, event: AstrMessageEvent):
         """按群开启/关闭机厅排卡功能。"""
         group_id = event.message_obj.group_id
@@ -1215,6 +1441,7 @@ class MaimaiDXPlugin(Star):
         yield event.plain_result('已开启本群排卡功能')
 
     @filter.regex(r'^/?排卡帮助$')
+    @usage_logged
     async def dx_arcade_help(self, event: AstrMessageEvent):
         """排卡帮助"""
         group_id = event.message_obj.group_id
@@ -1224,7 +1451,7 @@ class MaimaiDXPlugin(Star):
         ):
             return
         from .command.mai_arcade import dx_arcade_help_handler
-        async for result in dx_arcade_help_handler(event):
+        async for result in dx_arcade_help_handler(event, getattr(self, 'resources', None)):
             yield result
 
     def _arcade_catalog_options(self):
@@ -1232,6 +1459,7 @@ class MaimaiDXPlugin(Star):
         return {'nearcade': nearcade} if nearcade and nearcade.uses_cloud_catalog else {}
 
     @filter.regex(r'^/?(添加机厅|新增机厅)\s+(.+)$')
+    @usage_logged
     async def add_arcade(self, event: AstrMessageEvent):
         """添加机厅"""
         group_id = event.message_obj.group_id
@@ -1245,6 +1473,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(删除机厅|移除机厅)\s+(.+)$')
+    @usage_logged
     async def delete_arcade(self, event: AstrMessageEvent):
         """删除机厅"""
         group_id = event.message_obj.group_id
@@ -1258,6 +1487,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(添加机厅别名|删除机厅别名)\s+(.+)$')
+    @usage_logged
     async def arcade_alias(self, event: AstrMessageEvent):
         """添加/删除机厅别名"""
         group_id = event.message_obj.group_id
@@ -1271,6 +1501,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(添加群机厅别名|删除群机厅别名)\s+(.+)$')
+    @usage_logged
     async def group_arcade_alias(self, event: AstrMessageEvent):
         """添加/删除仅在当前群生效的机厅别名。"""
         group_id = event.message_obj.group_id
@@ -1285,6 +1516,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(修改机厅|编辑机厅)\s+(.+)$')
+    @usage_logged
     async def modify_arcade(self, event: AstrMessageEvent):
         """修改机厅"""
         group_id = event.message_obj.group_id
@@ -1298,6 +1530,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(订阅机厅|取消订阅机厅|取消订阅)\s(.+)$')
+    @usage_logged
     async def subscribe_arcade(self, event: AstrMessageEvent):
         """订阅/取消订阅机厅"""
         group_id = event.message_obj.group_id
@@ -1311,6 +1544,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(查看订阅|查看订阅机厅)$')
+    @usage_logged
     async def check_subscribe(self, event: AstrMessageEvent):
         """查看订阅"""
         group_id = event.message_obj.group_id
@@ -1324,16 +1558,21 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(查找机厅|查询机厅|机厅查找|机厅查询|搜素机厅|机厅搜素)\s+(.+)$')
+    @usage_logged
     async def search_arcade(self, event: AstrMessageEvent):
         """查找机厅"""
         group_id = event.message_obj.group_id
         if group_id and not self._is_group_enabled(str(group_id)):
             return
         from .command.mai_arcade import search_arcade_handler
-        async for result in search_arcade_handler(event, **self._arcade_catalog_options()):
+        options = self._arcade_catalog_options()
+        if getattr(self, 'resources', None) is not None:
+            options['resources'] = self.resources
+        async for result in search_arcade_handler(event, **options):
             yield result
 
     @filter.regex(r'^/?(?:(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?|.+?\s*[0-9]+\s*(?:人|卡)?)$')
+    @usage_logged
     async def arcade_person(self, event: AstrMessageEvent):
         """操作排卡人数"""
         group_id = event.message_obj.group_id
@@ -1349,6 +1588,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^/?(机厅几人|jtj)$')
+    @usage_logged
     async def arcade_query_multiple(self, event: AstrMessageEvent):
         """机厅几人"""
         group_id = event.message_obj.group_id
@@ -1362,6 +1602,7 @@ class MaimaiDXPlugin(Star):
             yield result
 
     @filter.regex(r'^(?!/?(?:机厅(?:几人|几|jr|j)|jtj)$)/?(.+?)(有多少人|有几人|有几卡|多少人|多少卡|几人|几卡|有几|几|jr|j)$')
+    @usage_logged
     async def arcade_query_person(self, event: AstrMessageEvent):
         """有多少人/有几人/有几卡"""
         group_id = event.message_obj.group_id

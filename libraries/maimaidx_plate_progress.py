@@ -14,6 +14,7 @@ from .. import (
     maimaidir,
     normalize_plate_filename,
     plate_version_dir,
+    resolve_plate_asset,
 )
 from .image import (
     DrawText,
@@ -192,7 +193,7 @@ async def draw_plate_progress(
 
     normalized_plan = '極' if plan == '极' else plan
     plate_name = normalize_plate_filename(f'{version}{normalized_plan}')
-    title_asset = _open_rgba(plate_version_dir / f'{plate_name}.png', (1000, 161))
+    title_asset = _open_rgba(resolve_plate_asset(plate_name, default=plate_version_dir / f'{plate_name}.png'), (1000, 161))
     if title_asset:
         image.alpha_composite(title_asset, (200, 35))
 

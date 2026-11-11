@@ -382,7 +382,7 @@ def _authorize_url() -> str:
         'response_type': 'code',
         'client_id': cfg.lx_client_id,
         'redirect_uri': oauth_redirect_uri(),
-        'scope': 'read_player',
+        'scope': 'read_player write_player' if cfg.official_sync_enabled else 'read_player',
     }
     return f'https://maimai.lxns.net/oauth/authorize?{urlencode(params)}'
 

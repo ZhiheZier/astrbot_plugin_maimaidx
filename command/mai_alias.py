@@ -428,7 +428,7 @@ def parse_alias_push(data: dict) -> Optional[PushAliasStatus]:
     return PushAliasStatus.model_validate(data)
 
 
-async def push_alias(push: PushAliasStatus, context=None):
+async def push_alias(push: PushAliasStatus, context=None, resources=None):
     """
     推送别名通知
     context: astrbot 的 Context 对象，用于获取 bot client
@@ -482,7 +482,9 @@ async def push_alias(push: PushAliasStatus, context=None):
             标题：{music.song_name}
             别名：{status.ApplyAlias}
         ''').strip()
-        pic = await draw_music_info(music)
+        from ..libraries.maimaidx_resources import background_music_info
+
+        pic = await background_music_info(music, draw_music_info, resources)
         chain = convert_message_segment_to_chain(pic)
         chain.insert(0, text_msg + '\n')
         alias_nodes.append(await convert_chain_to_onebot_format(chain))
@@ -544,7 +546,7 @@ async def push_alias(push: PushAliasStatus, context=None):
             continue
 
 
-async def sse_alias_server(context=None):
+async def sse_alias_server(context=None, resources=None):
     """Listen for batched alias applications over server-sent events."""
     if maiApi.config.maimaidxaliasproxy:
         api = 'https://www.yuzuchan.cn/api/v2/events'
@@ -583,7 +585,7 @@ async def sse_alias_server(context=None):
                         try:
                             push = parse_alias_push(json.loads(message.data))
                             if push is not None:
-                                await push_alias(push, context)
+                                await push_alias(push, context, resources)
                         except Exception as e:
                             log.warning(f'处理别名推送数据失败: {e}')
                             log.debug(traceback.format_exc())

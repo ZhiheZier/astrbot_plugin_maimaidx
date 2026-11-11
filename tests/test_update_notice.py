@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from .. import Root, __version__
 from ..libraries.maimaidx_update_notice import (
-    CHANGELOG_URL, NOTICE_TEXT_LIMIT, UpdateNotifier, update_message, update_message_chunks,
+    CHANGELOG_URL, NOTICE_TEXT_LIMIT, UpdateNotifier, changelog_versions, release_notes, update_message, update_message_chunks,
 )
 from ..main import MaimaiDXPlugin
 
@@ -38,6 +38,22 @@ def delivered_message(bot):
 
 
 class UpdateMessageTest(unittest.TestCase):
+    def test_release_notes_are_version_scoped_and_have_no_surrounding_prompts(self):
+        notes = release_notes(CHANGELOG, None, '1.5.1')
+        self.assertIn('【v1.5.1】', notes)
+        self.assertIn('容错计算', notes)
+        for excluded in ('最新功能', '旧功能', '舞萌DX插件当前版本', '完整更新日志：', '/maihelp', 'contact@'):
+            self.assertNotIn(excluded, notes)
+        full = update_message(CHANGELOG, None, '1.5.1')
+        self.assertIn(notes, full)
+        self.assertIn('舞萌DX插件当前版本：v1.5.1', full)
+        self.assertIn('/maihelp', full)
+
+    def test_changelog_versions_are_sorted_deduplicated_and_exclude_future_releases(self):
+        content = '## 未发布\n## v9.0.0\n## v1.5.0\n## v1.5.2\n## 1.5.2\n## v1.5.1\n'
+        self.assertEqual(changelog_versions(content, '1.5.2'), ['1.5.2', '1.5.1', '1.5.0'])
+        self.assertEqual(changelog_versions('', '1.5.8'), ['1.5.8'])
+
     def test_unreleased_changes_are_not_broadcast(self):
         changelog = '## 未发布\n\n### 新功能\n- 未发布机台别名\n\n' + CHANGELOG
         message = update_message(changelog, '1.5.1', '1.5.2')

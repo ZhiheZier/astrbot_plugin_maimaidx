@@ -375,11 +375,13 @@ async def merge_alias_data(
             song_name_map.setdefault(sid, str(name))
 
     if lxns_aliases is not None:
+        yuzu_song_ids = set(alias_map)
         for item in lxns_aliases.aliases:
             sid = item.song_id
-            if sid > 1000:
-                sid += 10000
-            add_aliases(sid, item.aliases or [])
+            if sid in yuzu_song_ids:
+                add_aliases(sid, item.aliases or [])
+            if sid < 10000 and sid + 10000 in yuzu_song_ids:
+                add_aliases(sid + 10000, item.aliases or [])
 
     if local_alias_data:
         for _a, aliases in local_alias_data.items():

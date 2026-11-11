@@ -8,3 +8,7 @@ playwright>=1.52.0
 numpy>=1.24.4
 packaging>=24.2
 PyYAML>=6.0
+cryptography>=38.0
+certifi>=2024.2.2
+zxing-cpp>=2.2,<4
+py7zr>=1.1.4,<2

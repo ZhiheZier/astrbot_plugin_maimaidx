@@ -57,15 +57,13 @@ class NearcadeArcadeList(ArcadeList):
             record.num = record.game_machine_counts['mai']
 
     async def save_arcade(self):
+        from .maimaidx_management_store import write_json
+
         async with self.lock:
             # Catalog search results are disposable; persist only user-owned state.
             data = [record.model_dump() for record in self
                     if record.group or record.alias or record.group_aliases or record.time or record.game_attendance]
-            temporary = self.path.with_suffix('.tmp')
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            if not await writefile(temporary, data):
-                return False
-            temporary.replace(self.path)
+            await asyncio.to_thread(write_json, self.path, data)
             return True
 
     def remember(self, shop, games):

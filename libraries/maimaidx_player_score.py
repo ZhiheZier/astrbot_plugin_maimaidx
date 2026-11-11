@@ -326,67 +326,41 @@ def get_rise_score_list(
     Returns:
         `Tuple[List[RiseScore], int]`
     """
-    ignore = [m.song_id for m in info if m.achievements >= 100.5]
-    if not info:
-        return [], 0
-    ra = info[-1].ra
+    capacity = 15 if type == 'DX' else 35
+    baseline = min(item.ra for item in info) if len(info) >= capacity else 0
+    best = {(item.song_id, item.level_index): item for item in info}
+    target_rise = max(score or 1, 1)
+    newest_version = list(plate_to_dx_version.values())[-1]
     music: List[RiseScore] = []
-    if score is None:
-        ss_ds = round(ra / 20.8, 1)
-    else:
-        ss_ds = round((ra + int(score)) / 20.8, 1)
-    sssp_ds = round(ra / 22.4, 1)
-    ds = (sssp_ds + 0.1, ss_ds + 0.1)
-    version = list(plate_to_dx_version.values())[-1:] if type == 'DX' else list(plate_to_dx_version.values())[:-2]
-    musiclist = mai.total_list.filter(level=level, ds=ds, version=version)
-    for _m in musiclist:
-        if (song_id := _m.song_id) in ignore:
+    for song in mai.total_list.filter(level=level if level is not None else ...):
+        if song.song_id >= 100000 or (song.version_str == newest_version) != (type == 'DX'):
             continue
-        if song_id >= 100000:
-            continue
-        for index in _m.selected_difficulties:
-            difficulty = _m.difficulties[index]
-            for r in achievementList[-4:]:
-                basera, rate = computeRa(difficulty.level_value, r, israte=True)
-                if basera <= ra:
+        for index in song.selected_difficulties:
+            difficulty = song.difficulties[index]
+            key = song.song_id, index
+            best_record = best.get(key)
+            old_achievement = (
+                best_record.achievements if best_record else old_records.get(song.song_id, {}).get(index, 0)
+            )
+            if old_achievement >= 100.5:
+                continue
+            old_rating, old_rate = computeRa(difficulty.level_value, old_achievement, israte=True)
+            effective_old = best_record.ra if best_record is not None else baseline
+            for achievement in achievementList[-4:]:
+                new_rating, rate = computeRa(difficulty.level_value, achievement, israte=True)
+                if new_rating - effective_old < target_rise or new_rating <= old_rating:
                     continue
-                if score and basera - int(score) < ra:
-                    continue
-                if song_id in old_records and index in old_records[song_id]:
-                    oldra, oldrate = computeRa(difficulty.level_value, old_records[song_id][index], israte=True)
-                    if oldra >= basera:
-                        continue
-                    ss = RiseScore(
-                        song_id=song_id,
-                        title=_m.song_name,
-                        type=_m.type,
-                        level_index=index,
-                        ds=difficulty.level_value,
-                        ra=basera,
-                        rate=rate,
-                        achievements=r,
-                        oldra=oldra,
-                        oldrate=oldrate,
-                        oldachievements=old_records[song_id][index]
-                    )
-                else:
-                    ss = RiseScore(
-                        song_id=song_id,
-                        title=_m.song_name,
-                        type=_m.type,
-                        level_index=index,
-                        ds=difficulty.level_value,
-                        ra=basera,
-                        rate=rate,
-                        achievements=r
-                    )
-                music.append(ss)
+                music.append(RiseScore(
+                    song_id=song.song_id, title=song.song_name, type=song.type,
+                    level_index=index, ds=difficulty.level_value, ra=new_rating, rate=rate.lower(),
+                    achievements=achievement, oldra=old_rating,
+                    oldrate=old_rate.lower() if old_achievement else 'd',
+                    oldachievements=old_achievement,
+                ))
                 break
-    if not music:
-        return music, 0
-    new = random.sample(music, min(len(music), 5))
-    new.sort(key=lambda x: x.song_id, reverse=True)
-    return new, ra
+    selected = random.sample(music, min(len(music), 5))
+    selected.sort(key=lambda item: item.song_id, reverse=True)
+    return selected, baseline
 
 
 async def rise_score_data(

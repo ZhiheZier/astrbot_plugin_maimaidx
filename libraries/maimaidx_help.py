@@ -34,7 +34,7 @@ HELP_COLUMNS = (
     (
         HelpSection('查歌与谱面', '#168681', (
             HelpEntry(('search_music',), '查歌 <关键词> [页码]', '曲名搜索；也可用 search。'),
-            HelpEntry(('search_base',), '定数查歌 <定数> / <下限> <上限> [页码]', '单值或范围筛选，如：定数查歌 13.7、定数查歌 13.6 13.9 1；整数范围需同时填页码。'),
+            HelpEntry(('search_base',), '定数查歌 <定数> / <下限> <上限> [页码]', '单值或范围筛选，如13.7、13 14；两数前大后小时按定数和页码处理，如14.5 2。', new_in='1.5.8'),
             HelpEntry(('search_bpm',), 'bpm查歌 <BPM> / <下限> <上限> [页码]', '单值或范围筛选，如：bpm查歌 180、bpm查歌 180 220；末尾可加页码。'),
             HelpEntry(('search_artist',), '曲师查歌 <曲师名> [页码]', '按作曲者查询曲目。'),
             HelpEntry(('search_charter',), '谱师查歌 <谱师名> [页码]', '按谱面制作者查询曲目。'),
@@ -51,7 +51,7 @@ HELP_COLUMNS = (
         )),
         HelpSection('牌子、等级与进度', '#7e58ac', (
             HelpEntry(('rating_table',), '<等级>定数表', '例如：13+定数表；支持7至15级。', prefix=True),
-            HelpEntry(('table_pfm',), '<等级>[fc/ap/fcp/app]完成表 [玩家]', '例如：14完成表、14fc完成表 Alice。', prefix=True),
+            HelpEntry(('table_pfm',), '<等级>[目标]完成表 [玩家]', '目标支持fc/fc+/ap/ap+/fs/fs+/fdx/fdx+，兼容fcp/app/fsd/fsdp。例如14ap完成表 Alice、14fs+完成表。', prefix=True, new_in='1.5.8'),
             HelpEntry(('table_pfm',), '<版本><牌子>完成表 [1/2] [玩家]', '例如：晓将完成表 Alice；舞系、霸者支持分页，例：舞神完成表 1 Alice。', prefix=True),
             HelpEntry(('plate_process',), '<版本><牌子>进度表 [玩家]', '例如：晓将进度表 Alice，也可使用QQ号或@群成员。', prefix=True),
             HelpEntry(('level_process',), '<等级><评价>[分类]进度 [页码] [玩家]', '例如：14sss未完成进度 1 Alice；分类可选已完成/未完成/未游玩。', prefix=True),
@@ -63,6 +63,7 @@ HELP_COLUMNS = (
     (
         HelpSection('Best 50 与成绩分析', '#3478a4', (
             HelpEntry(('best50',), 'b50 [玩家]', '省略查询自己；玩家可用QQ号、@玩家或用户名。'),
+            HelpEntry(('pc50',), 'pc50', '仅查自己已同步的本地PC；按游玩次数分别取旧曲35首、新曲15首，不含宴谱。', new_in='1.5.8'),
             HelpEntry(('all_songs_best50',), '全曲b50 / allb50 / ab50 [玩家]', '不区分新旧曲，按单曲Rating取前50。'),
             HelpEntry(('ap50',), 'ap50 [玩家]', '仅统计AP成绩。'),
             HelpEntry(('ap_plus50',), 'ap+50 / 理论b50 [玩家]', '仅统计实际AP+成绩。'),
@@ -81,6 +82,8 @@ HELP_COLUMNS = (
             HelpEntry(('song_ranking',), 'wmrk <歌曲> [难度]', 'wmrk后可不加空格，歌曲支持ID、名称或别名，多曲列出候选；默认最高难度，末尾可指定绿/黄/红/紫/白或英文难度，仅展示本群已加入且有成绩的玩家，每20人分页。', new_in='1.5.4'),
         )),
         HelpSection('查分器绑定与设置', '#168681', (
+            HelpEntry(('sync_official_scores',), '导 / 更新b50 / 更新乐曲数据', '也支持同步成绩、更新成绩；按提示在同会话180秒内发送SGID、官方二维码链接或图片，仅群聊尝试撤回并反馈结果。PC本地保存，上传已绑定的水鱼及落雪，勿同时登录机台。', new_in='1.5.8'),
+            HelpEntry(('sync_official_scores',), '重传成绩 / 取消成绩更新 / 删除PC数据', '重传本地快照；取消等待SGID；或仅删除自己的本地PC和成绩快照。', new_in='1.5.8'),
             HelpEntry(('data_source',), '数据源 [水鱼/落雪]', '不带参数查看当前数据源；也可用0/1切换。'),
             HelpEntry(('bind_divingfish',), '绑定水鱼 / dfbind', '群聊和私聊均可；打开链接授权后回填确认码。'),
             HelpEntry(('auth_code',), '水鱼授权码 XXXX-XXXX-XXXX', '完成水鱼绑定，避免只点击链接就绑定。'),
@@ -143,6 +146,7 @@ NEW_BADGE_WIDTH = 38
 NEW_BADGE_SPACE = 52
 _help_lock = asyncio.Lock()
 HELP_NOTES = (
+    '所有50类成绩图均不包含宴谱；PC50按游玩次数取旧曲35首、新曲15首。',
     '※ 前置参数或开关指令，如「799是什么歌」「13+定数表」「开启别名推送」；标记本身不用输入。',
     '# 管理员专用；☆ 群管理员可用（群主或群内管理员），管理员也可使用所有☆指令。',
     '< > 为必填参数，[ ] 为可选参数；[玩家]可填QQ号、@群成员或水鱼用户名，省略查自己。',

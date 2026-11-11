@@ -1,6 +1,6 @@
 import copy
 
-from .. import MessageSegment, get_botname, merge_music_file
+from .. import CB_SYNC_MAP, MessageSegment, get_botname, merge_music_file, resolve_plate_asset
 from .image import draw_text_with_font_fallback
 from .maimai_best_50 import *
 from .maimaidx_lxns import LxnsError
@@ -265,12 +265,11 @@ async def draw_music_play_data(qqid: Optional[Union[int, str]], music_id: str,
                 diff[_d.level_index] = _d
         if all(d is None for d in diff):
             raise MusicNotPlayError
-        # OAuth/落雪/开发者接口均带精确字段，按 dev 路径绘制
+        # OAuth 和落雪均带精确字段，沿用完整成绩绘图路径。
         from .maimaidx_source import is_lxns
 
         dev = bool(
             maiApi.divingfish_oauth_configured
-            or maiApi.token
             or is_lxns(qqid, username)
         )
 
@@ -369,15 +368,23 @@ async def draw_music_play_data(qqid: Optional[Union[int, str]], music_id: str,
     return msg
 
 
-def calc_achievements_fc(scorelist: Union[List[float], List[str]], lvlist_num: int, isfc: bool = False) -> int:
+def calc_achievements_fc(scorelist: Union[List[float], List[str]], lvlist_num: int, isfc: bool = False,
+                         plan: Optional[Tuple[str, ...]] = None) -> int:
     r = -1
-    obj = range(4) if isfc else achievementList[-6:]
+    obj = range(len(plan)) if plan else (range(4) if isfc else achievementList[-6:])
     for __f in obj:
         if len(list(filter(lambda x: x >= __f, scorelist))) == lvlist_num:
             r += 1
         else:
             break
     return r
+
+
+def completion_plan_status(record, plan):
+    if not plan:
+        return None
+    status = record['fs'] if plan[0] in sync_rank else record['fc']
+    return status if status in plan else None
 
 
 def draw_rating(rating: str, path: Path) -> MessageSegment:
@@ -398,9 +405,13 @@ def draw_rating(rating: str, path: Path) -> MessageSegment:
 
 
 async def draw_rating_table(qqid: Optional[Union[int, str]], rating: str, isfc: bool = False,
-                            username: Optional[str] = None) -> Union[MessageSegment, str]:
+                            username: Optional[str] = None, *,
+                            plan: Optional[Tuple[str, ...]] = None) -> Union[MessageSegment, str]:
     """绘制定数表"""
     from .maimaidx_source import get_plate
+    plan = plan or (CB_SYNC_MAP['fc'] if isfc else None)
+    isfc = bool(plan)
+    status_assets = fcl | fsl
     try:
         obj = await get_plate(qqid=qqid, username=username)
         
@@ -418,6 +429,7 @@ async def draw_rating_table(qqid: Optional[Union[int, str]], rating: str, isfc: 
             fromid[id][str(_d.level_index)] = {
                 'achievements': _d.achievements,
                 'fc': _d.fc,
+                'fs': _d.fs,
                 'level': _d.level
             }
             rate = computeRa(_d.ds, _d.achievements, onlyrate=True).lower()
@@ -516,10 +528,10 @@ async def draw_rating_table(qqid: Optional[Union[int, str]], rating: str, isfc: 
                     )
                     im.alpha_composite(rank, (x + 55, cover_y + 115))
                     continue
-                if _fc := fromid[music.id][music.lv]['fc']:
-                    achievements_fc_list.append(combo_rank.index(_fc))
+                if _fc := completion_plan_status(fromid[music.id][music.lv], plan):
+                    achievements_fc_list.append(plan.index(_fc))
                     fc = Image.open(
-                        maimaidir / f'UI_CHR_PlayBonus_{fcl[_fc]}.png'
+                        maimaidir / f'UI_CHR_PlayBonus_{status_assets[_fc]}.png'
                     ).resize((200, 200))
                     im.alpha_composite(fc, (x + 75, cover_y + 80))
         else:
@@ -543,19 +555,24 @@ async def draw_rating_table(qqid: Optional[Union[int, str]], rating: str, isfc: 
                                 im.alpha_composite(unfinished_bg, (x + 1, cover_y + 1))
                             im.alpha_composite(rank, (x, cover_y + 20))
                             continue
-                        if _fc := fromid[music.id][music.lv]['fc']:
-                            achievements_fc_list.append(combo_rank.index(_fc))
-                            fc = Image.open(maimaidir / f'UI_MSS_MBase_Icon_{fcl[_fc]}.png').resize((50, 50))
+                        if _fc := completion_plan_status(fromid[music.id][music.lv], plan):
+                            achievements_fc_list.append(plan.index(_fc))
+                            fc = Image.open(maimaidir / f'UI_MSS_MBase_Icon_{status_assets[_fc]}.png').resize((50, 50))
                             im.alpha_composite(complete_bg, (x + 1, cover_y + 1))
                             im.alpha_composite(fc, (x + 15, cover_y + 13))
                 rows = (len(songs) - 1) // 14 + 1
                 START_Y += rows * 85 + 30
 
         if len(achievements_fc_list) == lvnum:
-            r = calc_achievements_fc(achievements_fc_list, lvnum, isfc)
+            r = calc_achievements_fc(achievements_fc_list, lvnum, isfc, plan)
             if r != -1:
-                pic = fcl[combo_rank[r]] if isfc else score_Rank_l[score_Rank[-6:][r]]
-                im.alpha_composite(Image.open(maimaidir / f'UI_MSS_Allclear_Icon_{pic}.png'), (40, 40))
+                pic = status_assets[plan[r]] if plan else score_Rank_l[score_Rank[-6:][r]]
+                badge = maimaidir / f'UI_MSS_Allclear_Icon_{pic}.png'
+                if badge.exists():
+                    im.alpha_composite(Image.open(badge), (40, 40))
+                elif plan:
+                    im.alpha_composite(Image.open(maimaidir / f'UI_CHR_PlayBonus_{pic}.png').resize((200, 200)), (40, 40))
+                    fn.draw(140, 270, 24, 'ALL CLEAR', font_color, 'mm', 2, (255, 255, 255, 255))
         
         final_im = im.resize((int(im.size[0] * 0.8), int(im.size[1] * 0.8)), Image.Resampling.LANCZOS)
         msg = MessageSegment.image(image_to_base64(final_im))
@@ -654,6 +671,8 @@ async def draw_plate_table(
 
         table_name = f'舞-{page}' if is_wu else version
         table_path = platedir / f'{table_name}.png'
+        if not table_path.exists() and table_name in ('镜', '鏡'):
+            table_path = platedir / f'{"镜" if table_name == "鏡" else "鏡"}.png'
         if not table_path.exists():
             return f'未找到「{table_name}」完成表底图，请先执行“更新完成表”'
 
@@ -672,7 +691,7 @@ async def draw_plate_table(
         im.alpha_composite(progress_bg_img, (175, 20))
 
         plate_title = normalize_plate_filename(f'{version}{"極" if plan == "极" else plan}')
-        plate_title_path = plate_version_dir / f'{plate_title}.png'
+        plate_title_path = resolve_plate_asset(plate_title, default=plate_version_dir / f'{plate_title}.png')
         if plate_title_path.exists():
             im.alpha_composite(Image.open(plate_title_path).resize((1000, 161)), (200, 45))
         else:

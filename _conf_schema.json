@@ -37,19 +37,13 @@
     "items": {
       "df_client_id": {
         "description": "水鱼 OAuth 应用 client_id",
-        "hint": "在水鱼开发者控制台补全迁移应用或创建新应用，接入方式仍选择设备码，仅申请 prober.records.read 权限；用户需回填网页显示的一次性授权码完成绑定。",
+        "hint": "在水鱼开发者控制台配置设备码应用，查询需 prober.records.read；开启官方成绩同步还需 prober.records.write。用户回填网页的一次性授权码完成绑定。",
         "type": "string",
         "default": ""
       },
       "df_client_secret": {
         "description": "水鱼 OAuth 应用 client_secret",
         "hint": "与 client_id 配套使用。仅保存在 BOT 配置中。",
-        "type": "string",
-        "default": ""
-      },
-      "maimaidxtoken": {
-        "description": "水鱼查分器开发者 Token",
-        "hint": "旧版兼容配置，官方当前计划于 2027-01-01 停止服务。建议迁移到同组的水鱼 OAuth 配置。",
         "type": "string",
         "default": ""
       },
@@ -74,7 +68,7 @@
       },
       "lx_client_id": {
         "description": "落雪 OAuth 应用 client_id",
-        "hint": "可选。OAuth 权限仅需选择 read_player。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩（支持分数列表/我要上分）。",
+        "hint": "可选。查询需 read_player；开启官方成绩同步还需 write_player。配置后用户可用「绑定落雪」授权，获取含精确达成率的完整成绩。",
         "type": "string",
         "default": ""
       },
@@ -89,6 +83,63 @@
         "hint": "可选。推荐在落雪开发者面板选择“无回调地址”并填写 urn:ietf:wg:oauth:2.0:oob；留空时插件也会自动使用该地址。请勿填写完整的 OAuth 授权链接。",
         "type": "string",
         "default": ""
+      }
+    }
+  },
+  "official_sync": {
+    "description": "官方成绩同步（实验性）",
+    "type": "object",
+    "hint": "更新个人成绩并上传已绑定的水鱼和落雪，PC数本地保存。",
+    "items": {
+      "official_sync_enabled": {
+        "description": "开启官方成绩同步",
+        "hint": "默认关闭。开启后新绑定会申请成绩写入权限；已有用户上传失败时需重新绑定。使用时请先退出机台，请勿同时游玩。",
+        "type": "bool",
+        "default": false
+      },
+      "official_client_id": {
+        "description": "连接标识（高级）",
+        "hint": "通常留空，非必要请勿修改。",
+        "type": "string",
+        "default": ""
+      },
+      "official_place_id": {
+        "description": "连接参数（高级）",
+        "hint": "保持默认值，非必要请勿修改。",
+        "type": "int",
+        "default": 3496
+      },
+      "official_fetch_cooldown": {
+        "description": "每人官方取数冷却（秒）",
+        "hint": "默认300秒，0关闭。开始取数即计入，失败不退还；按发送者跨群共享，重启保留。",
+        "type": "int",
+        "default": 300,
+        "slider": { "min": 0, "max": 3600, "step": 30 },
+        "condition": { "official_sync_enabled": true }
+      },
+      "official_fetch_daily_limit": {
+        "description": "每人每日官方取数次数",
+        "hint": "默认10次，0不限。北京时间每日00:00重置，换SGID或删除PC数据不会重置次数。",
+        "type": "int",
+        "default": 10,
+        "slider": { "min": 0, "max": 100, "step": 1 },
+        "condition": { "official_sync_enabled": true }
+      },
+      "official_upload_cooldown": {
+        "description": "每人查分器上传冷却（秒）",
+        "hint": "默认60秒，0关闭。同步自动上传和重传共用限制；一次处理两个查分器合计记一次，分批不多计。",
+        "type": "int",
+        "default": 60,
+        "slider": { "min": 0, "max": 3600, "step": 10 },
+        "condition": { "official_sync_enabled": true }
+      },
+      "official_upload_daily_limit": {
+        "description": "每人每日查分器上传次数",
+        "hint": "默认20次，0不限。首次尝试上传前计次，失败不退还；未绑定或无可上传成绩不扣次。北京时间每日00:00重置。",
+        "type": "int",
+        "default": 20,
+        "slider": { "min": 0, "max": 100, "step": 1 },
+        "condition": { "official_sync_enabled": true }
       }
     }
   },
@@ -145,10 +196,7 @@
         "description": "机厅数据源",
         "hint": "local 使用本地机厅（默认）；nearcade 直接使用云端机厅，无需映射。两种模式数据独立，首次切换需重新订阅；修改后重载。",
         "type": "string",
-        "options": [
-          "local",
-          "nearcade"
-        ],
+        "options": ["local", "nearcade"],
         "default": "local"
       },
       "nearcade_upload_enabled": {
@@ -193,7 +241,7 @@
     "items": {
       "nearcade_location_enabled": {
         "description": "QQ 位置卡查询附近机厅",
-        "hint": "默认关闭。开启后检测到 QQ 位置卡即返回附近舞萌 DX 机厅，无需前置指令；群聊与私聊均可，遵守舞萌功能白名单，不依赖排卡开关。坐标仅发送给 nearcade 做当次查询，不写入插件持久化文件。",
+        "hint": "默认关闭。开启后检测到 QQ 位置卡即返回附近舞萌 DX 机厅，无需前置指令；群聊与私聊均可，遵守舞萌功能白名单。",
         "type": "bool",
         "default": false
       },
@@ -279,11 +327,6 @@
   },
   "nearcade_shop_bindings": {
     "type": "list",
-    "default": null,
-    "invisible": true
-  },
-  "maimaidxtoken": {
-    "type": "string",
     "default": null,
     "invisible": true
   },

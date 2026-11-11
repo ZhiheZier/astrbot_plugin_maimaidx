@@ -14,7 +14,6 @@ from .maimaidx_model import *
 
 class MaiConfig(BaseModel):
     
-    maimaidxtoken: Optional[str] = None
     df_client_id: Optional[str] = None
     df_client_secret: Optional[str] = None
     maimaidxproberproxy: bool = False
@@ -30,13 +29,14 @@ class MaiConfig(BaseModel):
     lx_client_id: Optional[str] = None        # OAuth 应用 client_id（模式B）
     lx_client_secret: Optional[str] = None    # OAuth 应用 client_secret（模式B）
     lx_redirect_uri: Optional[str] = None     # OAuth 回调地址（模式B）
+    official_sync_enabled: bool = False
 
 
 class MaimaiAPI:
     
     MaiProxyAPI = 'https://proxy.yuzuchan.site'
     
-    MaiProberAPI = 'https://www.diving-fish.com/api/maimaidxprober'
+    MaiProberAPI = 'https://maimai.diving-fish.com/api/maimaidxprober'
     MaiCover = 'https://www.diving-fish.com/covers'
     MaiAliasAPI = 'https://www.yuzuchan.moe/api/maimaidx'
     DivingFishAuthAPI = 'https://auth.diving-fish.com'
@@ -62,10 +62,8 @@ class MaimaiAPI:
     def load_token_proxy(self) -> None:
         self.MaiProberProxyAPI = self.MaiProberAPI if not self.config.maimaidxproberproxy else self.MaiProxyAPI + '/maimaidxprober'
         self.MaiAliasProxyAPI = self.MaiAliasAPI if not self.config.maimaidxaliasproxy else self.MaiProxyAPI + '/maimaidxaliases'
-        self.token = self.config.maimaidxtoken
+        self.token = None
         self.headers = None
-        if self.token:
-            self.headers = {'developer-token': self.token}
         if self._oauth_cache_client_id != self.config.df_client_id:
             self._oauth_tokens.clear()
             self._oauth_locks.clear()
@@ -162,30 +160,38 @@ class MaimaiAPI:
         if not self.divingfish_oauth_configured:
             raise DivingFishOAuthConfigError
         subject = self._divingfish_subject(qqid=external_id)
-        self._oauth_tokens.pop(subject, None)
+        self._clear_divingfish_tokens(subject)
         return await self._request_divingfish_oauth(
             '/oauth/device_authorization',
             data={
                 'client_id': self.config.df_client_id,
                 'client_secret': self.config.df_client_secret,
-                'scope': self.DivingFishOAuthScope,
+                'scope': self.DivingFishOAuthScope + (
+                    ' prober.records.write' if self.config.official_sync_enabled else ''
+                ),
                 'subject_ref': self._divingfish_subject_ref(external_id),
                 'binding_label': self.mask_qq(external_id),
                 'handoff': 'code',
             },
         )
 
-    async def _divingfish_access_token(self, subject: str) -> str:
+    def _clear_divingfish_tokens(self, subject: str) -> None:
+        for key in list(self._oauth_tokens):
+            if key == subject or key.startswith(subject + '|'):
+                self._oauth_tokens.pop(key, None)
+
+    async def _divingfish_access_token(self, subject: str, *, scope: Optional[str] = None) -> str:
         if not self.divingfish_oauth_configured:
             raise DivingFishOAuthConfigError
 
-        cached = self._oauth_tokens.get(subject)
+        cache_key = subject if scope is None else f'{subject}|{scope}'
+        cached = self._oauth_tokens.get(cache_key)
         if cached and time.monotonic() < cached[1] - 30:
             return cached[0]
 
-        lock = self._oauth_locks.setdefault(subject, asyncio.Lock())
+        lock = self._oauth_locks.setdefault(cache_key, asyncio.Lock())
         async with lock:
-            cached = self._oauth_tokens.get(subject)
+            cached = self._oauth_tokens.get(cache_key)
             if cached and time.monotonic() < cached[1] - 30:
                 return cached[0]
 
@@ -198,14 +204,14 @@ class MaimaiAPI:
                     'client_id': self.config.df_client_id,
                     'client_secret': self.config.df_client_secret,
                     'subject': subject,
-                    'scope': self.DivingFishOAuthScope,
+                    'scope': scope or self.DivingFishOAuthScope,
                 },
             )
             token = payload.get('access_token')
             if not token:
                 raise DivingFishOAuthServiceError
             expires_in = max(int(payload.get('expires_in', 300)), 1)
-            self._oauth_tokens[subject] = (
+            self._oauth_tokens[cache_key] = (
                 str(token),
                 time.monotonic() + expires_in,
             )
@@ -233,7 +239,7 @@ class MaimaiAPI:
         subject = self._divingfish_subject(qqid=external_id)
         lock = self._oauth_locks.setdefault(subject, asyncio.Lock())
         async with lock:
-            self._oauth_tokens.pop(subject, None)
+            self._clear_divingfish_tokens(subject)
             redeemed = await self._request_divingfish_oauth(
                 '/oauth/token',
                 data={
@@ -280,10 +286,12 @@ class MaimaiAPI:
         *,
         qqid: Optional[Union[int, str]] = None,
         username: Optional[str] = None,
+        oauth_scope: Optional[str] = None,
         **kwargs,
     ) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         subject = self._divingfish_subject(qqid=qqid, username=username)
-        token = await self._divingfish_access_token(subject)
+        token_args = {'scope': oauth_scope} if oauth_scope else {}
+        token = await self._divingfish_access_token(subject, **token_args)
         try:
             return await self._requestmai(
                 method,
@@ -292,8 +300,8 @@ class MaimaiAPI:
                 **kwargs,
             )
         except DivingFishOAuthTokenExpiredError:
-            self._oauth_tokens.pop(subject, None)
-            token = await self._divingfish_access_token(subject)
+            self._oauth_tokens.pop(subject if oauth_scope is None else f'{subject}|{oauth_scope}', None)
+            token = await self._divingfish_access_token(subject, **token_args)
             return await self._requestmai(
                 method,
                 endpoint,
@@ -388,6 +396,14 @@ class MaimaiAPI:
                     raise UnknownError
         return data
     
+    async def upload_user_records(self, qqid: Union[int, str], records: List[Dict[str, Any]]) -> None:
+        result = await self._requestmai_oauth(
+            'POST', '/player/update_records', qqid=qqid,
+            oauth_scope='prober.records.write', json=records,
+        )
+        if isinstance(result, dict) and (result.get('status') == 'error' or result.get('success') is False):
+            raise UnknownError
+
     async def music_data(self):
         """获取曲目数据"""
         return await self._requestmai(
@@ -431,115 +447,50 @@ class MaimaiAPI:
             )
         )
 
-    async def query_user_plate(
-        self,
-        *,
-        qqid: Optional[int] = None,
-        username: Optional[str] = None,
-        version: Optional[List[str]] = None
-    ) -> List[PlayInfoDefault]:
-        """
-        请求用户数据
-
-        Params:
-            `qqid`: 用户QQ
-            `username`: 查分器用户名
-            `version`: 版本
-        Returns:
-            `List[PlayInfoDefault]` 数据列表
-        """
-        json = {}
-        if version:
-            json['version'] = version
-        if self.divingfish_oauth_configured:
-            result = await self._requestmai_oauth(
-                'POST',
-                '/player/plate',
-                qqid=qqid,
-                username=username,
-                json=json,
-            )
-        else:
-            if qqid:
-                json['qq'] = qqid
-            if username:
-                json['username'] = username
-            result = await self._requestmai('POST', '/query/plate', json=json)
-        return [PlayInfoDefault.model_validate(d) for d in result['verlist']]
-
-    async def query_user_get_dev(
-        self, 
-        *, 
-        qqid: Optional[int] = None, 
-        username: Optional[str] = None
+    async def query_user_records(
+        self, *, qqid: Optional[int] = None, username: Optional[str] = None,
+        query: Optional[RecordsQueryRequest] = None,
     ) -> UserInfoDev:
-        """
-        使用开发者接口获取用户数据，请确保拥有和输入了开发者 `token`
-
-        Params:
-            qqid: 用户QQ
-            username: 查分器用户名
-        Returns:
-            `UserInfoDev` 开发者用户信息
-        """
-        if self.divingfish_oauth_configured:
-            result = await self._requestmai_oauth(
-                'GET',
-                '/player/records',
-                qqid=qqid,
-                username=username,
-            )
-        else:
-            params = {}
-            if qqid:
-                params['qq'] = qqid
-            if username:
-                params['username'] = username
-            result = await self._requestmai(
-                'GET', '/dev/player/records', params=params
-            )
+        """通过 OAuth 查询成绩，可按歌曲、版本、等级和目标筛选。"""
+        params = query.model_dump(exclude_none=True, by_alias=True) if query else {}
+        result = await self._requestmai_oauth(
+            'GET', '/player/records', qqid=qqid, username=username,
+            **({'params': params} if params else {}),
+        )
         return UserInfoDev.model_validate(result)
 
-    async def query_user_post_dev(
-        self,
-        *,
-        qqid: Optional[int] = None,
-        username: Optional[str] = None,
-        music_id: Union[str, int, List[Union[str, int]]]
-    ) -> List[PlayInfoDev]:
-        """
-        使用开发者接口获取用户指定曲目数据，请确保拥有和输入了开发者 `token`
+    async def query_user_plate(
+        self, *, qqid: Optional[int] = None, username: Optional[str] = None,
+        version: Optional[List[str]] = None,
+    ) -> List[PlayInfoDefault]:
+        """保留旧绘图适配结构，底层统一读取 OAuth records。"""
+        result = await self.query_user_records(
+            qqid=qqid, username=username, query=RecordsQueryRequest(version=version),
+        )
+        return [PlayInfoDefault.model_validate({**record.model_dump(), 'id': record.song_id})
+                for record in result.records or []]
 
-        Params:
-            `qqid`: 用户QQ
-            `username`: 查分器用户名
-            `music_id`: 曲目id，可以为单个ID或者列表
-        Returns:
-            `List[PlayInfoDev]` 开发者成绩列表
-        """
-        json = {'music_id': music_id}
-        if self.divingfish_oauth_configured:
-            result = await self._requestmai_oauth(
-                'POST',
-                '/player/record',
-                qqid=qqid,
-                username=username,
-                json=json,
+    async def query_user_get_dev(
+        self, *, qqid: Optional[int] = None, username: Optional[str] = None,
+    ) -> UserInfoDev:
+        """兼容现有调用名，完整成绩仅使用 OAuth。"""
+        return await self.query_user_records(qqid=qqid, username=username)
+
+    async def query_user_post_dev(
+        self, *, qqid: Optional[int] = None, username: Optional[str] = None,
+        music_id: Union[str, int, List[Union[str, int]]],
+    ) -> List[PlayInfoDev]:
+        """兼容现有单曲查询调用名，不再使用旧 record 端点。"""
+        ids = music_id if isinstance(music_id, list) else [music_id]
+        records = []
+        for song_id in dict.fromkeys(int(value) for value in ids):
+            result = await self.query_user_records(
+                qqid=qqid, username=username, query=RecordsQueryRequest(song_id=song_id),
             )
-        else:
-            if qqid:
-                json['qq'] = qqid
-            if username:
-                json['username'] = username
-            result = await self._requestmai(
-                'POST', '/dev/player/record', json=json
-            )
-        if result == {}:
+            records.extend(record for record in result.records or [] if record.song_id == song_id)
+        if not records:
             raise MusicNotPlayError
-        
-        if isinstance(music_id, list):
-            return [PlayInfoDev.model_validate(d) for k, v in result.items() for d in v]
-        return [PlayInfoDev.model_validate(d) for d in result[str(music_id)]]
+        return records
 
     async def rating_ranking(self) -> List[UserRanking]:
         """

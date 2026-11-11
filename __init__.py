@@ -74,7 +74,7 @@ class MessageSegment:
     def __repr__(self):
         return self.__str__()
 
-VOTE_URL = "https://www.yuzuchan.moe/vote"
+VOTE_URL = "https://www.yuzuchan.moe/maimaidx/aliases"
 public_addr = VOTE_URL
 
 # Random runtime identifier; do not encode hardware addresses.
@@ -267,6 +267,12 @@ COMBO_MAP: Dict[str, str] = {
 SYNC_D_SP: List[str] = ["fs", "fsp", "fsd", "fsdp"]
 SYNC_SP: List[str] = ["fs", "fsp", "fdx", "fdxp"]
 SYNC_PLUS: List[str] = [k.replace("p", "+") for k in SYNC_SP]
+CB_SYNC_MAP = {
+    "fc": ("fc", "fcp", "ap", "app"), "fc+": ("fcp", "ap", "app"),
+    "ap": ("ap", "app"), "ap+": ("app",),
+    "fs": ("fs", "fsp", "fsd", "fsdp"), "fs+": ("fsp", "fsd", "fsdp"),
+    "fdx": ("fsd", "fsdp"), "fdx+": ("fsdp",),
+}
 SYNC_MAP: Dict[str, str] = {
     "fs": "FS",
     "fsp": "FSp",
@@ -368,6 +374,7 @@ DX_VERSION: Dict[str, str] = {
     "双": "maimai でらっくす BUDDiES",
     "宴": "maimai でらっくす BUDDiES PLUS",
     "镜": "maimai でらっくす PRiSM",
+    "鏡": "maimai でらっくす PRiSM",
     "彩": "maimai でらっくす PRiSM PLUS",
     # "丸": "maimai でらっくす CiRCLE"
     # "": "maimai でらっくす CiRCLE PLUS"
@@ -378,7 +385,7 @@ DX_CN_VERSION: Dict[str, tuple] = {
     "舞萌DX 2022": ("宙&星", "maimai でらっくす UNiVERSE"),
     "舞萌DX 2023": ("祭&祝", "maimai でらっくす FESTiVAL"),
     "舞萌DX 2024": ("双&宴", "maimai でらっくす BUDDiES"),
-    "舞萌DX 2025": ("镜", "maimai でらっくす PRiSM"),
+    "舞萌DX 2025": ("鏡", "maimai でらっくす PRiSM"),
     "舞萌DX 2026": ("彩", "maimai でらっくす PRiSM PLUS"),
 }
 ALL_VERSION: List[str] = list(dict.fromkeys(DX_VERSION.values()))
@@ -409,15 +416,15 @@ VERSION_MAP = {
     "双": ([DX_VERSION["双"]], "双&宴"),
     "宴": ([DX_VERSION["双"]], "双&宴"),
     "镜": ([DX_VERSION["镜"]], "镜"),
+    "鏡": ([DX_VERSION["鏡"]], "鏡"),
     "彩": ([DX_VERSION["彩"]], "彩"),
     # "丸": ([DX_VERSION["丸"]], "丸"),
     # "": ([DX_VERSION["丸"]], "丸")
 }
-PLATE_CN = {"晓": "暁", "樱": "櫻", "堇": "菫", "辉": "輝", "华": "華"}
+PLATE_CN = {"晓": "暁", "樱": "櫻", "堇": "菫", "辉": "輝", "华": "華", "镜": "鏡"}
 # 查分器姓名框 / 牌子标题 → plate_version 素材文件名用字
-# 素材包现状：版本字多为日文繁体，但「镜」用简体；后缀「極」为繁体
+# 优先新素材用字，解析时兼容旧版简体镜牌。
 PLATE_FILE_NORMALIZE = {
-    "鏡": "镜",  # 水鱼日文 → 素材简体
     "极": "極",  # 简体「极」→ 素材「極」
     **PLATE_CN,
 }
@@ -443,8 +450,7 @@ def resolve_plate_asset(name: str | None, *, default: Path | None = None) -> Pat
         plate_version_dir / f"{plate_name}.png",
         plate_version_dir / f"{name}.png",  # 原始名再试一次
     ]
-    # 若规范化后仍是简体「镜」以外的可能写法，补一轮反向尝试
-    alt = plate_name.replace("镜", "鏡")
+    alt = plate_name.translate(str.maketrans({"镜": "鏡", "鏡": "镜"}))
     if alt != plate_name:
         candidates.append(plate_version_dir / f"{alt}.png")
     for path in candidates:

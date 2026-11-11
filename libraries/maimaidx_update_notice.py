@@ -15,7 +15,7 @@ CHANGELOG_URL = 'https://github.com/ZhiheZier/astrbot_plugin_maimaidx/blob/maste
 NOTICE_TEXT_LIMIT = 1500
 
 
-def update_message(changelog: str, previous: str | None, current: str) -> str:
+def release_notes(changelog: str, previous: str | None, current: str) -> str:
     lower, upper = Version(previous) if previous is not None else None, Version(current)
     sections = []
     selected = False
@@ -56,6 +56,25 @@ def update_message(changelog: str, previous: str | None, current: str) -> str:
         '本次未列出可广播的更新内容，详情请查看完整更新日志。' if changelog.strip()
         else '本次更新详情请查看完整更新日志。'
     )
+    return body
+
+
+def changelog_versions(changelog: str, current: str) -> list[str]:
+    upper = Version(current)
+    releases = {upper: str(upper)}
+    for line in changelog.splitlines():
+        if match := re.fullmatch(r'##\s+v?(\S+)\s*', line):
+            try:
+                version = Version(match[1])
+            except InvalidVersion:
+                continue
+            if version <= upper:
+                releases.setdefault(version, str(version))
+    return [releases[version] for version in sorted(releases, reverse=True)]
+
+
+def update_message(changelog: str, previous: str | None, current: str) -> str:
+    body = release_notes(changelog, previous, current)
     header = (f'舞萌DX插件当前版本：v{current}\n\n' if previous is None
               else f'舞萌DX插件已更新：v{previous} → v{current}\n\n')
     footer = (

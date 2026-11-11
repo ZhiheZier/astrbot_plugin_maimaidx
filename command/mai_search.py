@@ -1,4 +1,5 @@
 import re
+from math import isfinite
 from textwrap import dedent
 from typing import List
 
@@ -44,6 +45,27 @@ async def song_list_chain(event: AstrMessageEvent, songs, page: int, title: str)
     if is_reply_enabled():
         chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
     return chain
+
+
+def parse_ds_search_args(args):
+    if not 1 <= len(args) <= 3:
+        raise ValueError('invalid argument count')
+
+    def bound(value, upper=False):
+        number = float(value[:-1]) + (0.9 if upper else 0.6) if value.endswith('+') else float(value)
+        if not isfinite(number):
+            raise ValueError('invalid chart constant')
+        return number
+
+    lower, upper, page = bound(args[0]), bound(args[0], True), 1
+    if len(args) == 2:
+        if lower > bound(args[1]):
+            page = max(1, int(float(args[1])))
+        else:
+            upper = bound(args[1], True)
+    elif len(args) == 3:
+        upper, page = bound(args[1], True), max(1, int(args[2]))
+    return lower, upper, page
 
 
 async def search_music_handler(event: AstrMessageEvent):
@@ -114,25 +136,9 @@ async def search_base_handler(event: AstrMessageEvent):
             ''').strip())
         return
     
-    page = 1
-    if len(args) == 1:
-        ds1, ds2 = args[0], args[0]
-    elif len(args) == 2:
-        if '.' in args[1]:
-            ds1, ds2 = args
-        else:
-            ds1, ds2 = args[0], args[0]
-            page = args[1]
-    else:
-        ds1, ds2, page = args
-    page = int(page)
-    # 处理 "13+" 格式：13.6 ~ 13.9
-    if ds1.endswith('+') and ds1[:-1].replace('.', '').isdigit():
-        ds1 = ds1[:-1] + '.6'
-    if ds2.endswith('+') and ds2[:-1].replace('.', '').isdigit():
-        ds2 = ds2[:-1] + '.9'
     try:
-        result = song_level(float(ds1), float(ds2))
+        ds1, ds2, page = parse_ds_search_args(args)
+        result = song_level(ds1, ds2)
     except ValueError:
         yield event.plain_result('命令格式错误，请使用纯数字定数，如 13 或 13.7')
         return

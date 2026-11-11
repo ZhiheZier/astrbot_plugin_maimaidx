@@ -32,6 +32,8 @@ class PluginConfigTest(unittest.TestCase):
     def legacy(self):
         values = deepcopy(self.defaults)
         for key, node in self.fields.items():
+            if key.startswith('official_'):
+                continue
             value = values[key]
             if isinstance(value, bool):
                 values[key] = not value
@@ -46,9 +48,9 @@ class PluginConfigTest(unittest.TestCase):
         values['arcade_data_source'] = 'nearcade'
         return values
 
-    def test_all_existing_settings_appear_once_in_seven_visible_object_groups(self):
-        self.assertEqual(set(self.groups), {'general', 'divingfish', 'lxns', 'alias', 'images', 'arcade', 'location'})
-        self.assertEqual(len(self.fields), 25)
+    def test_all_existing_settings_appear_once_in_visible_object_groups(self):
+        self.assertEqual(set(self.groups), {'general', 'divingfish', 'lxns', 'official_sync', 'alias', 'images', 'arcade', 'location'})
+        self.assertEqual(len(self.fields), 31)
         self.assertEqual(sum(len(fields) for fields in self.groups.values()), len(self.fields))
         for key, node in self.schema.items():
             if key in self.groups:
@@ -66,6 +68,17 @@ class PluginConfigTest(unittest.TestCase):
         config.save_config.assert_called_once_with()
         self.assertFalse(config['arcade']['nearcade_upload_enabled'])
         self.assertFalse(config['location']['nearcade_location_enabled'])
+
+    def test_official_limits_defaults_and_zero_overrides(self):
+        grouped = self.grouped()
+        self.assertEqual(grouped['official_sync']['official_fetch_cooldown'], 300)
+        self.assertEqual(grouped['official_sync']['official_fetch_daily_limit'], 10)
+        self.assertEqual(grouped['official_sync']['official_upload_cooldown'], 60)
+        self.assertEqual(grouped['official_sync']['official_upload_daily_limit'], 20)
+        for key in ('official_fetch_cooldown', 'official_fetch_daily_limit',
+                    'official_upload_cooldown', 'official_upload_daily_limit'):
+            grouped['official_sync'][key] = 0
+        self.assertEqual(load_plugin_config(SavedConfig(grouped))['official_fetch_daily_limit'], 0)
 
     def test_flat_configuration_migrates_all_values_and_clears_old_copies(self):
         legacy = self.legacy()

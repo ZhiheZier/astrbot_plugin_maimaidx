@@ -363,10 +363,8 @@ async def _load_lxns_aliases():
 
 async def get_music_alias_list() -> AliasList:
     """获取并合并柚子 / 落雪 / 本地别名。"""
-    if local_alias_file.exists():
-        local_alias_data = await openfile(local_alias_file)
-    else:
-        local_alias_data = {}
+    from .maimaidx_management_store import local_alias_lock
+    from .maimaidx_local_alias_store import load_local_aliases
 
     alias_data: List[Dict[str, Union[int, str, List[str]]]] = []
     try:
@@ -389,68 +387,48 @@ async def get_music_alias_list() -> AliasList:
             raise ValueError
 
     lxns_aliases = await _load_lxns_aliases()
-    merged = await merge_alias_data(alias_data, lxns_aliases, local_alias_data)
+    async with local_alias_lock:
+        local_alias_data = load_local_aliases()
+        merged = await merge_alias_data(alias_data, lxns_aliases, local_alias_data)
 
-    total_alias_list = AliasList()
-    for _a in merged:
-        if not mai.total_list.by_id(_a['SongID']):
-            continue
-        # 曲名缺失时用曲库补全
-        if not _a.get('Name'):
-            music = mai.total_list.by_id(_a['SongID'])
-            if music:
-                _a['Name'] = music.song_name
-        total_alias_list.append(Alias.model_validate(_a))
+        total_alias_list = AliasList()
+        for _a in merged:
+            if not mai.total_list.by_id(_a['SongID']):
+                continue
+            # 曲名缺失时用曲库补全
+            if not _a.get('Name'):
+                music = mai.total_list.by_id(_a['SongID'])
+                if music:
+                    _a['Name'] = music.song_name
+            total_alias_list.append(Alias.model_validate(_a))
 
-    log.info(f'别名合并完成：{len(total_alias_list)} 首')
-    return total_alias_list
+        log.info(f'别名合并完成：{len(total_alias_list)} 首')
+        return total_alias_list
 
 
 async def update_local_alias(id: str, alias_name: str) -> bool:
+    from .maimaidx_management_store import local_alias_lock
+    from .maimaidx_local_alias_store import change_local_alias
+
     try:
-        if local_alias_file.exists():
-            local_alias_data: Dict[str, List[str]] = await openfile(local_alias_file)
-        else:
-            local_alias_data: Dict[str, List[str]] = {}
-        if id not in local_alias_data:
-            local_alias_data[id] = []
-        
-        local_alias_data[id].append(alias_name.lower())
-        mai.total_alias_list.by_id(id)[0].Alias.append(alias_name.lower())
-        await writefile(local_alias_file, local_alias_data)
+        async with local_alias_lock:
+            await change_local_alias(str(id), alias_name.lower(), adding=True)
         return True
-    except Exception as e:
-        log.error(f'添加本地别名失败: {e}')
+    except Exception as exc:
+        log.warning(f'添加本地别名失败: {exc}')
         return False
 
 
 async def delete_local_alias(id: str, alias_name: str) -> bool:
+    from .maimaidx_management_store import local_alias_lock
+    from .maimaidx_local_alias_store import change_local_alias
+
     try:
-        if local_alias_file.exists():
-            local_alias_data: Dict[str, List[str]] = await openfile(local_alias_file)
-        else:
-            local_alias_data: Dict[str, List[str]] = {}
-
-        if id not in local_alias_data:
-            return False
-
-        target = alias_name.lower()
-        if target in local_alias_data[id]:
-            local_alias_data[id].remove(target)
-        else:
-            return False
-
-        if len(local_alias_data[id]) == 0:
-            del local_alias_data[id]
-
-        alias_item = mai.total_alias_list.by_id(id)[0]
-        if target in alias_item.Alias:
-            alias_item.Alias.remove(target)
-
-        await writefile(local_alias_file, local_alias_data)
+        async with local_alias_lock:
+            await change_local_alias(str(id), alias_name.lower(), adding=False)
         return True
-    except Exception as e:
-        log.error(f'删除本地别名失败：{e}')
+    except Exception as exc:
+        log.warning(f'删除本地别名失败: {exc}')
         return False
 
 

@@ -259,9 +259,16 @@ def is_superuser(event: AstrMessageEvent, superusers: list = None) -> bool:
     return str(sender_id) in superusers
 
 
-async def dx_arcade_help_handler(event: AstrMessageEvent):
+async def dx_arcade_help_handler(event: AstrMessageEvent, resources=None):
     """排卡帮助"""
-    img = text_to_image(sv_help)
+    if resources is not None and not resources.render_available:
+        yield event.plain_result(sv_help)
+        return
+    try:
+        img = text_to_image(sv_help)
+    except OSError:
+        yield event.plain_result(sv_help)
+        return
     img_base64 = image_to_base64(img)
     import tempfile
     import base64
@@ -563,7 +570,7 @@ async def check_subscribe_handler(event: AstrMessageEvent, *, nearcade=None):
         yield event.plain_result('该群未订阅任何机厅')
 
 
-async def search_arcade_handler(event: AstrMessageEvent, *, nearcade=None):
+async def search_arcade_handler(event: AstrMessageEvent, *, nearcade=None, resources=None):
     """查找机厅"""
     if nearcade and nearcade.uses_cloud_catalog:
         async for result in catalog_management_handler(event, nearcade, 'search'):
@@ -594,7 +601,16 @@ async def search_arcade_handler(event: AstrMessageEvent, *, nearcade=None):
         if len(arcade_list) < 5:
             yield event.plain_result('\n==========\n'.join(result))
         else:
-            img = text_to_image('\n'.join(result))
+            if resources is not None and not resources.render_available:
+                for reply in arcade_list_results(event, result):
+                    yield reply
+                return
+            try:
+                img = text_to_image('\n'.join(result))
+            except OSError:
+                for reply in arcade_list_results(event, result):
+                    yield reply
+                return
             img_base64 = image_to_base64(img)
             import tempfile
             import base64

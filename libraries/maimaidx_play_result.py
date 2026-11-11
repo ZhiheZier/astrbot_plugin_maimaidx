@@ -48,6 +48,7 @@ class PlayedResult(BaseModel):
     dx_star: Optional[int] = None
     level_label: Optional[str] = None
     upload_time: Optional[str] = None
+    play_count: Optional[int] = None
 
     @field_validator('rate', 'fc', 'fs', mode='before')
     @classmethod
@@ -186,6 +187,7 @@ def chartinfo_to_played(v: ChartInfo) -> PlayedResult:
         rate=v.rate or None,
         dx_score=v.dxScore,
         level_label=v.level_label,
+        play_count=v.play_count,
     )
 
 
@@ -309,6 +311,7 @@ def played_to_chartinfo(p: PlayedResult) -> ChartInfo:
             diffs[p.level_index] if p.level_index < len(diffs) else ''
         ),
         song_id=p.song_id,
+        play_count=p.play_count,
     )
 
 

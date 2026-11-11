@@ -18,7 +18,7 @@ from .maimaidx_lxns import (
     lxns_scores_to_played,
     lxns_scores_to_records,
 )
-from .maimaidx_model import PlayInfoDefault, PlayInfoDev, UserInfo
+from .maimaidx_model import PlayInfoDefault, PlayInfoDev, UserInfo, is_regular_chart
 from .maimaidx_play_result import (
     Best50,
     PlayedResult,
@@ -185,8 +185,9 @@ async def get_best50(
         )
     else:
         user = await maiApi.query_user_b50(qqid=qqid, username=username)
-        return userinfo_to_player(user), userinfo_to_best50(user)
+        player, best50 = userinfo_to_player(user), userinfo_to_best50(user)
 
+    best50 = _regular_best50(best50)
     if (
         all_perfect
         or all_perfect_plus
@@ -201,6 +202,15 @@ async def get_best50(
     return player, best50
 
 
+def _regular_best50(best50: Best50) -> Best50:
+    old = [record for record in best50.sd if is_regular_chart(record.song_id, record.level_index)]
+    new = [record for record in best50.dx if is_regular_chart(record.song_id, record.level_index)]
+    if len(old) == len(best50.sd) and len(new) == len(best50.dx):
+        return best50
+    return Best50(sd=old, dx=new, sd_total=sum(record.rating for record in old),
+                  dx_total=sum(record.rating for record in new))
+
+
 def select_all_songs_b50_records(records: List[PlayedResult]) -> Best50:
     """忽略新旧曲分类，按单曲 Rating 选出最高的 50 个成绩。"""
     sort_key = lambda r: (
@@ -210,7 +220,10 @@ def select_all_songs_b50_records(records: List[PlayedResult]) -> Best50:
         r.song_id,
         r.level_index,
     )
-    top50 = sorted(records, key=sort_key, reverse=True)[:50]
+    top50 = sorted(
+        (record for record in records if is_regular_chart(record.song_id, record.level_index)),
+        key=sort_key, reverse=True,
+    )[:50]
 
     # Best50 数据结构仍以 35 + 15 保存，以兼容既有模型转换；
     # 全曲模式渲染时会将两段重新合并并连续绘制。
@@ -233,6 +246,8 @@ def select_ap50_records(
     new_records: List[PlayedResult] = []
 
     for record in records:
+        if not is_regular_chart(record.song_id, record.level_index):
+            continue
         if (record.fc or '').lower() not in {'ap', 'app'}:
             continue
         is_new = is_new_song(record.song_id)
@@ -265,6 +280,8 @@ def select_ap_plus50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
+        if not is_regular_chart(record.song_id, record.level_index):
+            continue
         if (record.fc or '').lower() != 'app':
             continue
         is_new = is_new_song(record.song_id)
@@ -323,6 +340,8 @@ def select_achievement_b50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
+        if not is_regular_chart(record.song_id, record.level_index):
+            continue
         if not achievement_matches_mode(record.achievements, mode):
             continue
         is_new = is_new_song(record.song_id)
@@ -359,6 +378,8 @@ def select_difficulty_b50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
+        if not is_regular_chart(record.song_id, record.level_index):
+            continue
         if record.level_index != difficulty_index:
             continue
         is_new = is_new_song(record.song_id)
@@ -396,6 +417,8 @@ def select_star_b50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
+        if not is_regular_chart(record.song_id, record.level_index):
+            continue
         dx_star = dx_star_of(record)
         if dx_star is None or dx_star < min_dx_star:
             continue
@@ -431,7 +454,7 @@ def select_fitted_b50_records(
     old_records: List[PlayedResult] = []
     new_records: List[PlayedResult] = []
     for record in records:
-        if record.song_id >= 100000:
+        if not is_regular_chart(record.song_id, record.level_index):
             continue
         fitted_level_value = fitted_level_value_of(record)
         if fitted_level_value is None or fitted_level_value <= 0:
@@ -501,9 +524,7 @@ async def _divingfish_dev_records_raw(
     qqid: Optional[Union[int, str]] = None,
     username: Optional[str] = None,
 ) -> Tuple[Player, List[PlayedResult]]:
-    """通过水鱼 OAuth 或旧开发者接口读取完整成绩。"""
-    if not maiApi.divingfish_oauth_configured and not maiApi.token:
-        raise TokenNotFoundError
+    """通过水鱼 OAuth 读取完整成绩。"""
     user = await maiApi.query_user_get_dev(qqid=qqid, username=username)
     records = [playinfo_to_played(record) for record in (user.records or [])]
     return userinfo_to_player(user), records
@@ -513,7 +534,7 @@ async def _divingfish_ap50_raw(
     qqid: Optional[Union[int, str]] = None,
     username: Optional[str] = None,
 ) -> Tuple[Player, Best50]:
-    """使用水鱼开发者接口的完整成绩生成 AP50。"""
+    """使用水鱼 OAuth 完整成绩生成 AP50。"""
     player, records = await _divingfish_dev_records_raw(
         qqid=qqid, username=username
     )
@@ -526,45 +547,11 @@ async def get_records(
     *,
     exact: bool = False,
 ) -> List[PlayedResult]:
-    """获取全部成绩（统一 PlayedResult）。
-
-    水鱼优先 OAuth/开发者全量 records；未配置时回退旧 plate（全版本）。
-    """
-    from .. import plate_to_dx_version
+    """获取全部成绩（统一 PlayedResult），水鱼仅使用 OAuth。"""
     if is_lxns(qqid, username):
         return await _lxns_records_raw(qqid, exact=exact)
-
-    if maiApi.divingfish_oauth_configured or maiApi.token:
-        dev = await maiApi.query_user_get_dev(qqid=qqid, username=username)
-        return [playinfo_to_played(r) for r in (dev.records or [])]
-
-    from .maimai_best_50 import computeRa
-    from .maimaidx_play_result import lookup_meta
-
-    plate = await maiApi.query_user_plate(
-        qqid=qqid,
-        username=username,
-        version=list(plate_to_dx_version.values()),
-    )
-    result: List[PlayedResult] = []
-    for r in plate:
-        p = playinfo_to_played(r)
-        if not p.level_value:
-            ds, level, title = lookup_meta(p.song_id, p.level_index)
-            ra, rate = (
-                computeRa(ds, p.achievements, israte=True) if ds else (p.rating, p.rate or 'd')
-            )
-            p = p.model_copy(
-                update={
-                    'level_value': ds,
-                    'level': level or p.level,
-                    'song_name': title or p.song_name,
-                    'rating': int(ra) if ds else p.rating,
-                    'rate': (rate.lower() if isinstance(rate, str) else p.rate),
-                }
-            )
-        result.append(p)
-    return result
+    user = await maiApi.query_user_get_dev(qqid=qqid, username=username)
+    return [playinfo_to_played(record) for record in user.records or []]
 
 
 async def get_player_b50_userinfo(
@@ -628,25 +615,12 @@ async def get_music_record(
     music_id: Union[int, str],
     username: Optional[str] = None,
 ) -> List[PlayInfoDev]:
-    """统一取单曲成绩。未配置 OAuth/token 时用旧 plate 回退。"""
-    from .. import plate_to_dx_version
-    from .maimaidx_play_result import playinfo_to_played
-
+    """统一取单曲成绩；水鱼使用 OAuth records 的歌曲筛选。"""
     if is_lxns(qqid, username):
         return await lxns_music_record(qqid, music_id)
-    if maiApi.divingfish_oauth_configured or maiApi.token:
-        return await maiApi.query_user_post_dev(
-            qqid=qqid, username=username, music_id=music_id
-        )
-    version = list(set(plate_to_dx_version.values()))
-    plate = await maiApi.query_user_plate(
-        qqid=qqid, username=username, version=version
+    return await maiApi.query_user_post_dev(
+        qqid=qqid, username=username, music_id=music_id,
     )
-    mid = int(music_id)
-    played = [
-        playinfo_to_played(r) for r in plate if int(getattr(r, 'song_id', 0)) == mid
-    ]
-    return played_list_to_records(played)
 
 
 # ---------------------------------------------------------------------------
@@ -712,7 +686,7 @@ async def _lxns_records_raw(
 
 async def lxns_b50(qqid: Union[int, str], all_perfect: bool = False) -> UserInfo:
     player, best50 = await _lxns_best50_raw(qqid, all_perfect=all_perfect)
-    return best50_to_userinfo(player, best50)
+    return best50_to_userinfo(player, _regular_best50(best50))
 
 
 async def lxns_records(qqid: Union[int, str], *, exact: bool = False) -> List[PlayInfoDev]:

@@ -151,7 +151,10 @@ class PlayerCommandTest(unittest.IsolatedAsyncioTestCase):
         ):
             with patch.object(mai_table, function, AsyncMock(return_value='ok')) as draw:
                 await run(mai_table.table_pfm_handler, request, at)
-                draw.assert_awaited_once_with(*args, username=username)
+                options = {'username': username}
+                if function == 'draw_rating_table':
+                    options['plan'] = ('fc', 'fcp', 'ap', 'app') if args[2] else None
+                draw.assert_awaited_once_with(*args, **options)
 
     async def test_username_is_forwarded_by_single_song_renderer(self):
         with patch.object(maimaidx_source, 'get_music_record', AsyncMock(return_value=[])) as query:

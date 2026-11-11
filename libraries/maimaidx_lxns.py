@@ -226,6 +226,8 @@ class LxnsAPI:
         lock = self._refresh_locks.setdefault(key, asyncio.Lock())
         async with lock:
             stored = userstore.get(self.qqid)
+            if not stored.refresh_token:
+                return False
             if (
                 stored.access_token
                 and stored.access_token != expired_access_token
@@ -320,6 +322,14 @@ class LxnsAPI:
             'GET', f'{USER_BASE}/scores', headers=self._user_headers()
         )
         return [LxnsScore.model_validate(s) for s in data.get('data', [])]
+
+    async def upload_scores_personal(self, scores: list[dict]) -> None:
+        data = await self._request(
+            'POST', f'{USER_BASE}/scores', headers=self._user_headers(),
+            json={'scores': scores},
+        )
+        if not isinstance(data, dict) or data.get('success') is False:
+            raise LxnsError('落雪未接受成绩，请检查写入权限并重新绑定落雪')
 
     # ---- 全部成绩（简化，无达成率，开发者模式）----
     async def simple_scores_by_friend_code(self, friend_code: int) -> List[LxnsScore]:
