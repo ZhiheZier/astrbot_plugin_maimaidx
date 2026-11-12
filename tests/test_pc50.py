@@ -55,13 +55,47 @@ class PC50ImageTest(unittest.IsolatedAsyncioTestCase):
             song_name=f'Song {song_id}', type='DX', isnew=song_id > 35, difficulties=[],
         )):
             player, result = image.pc50_to_best50(snapshot)
-        self.assertEqual(player.rating, snapshot.rating)
+        self.assertEqual(player.rating, sum(score.rating for score in result.sd + result.dx))
         self.assertEqual((len(result.sd), len(result.dx)), (35, 15))
         self.assertEqual([score.play_count for score in result.sd], list(range(35, 0, -1)))
         self.assertEqual([score.play_count for score in result.dx], list(range(50, 35, -1)))
         record = played_to_chartinfo(result.sd[0])
         self.assertEqual(record.play_count, 35)
         self.assertEqual(chartinfo_to_played(record).play_count, 35)
+
+    def test_rating_only_sums_pc_selected_regular_old35_and_new15(self):
+        snapshot = snapshot_from_official(data(
+            [detail(musicId=index, playCount=index, achievement=1000000 + index * 10) for index in range(1, 81)]
+            + [detail(musicId=100001, playCount=9999), detail(musicId=81, playCount=None),
+               detail(musicId=82, playCount=0), detail(musicId=83, playCount=9999)]
+        ))
+        def song(song_id):
+            return None if song_id == 83 else SimpleNamespace(song_name=f'Song {song_id}', type='DX', isnew=song_id > 40)
+
+        with (patch.object(image.mai, 'get_song', side_effect=song),
+              patch.object(image.mai, 'get_difficulty', return_value=SimpleNamespace(level_value=14.6, level='14+'))):
+            player, result = image.pc50_to_best50(snapshot)
+        expected_old, expected_new = list(range(40, 5, -1)), list(range(80, 65, -1))
+        self.assertEqual([score.song_id for score in result.sd], expected_old)
+        self.assertEqual([score.song_id for score in result.dx], expected_new)
+        expected = sum(image.computeRa(14.6, (1000000 + song_id * 10) / 10000) for song_id in expected_old + expected_new)
+        self.assertEqual(player.rating, expected)
+        self.assertNotEqual(player.rating, snapshot.rating)
+        self.assertEqual(snapshot.rating, 16000)
+
+    def test_empty_pc_selection_has_zero_rating(self):
+        snapshot = snapshot_from_official(data([detail(playCount=0)]))
+        player, result = image.pc50_to_best50(snapshot)
+        self.assertEqual((player.rating, result.sd, result.dx), (0, [], []))
+
+    def test_partial_pc_selection_and_missing_difficulty_use_card_ratings(self):
+        snapshot = snapshot_from_official(data([detail(musicId=1), detail(musicId=2)]))
+        with patch.object(image.mai, 'get_difficulty', side_effect=lambda song_id, _: (
+                SimpleNamespace(level_value=13.5, level='13+') if song_id == 1 else None)):
+            player, result = image.pc50_to_best50(snapshot)
+        self.assertEqual(len(result.sd), 2)
+        self.assertEqual(result.sd[1].rating, 0)
+        self.assertEqual(player.rating, result.sd[0].rating)
 
     async def test_pc50_calls_existing_b50_renderer_with_users_theme(self):
         snapshot = snapshot_from_official(data())
@@ -71,6 +105,8 @@ class PC50ImageTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(picture.type, 'image')
         renderer.draw.assert_awaited_once()
         self.assertTrue(factory.call_args.kwargs['pc50'])
+        self.assertEqual(factory.call_args.args[0].rating,
+                         sum(score.rating for score in factory.call_args.args[1].sd + factory.call_args.args[1].dx))
         self.assertEqual(factory.call_args.kwargs['theme'], Theme.CIRCLE)
         self.assertEqual(factory.call_args.kwargs['pc_total'], 7)
 

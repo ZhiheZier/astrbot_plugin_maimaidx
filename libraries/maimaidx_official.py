@@ -14,7 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
-from aiohttp import ClientConnectionError, ClientSession, ClientSSLError, ClientTimeout, TCPConnector
+from aiohttp import ClientConnectionError, ClientHttpProxyError, ClientSession, ClientSSLError, ClientTimeout, TCPConnector
 
 
 TITLE_URL = 'https://maimai-gm.wahlap.com:42081/Maimai2Servlet/'
@@ -139,13 +139,30 @@ class OfficialClient:
             raise OfficialError('官方协议机台标识应为11位短标识或完整的 XXXX-XXXXXXXXXXX 格式。')
         from cryptography.hazmat.primitives.ciphers import Cipher  # noqa: F401
 
+        self._proxy_options()
         return await asyncio.to_thread(official_tls_context)
+
+    def _proxy_options(self) -> dict:
+        value = str(self.config.get('official_http_proxy') or '').strip()
+        if not value:
+            return {}
+        try:
+            parsed = urlsplit(value)
+            if (parsed.scheme != 'http' or not parsed.hostname
+                    or parsed.path not in ('', '/') or parsed.query or parsed.fragment
+                    or parsed.port == 0 or any(ord(char) < 33 or ord(char) == 127 for char in value)):
+                raise ValueError
+        except ValueError:
+            raise OfficialError('官方取数代理地址无效，请填写 http://主机:端口；不会回显认证信息。') from None
+        return {'proxy': value}
 
     def http_session(self, tls: ssl.SSLContext, *, timeout: int = 30):
         return ClientSession(connector=TCPConnector(ssl=tls), timeout=ClientTimeout(total=timeout),
                              auto_decompress=False, skip_auto_headers={'Accept-Encoding'}, trust_env=False)
 
     async def login_server_order(self) -> list[int]:
+        if self._proxy_options():
+            return list(range(len(LOGIN_HOSTS)))
         loop = asyncio.get_running_loop()
         servers = []
         for index, host in enumerate(LOGIN_HOSTS):
@@ -185,12 +202,15 @@ class OfficialClient:
                     data=json.dumps(self._login_payload(sgid), separators=(',', ':')).encode(),
                     headers={'User-Agent': 'WC_AIME_LIB'}, allow_redirects=False,
                     skip_auto_headers={'Content-Type', 'Accept-Encoding'},
+                    **self._proxy_options(),
                 ) as response:
                     if response.status != 200:
                         raise OfficialError(f'官方 HTTPS 授权请求失败（HTTP {response.status}），未跟随跳转。')
                     raw = await self._read_response(response, 65536)
             except (ClientSSLError, ssl.SSLError):
                 raise OfficialError('官方 HTTPS 证书或 TLS 校验失败，已停止；不会回退到 HTTP 或关闭证书校验。') from None
+            except ClientHttpProxyError:
+                raise OfficialError('官方取数代理拒绝连接，请检查 SSH 通道或代理设置。') from None
             except (ClientConnectionError, asyncio.TimeoutError):
                 if index == servers[-1]:
                     raise OfficialError('官方 HTTPS 授权连接失败，请检查系统或容器网络后重试。') from None
@@ -215,7 +235,7 @@ class OfficialClient:
     async def probe_login(self, http, index: int):
         async with http.post(f'https://{LOGIN_HOSTS[index]}/wc_aime/api/alive_check',
                              data=b'{}', headers={'Content-Type': 'application/json'},
-                             allow_redirects=False) as response:
+                             allow_redirects=False, **self._proxy_options()) as response:
             if response.status != 200 or (await self._read_response(response, 4096)).strip() != b'alive':
                 raise OfficialError(f'官方 HTTPS 线路 {index + 1} 探活失败。')
 
@@ -227,6 +247,7 @@ class OfficialClient:
             headers={'Mai-Encoding': '1.55', 'User-Agent': f'{route}#{user_id or self.client_id}',
                      'Content-Type': 'application/json', 'charset': 'UTF-8',
                      'Content-Encoding': 'deflate', 'number': '0'},
+            **self._proxy_options(),
         ) as response:
             if response.status != 200:
                 raise OfficialError(f'官方服务器请求失败（HTTP {response.status}）。')

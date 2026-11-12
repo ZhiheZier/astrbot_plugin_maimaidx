@@ -1,4 +1,5 @@
 import {renderPagination} from './pagination.js';
+import {showNotice} from './notice.js';
 
 const $ = id => document.getElementById(id);
 const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
@@ -33,7 +34,7 @@ function button(icon, title, handler, compact = true) {
 
 function message(value = '', ok = false, dialog) {
   const output = dialog ? $(dialog === 'arcade' ? 'arcade-error' : 'song-error') : $('manage-notice');
-  output.textContent = value; output.hidden = !value; output.dataset.ok = String(ok);
+  showNotice(output, value, ok);
 }
 
 async function confirm(title, detail, required = '') {

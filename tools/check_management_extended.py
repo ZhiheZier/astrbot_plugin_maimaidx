@@ -5,6 +5,7 @@ import asyncio
 import copy
 import functools
 import json
+import re
 import threading
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -34,6 +35,16 @@ window.AstrBotPluginView = {
 """
 
 
+def check_activity_timestamps(page):
+    times = page.locator('#activity-events time')
+    assert times.count() > 0
+    for item in times.all():
+        assert re.fullmatch(r'\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2}', item.inner_text()), 'missing slash-separated activity date'
+        assert item.get_attribute('datetime').endswith('Z'), 'missing machine-readable timestamp'
+        assert item.evaluate('item => item.scrollWidth <= item.clientWidth + 1'), 'timestamp clipped'
+    assert page.locator('.activity-line').evaluate_all('items => items.every(item => item.scrollWidth <= item.clientWidth + 1)'), 'activity header overflow'
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True)
@@ -50,6 +61,8 @@ def main():
 
     run(fixture.asyncSetUp())
     resource_state = copy.deepcopy(INITIAL)
+    from data.plugins.astrbot_plugin_maimaidx import __version__
+    resource_state['version'] = __version__
 
     async def seed():
         from data.plugins.astrbot_plugin_maimaidx.libraries.maimaidx_management_store import write_json
@@ -150,6 +163,7 @@ def main():
             page.locator('#activity-scopes button[data-scope=chat]').click()
             page.locator('#activity-count').filter(has_text='1 条').wait_for()
             page.locator('#activity-events').get_by_text('B50 查询', exact=True).wait_for()
+            check_activity_timestamps(page)
             page.locator('#activity-scopes button[data-scope=all]').click()
             page.locator('#activity-next').click()
             page.locator('#activity-page').filter(has_text='2 / 2').wait_for()
@@ -294,6 +308,74 @@ def main():
                     page.locator('#extra-refresh').click()
                     page.wait_for_function("document.querySelector('#extra-body').children.length === 3")
                     page.screenshot(path=str(args.output / 'notice-version-list.png'))
+            # Exercise the real execCommand fallback, not just a mocked success.
+            page.evaluate("""() => {
+              window.__copied = '';
+              Object.defineProperty(navigator, 'clipboard', {configurable: true, value: undefined});
+              document.addEventListener('copy', () => {
+                const area = document.activeElement;
+                window.__copied = area.value?.slice(area.selectionStart, area.selectionEnd) || '';
+              });
+            }""")
+            page.locator('#tab-resources').click()
+            page.locator('#copy-path').click()
+            page.wait_for_function('window.__copied === ' + json.dumps(resource_state['inventory']['path']))
+            page.evaluate("Object.defineProperty(navigator, 'clipboard', {configurable: true, value: {writeText: async () => {throw new Error('denied');}}})")
+            page.locator('#copy-path').click()
+            page.locator('#notice').filter(has_text='资源目录已复制').wait_for()
+            assert page.evaluate("document.activeElement.id === 'copy-path'")
+            page.locator('#notice').wait_for(state='hidden', timeout=5000)
+            page.locator('#tab-more').click()
+            page.locator('#extra-tab-tunnel').click()
+            page.locator('#tunnel-server').fill('ubuntu@server.example')
+            page.locator('#tunnel-bridge').fill('172.18.0.1')
+            page.locator('#tunnel-source').fill('172.18.0.2')
+            page.locator('#tunnel-ssh-port').fill('2222')
+            page.get_by_role('button', name='生成连接脚本', exact=True).click()
+            page.locator('#tunnel-script').wait_for()
+            generation_notice = page.locator('#tunnel-generation-notice')
+            generation_notice.filter(has_text='连接脚本已生成').wait_for()
+            generate_box = page.get_by_role('button', name='生成连接脚本', exact=True).bounding_box()
+            notice_box = generation_notice.bounding_box()
+            assert notice_box['y'] >= generate_box['y'] + generate_box['height'], 'generation notice is not below its button'
+            assert not page.locator('#manage-notice').is_visible(), 'generation notice leaked into page banner'
+            page.screenshot(path=str(args.output / 'ssh-tunnel-inline-notice.png'), full_page=True)
+            generation_notice.wait_for(state='hidden', timeout=5000)
+            script = page.locator('#tunnel-script').input_value()
+            assert "--bridge '172.18.0.1'" in script and "$SshPort = '2222'" in script
+            (args.output / 'generated-tunnel.ps1').write_text(script, encoding='utf-8')
+            page.get_by_role('button', name='复制连接脚本', exact=True).click()
+            assert page.evaluate('window.__copied') == script
+            page.get_by_role('button', name='复制代理地址', exact=True).click()
+            assert page.evaluate('window.__copied') == 'http://172.18.0.1:17890'
+            page.evaluate('window.__execCommand = document.execCommand; document.execCommand = () => false')
+            page.get_by_role('button', name='复制连接脚本', exact=True).click()
+            page.locator('#manage-notice').filter(has_text='浏览器禁止复制').wait_for()
+            assert page.evaluate("document.activeElement.id === 'tunnel-script'")
+            page.wait_for_timeout(3200)
+            assert page.locator('#manage-notice').is_visible(), 'old success timer hid a new error'
+            page.evaluate('() => {document.execCommand = window.__execCommand;}')
+            page.get_by_role('button', name='复制代理地址', exact=True).click()
+            page.wait_for_timeout(1800)
+            page.get_by_role('button', name='复制代理地址', exact=True).click()
+            page.wait_for_timeout(1500)
+            assert page.locator('#manage-notice').is_visible(), 'repeat success did not reset the timer'
+            page.locator('#manage-notice').wait_for(state='hidden', timeout=5000)
+            assert not page.locator('#extra-search').is_visible()
+            assert not page.locator('#extra-table-wrap').is_visible()
+            assert not page.locator('#extra-pages').is_visible()
+            check_layout(page)
+            page.screenshot(path=str(args.output / 'ssh-tunnel-desktop.png'), full_page=True)
+            page.locator('#tunnel-source').fill('172.18.0.3')
+            assert not page.locator('#tunnel-script').is_visible(), 'stale script still copyable'
+            page.locator('#tunnel-server').fill('invalid-server')
+            page.get_by_role('button', name='生成连接脚本', exact=True).click()
+            generation_notice.filter(has_text='请填写 SSH').wait_for()
+            page.wait_for_timeout(3200)
+            assert generation_notice.is_visible(), 'generation error disappeared'
+            assert not page.locator('#manage-notice').is_visible(), 'generation error leaked into page banner'
+            page.locator('#tunnel-server').fill('ubuntu@server.example')
+            assert not generation_notice.is_visible(), 'editing did not clear obsolete generation error'
             for width in (390, 320):
                 page.set_viewport_size({'width': width, 'height': 844})
                 page.locator('#sidebar-toggle').click()
@@ -301,13 +383,24 @@ def main():
                 check_layout(page)
                 page.locator('#sidebar-toggle').click()
                 assert page.locator('#task-sidebar').is_visible()
-                for key in ('mappings', 'players', 'rankings', 'pc', 'notices', 'cache', 'limits'):
+                check_activity_timestamps(page)
+                for key in ('mappings', 'players', 'rankings', 'pc', 'notices', 'cache', 'limits', 'tunnel'):
                     if key == 'players':
                         page.locator(f'#tab-{key}').click()
                     else:
                         page.locator('#tab-more').click()
                         page.locator(f'#extra-tab-{key}').click()
                     page.wait_for_timeout(150); check_layout(page)
+                    if key == 'tunnel':
+                        page.locator('#tunnel-server').fill('ubuntu@server.example')
+                        page.locator('#tunnel-bridge').fill('172.18.0.1')
+                        page.locator('#tunnel-source').fill('172.18.0.2')
+                        page.get_by_role('button', name='生成连接脚本', exact=True).click()
+                        page.locator('#tunnel-script').wait_for()
+                        notice_box = page.locator('#tunnel-generation-notice').bounding_box()
+                        generate_box = page.get_by_role('button', name='生成连接脚本', exact=True).bounding_box()
+                        assert notice_box['y'] >= generate_box['y'] + generate_box['height']
+                        check_layout(page)
                     page.screenshot(path=str(args.output / f'extra-{key}-{width}.png'), full_page=True)
                     if key == 'players':
                         page.locator('#extra-body').get_by_role('button', name='编辑玩家设置').click()
@@ -337,7 +430,7 @@ def main():
             page.screenshot(path=str(args.output / 'task-sidebar.png'), full_page=True)
             assert not errors, errors
             browser.close()
-        print('Extended management E2E passed against isolated real stores: custom select/keyboard, subscription alignment, mappings, player preferences, PC detail, limits reset, notice confirmation and all seven mobile panels.')
+        print('Extended management E2E passed: existing management flows, HTTP clipboard fallback, SSH script generation/copy and desktop/mobile layouts.')
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=3)
         run(fixture.plugin.activity.shutdown()); run(fixture.asyncTearDown()); fixture.doCleanups()

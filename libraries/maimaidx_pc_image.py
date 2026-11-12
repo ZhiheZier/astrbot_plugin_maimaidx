@@ -28,7 +28,7 @@ def pc50_to_best50(snapshot):
             dx_score=score.dx_score, fc=FC[score.combo], fs=FS[score.sync],
             rate=rate.lower(), play_count=score.play_count,
         ))
-    return Player(name=snapshot.name, rating=snapshot.rating), Best50(sd=old, dx=new)
+    return Player(name=snapshot.name, rating=sum(score.rating for score in old + new)), Best50(sd=old, dx=new)
 
 
 async def draw_pc50(snapshot, *, qqid=None, theme=Theme.PRISM_PLUS):

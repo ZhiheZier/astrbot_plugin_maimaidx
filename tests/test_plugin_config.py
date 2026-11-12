@@ -50,7 +50,7 @@ class PluginConfigTest(unittest.TestCase):
 
     def test_all_existing_settings_appear_once_in_visible_object_groups(self):
         self.assertEqual(set(self.groups), {'general', 'divingfish', 'lxns', 'official_sync', 'alias', 'images', 'arcade', 'location'})
-        self.assertEqual(len(self.fields), 31)
+        self.assertEqual(len(self.fields), 32)
         self.assertEqual(sum(len(fields) for fields in self.groups.values()), len(self.fields))
         for key, node in self.schema.items():
             if key in self.groups:

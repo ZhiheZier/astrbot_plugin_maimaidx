@@ -121,8 +121,10 @@ class SyncInputFlowTest(unittest.IsolatedAsyncioTestCase):
             messages = [m async for m in sync_command_handler(request, self.service)]
             self.assertIn('SGID', messages[0])
             self.assertIn('二维码图片', messages[0])
-            self.assertIn('更新b50 SGID', messages[0])
-            self.assertIn('更新b50 官方二维码链接', messages[0])
+            self.assertIn('官方玩家二维码链接', messages[0])
+            self.assertIn('取消成绩更新', messages[0])
+            self.assertIn('更新b50 SGID/官方二维码链接', messages[0])
+            self.assertIn('首次成功更新绑定当前 QQ', messages[0])
             self.assertTrue(self.service.waiting(request))
             request.bot.delete_msg.assert_not_awaited()
 

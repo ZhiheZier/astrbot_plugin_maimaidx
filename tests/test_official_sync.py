@@ -185,6 +185,55 @@ class SnapshotTest(unittest.IsolatedAsyncioTestCase):
             with self.subTest(source=source), self.assertRaises(OfficialError):
                 sync.snapshot_from_official(data(source))
 
+    def test_buddy_utage_achievement_range_does_not_relax_regular_scores(self):
+        snapshot = sync.snapshot_from_official(data([
+            detail(), detail(musicId=100001, achievement=2020000),
+            detail(musicId=100002, achievement=1901234),
+        ]))
+        self.assertEqual([score.achievements for score in snapshot.scores], [100.5, 202, 190.1234])
+        self.assertEqual([score.song_id for score in snapshot.pc50(lambda _: False)], [11103])
+        for record in (detail(achievement=1010001), detail(musicId=100001, achievement=2020001),
+                       detail(musicId=100001, achievement=-1)):
+            with self.assertRaises(OfficialError):
+                sync.snapshot_from_official(data([record]))
+
+    def test_utage_upload_preserves_full_id_type_and_buddy_achievement(self):
+        from ..libraries.maimaidx_music import mai
+
+        snapshot = sync.snapshot_from_official(data([detail(musicId=110281, level=10, achievement=2020000)]))
+        for title in ('Test Buddy', '[回]Test Buddy'):
+            song = SimpleNamespace(song_name=title, type='DX', kanji='回')
+            with (patch.object(mai, 'get_song', return_value=song) as get_song,
+                  patch.object(mai, 'get_difficulty', return_value=object()) as get_difficulty):
+                fish, lxns = sync.upload_records(snapshot)
+            get_song.assert_called_once_with(110281)
+            get_difficulty.assert_called_once_with(110281, 0)
+            self.assertEqual(fish, [{'title': '[回]Test Buddy', 'type': 'DX', 'level_index': 0,
+                                    'achievements': 202, 'dxScore': 2400, 'fc': 'app', 'fs': 'fsdp'}])
+            self.assertEqual(lxns, [{'id': 110281, 'type': 'utage', 'level_index': 0,
+                                    'achievements': 202, 'dx_score': 2400, 'fc': 'app', 'fs': 'fsdp'}])
+            self.assertEqual(snapshot.pc50(lambda _: False), [])
+
+    def test_utage_upload_keeps_catalogue_title_without_optional_metadata(self):
+        from ..libraries.maimaidx_music import mai
+
+        snapshot = sync.snapshot_from_official(data([detail(musicId=100018, level=0)]))
+        with (patch.object(mai, 'get_song', return_value=SimpleNamespace(song_name='[協]Love You', type='DX')),
+              patch.object(mai, 'get_difficulty', return_value=object())):
+            fish, lxns = sync.upload_records(snapshot)
+        self.assertEqual((fish[0]['title'], lxns[0]['id'], lxns[0]['type']),
+                         ('[協]Love You', 100018, 'utage'))
+
+    def test_utage_upload_skips_missing_songs_or_charts(self):
+        from ..libraries.maimaidx_music import mai
+
+        snapshot = sync.snapshot_from_official(data([detail(musicId=110281, level=0)]))
+        with patch.object(mai, 'get_song', return_value=None):
+            self.assertEqual(sync.upload_records(snapshot), ([], []))
+        with (patch.object(mai, 'get_song', return_value=SimpleNamespace(song_name='[回]Test', type='DX')),
+              patch.object(mai, 'get_difficulty', return_value=None)):
+            self.assertEqual(sync.upload_records(snapshot), ([], []))
+
     async def test_atomic_store_isolated_by_user_bot_platform_and_account_replaced(self):
         with tempfile.TemporaryDirectory() as directory:
             store = sync.PCStore(Path(directory))
@@ -243,6 +292,15 @@ class SyncServiceTest(unittest.IsolatedAsyncioTestCase):
         request = event('同步成绩', group='10')
         messages = [item async for item in sync_command_handler(request, self.service)]
         self.assertIn('180', messages[0])
+        self.assertEqual(len(messages[0].splitlines()), 4)
+        self.assertTrue(messages[0].startswith(
+            '请在 180 秒内于本会话发送完整 SGID 字符串、官方玩家二维码链接，或玩家二维码图片。\n'))
+        for text in ('仅同步你自己的账号，请先退出机台。SGID 属于敏感登录凭据，请勿转发给他人；',
+                     '也可发送「更新b50 SGID/官方二维码链接」。',
+                     '首次成功更新绑定当前 QQ，换号需管理员在玩家管理中解绑。', '取消成绩更新'):
+            self.assertIn(text, messages[0])
+        self.assertNotIn('（', messages[0])
+        self.assertNotIn('）', messages[0])
         self.assertTrue(self.service.waiting(request))
         for other in (event(group='20'), event(), event(group='10', user='other'), event(group='10', bot='other')):
             self.assertFalse(self.service.waiting(other))
@@ -279,6 +337,29 @@ class SyncServiceTest(unittest.IsolatedAsyncioTestCase):
 
 
 class ProberUploadTest(unittest.IsolatedAsyncioTestCase):
+    async def test_regular_and_utage_scores_are_sent_to_both_bound_sources(self):
+        from ..libraries.maimaidx_music import mai
+
+        snapshot = sync.snapshot_from_official(data([
+            detail(), detail(musicId=110281, level=10, achievement=2020000),
+        ]))
+        song = SimpleNamespace(song_name='[回]Test Buddy', type='DX', kanji='回')
+        with (patch.object(mai, 'get_song', return_value=song),
+              patch.object(mai, 'get_difficulty', return_value=object()),
+              patch.object(maiApi.config, 'df_client_id', 'id'),
+              patch.object(maiApi.config, 'df_client_secret', 'secret'),
+              patch.object(maiApi, '_divingfish_access_token', AsyncMock(return_value='token')),
+              patch.object(maiApi, 'upload_user_records', AsyncMock()) as fish,
+              patch.object(sync.userstore, 'get', return_value=SimpleNamespace(access_token='lx', refresh_token='r')),
+              patch.object(LxnsAPI, 'upload_scores_personal', AsyncMock()) as lxns):
+            result = await sync.upload_bound_sources('123456', snapshot)
+        self.assertEqual(len(fish.await_args.args[1]), 2)
+        self.assertEqual(fish.await_args.args[1][1]['achievements'], 202)
+        self.assertEqual(lxns.await_args.args[0][1]['type'], 'utage')
+        self.assertEqual(lxns.await_args.args[0][1]['id'], 110281)
+        self.assertEqual(sum('共上传 2 条成绩' in line for line in result), 2)
+        self.assertEqual([score.song_id for score in snapshot.pc50(lambda _: False)], [11103])
+
     async def test_both_bound_sources_uploaded_and_pc_not_sent(self):
         fish, lxns = [{'title': 'Test'}], [{'id': 1}]
         with (patch.object(sync, 'upload_records', return_value=(fish, lxns)),
@@ -315,14 +396,51 @@ class ProberUploadTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(sum('共上传 501 条成绩' in line for line in result), 1)
             self.assertEqual((fish.await_count, lxns.await_count), (2, 2))
 
-    async def test_skipped_scores_do_not_report_chart_counts(self):
+    async def test_skipped_scores_do_not_add_skip_notice_or_change_upload_counts(self):
         snapshot = sync.snapshot_from_official(data([detail(), detail(musicId=11104)]))
         with (patch.object(sync, 'upload_records', return_value=([{}], [{}])),
-              patch.object(maiApi.config, 'df_client_id', ''),
-              patch.object(sync.userstore, 'get', return_value=SimpleNamespace(access_token=''))):
+              patch.object(maiApi.config, 'df_client_id', 'id'),
+              patch.object(maiApi.config, 'df_client_secret', 'secret'),
+              patch.object(maiApi, '_divingfish_access_token', AsyncMock(return_value='token')),
+              patch.object(maiApi, 'upload_user_records', AsyncMock()),
+              patch.object(sync.userstore, 'get', return_value=SimpleNamespace(access_token='lx', refresh_token='r')),
+              patch.object(LxnsAPI, 'upload_scores_personal', AsyncMock())):
             result = await sync.upload_bound_sources('123456', snapshot)
-        self.assertIn('部分成绩因曲库未收录或暂不支持已跳过，原始 PC 数据仍保留。', result)
-        self.assertNotRegex(str(result), r'\d')
+        self.assertEqual(result, ['水鱼：上传成功，共上传 1 条成绩。', '落雪：上传成功，共上传 1 条成绩。'])
+        self.assertEqual(len(snapshot.scores), 2)
+
+    async def test_unbound_sources_share_one_binding_reminder_without_upload_or_quota(self):
+        reserve = AsyncMock()
+        with (patch.object(sync, 'upload_records', return_value=([{}], [{}])),
+              patch.object(maiApi.config, 'df_client_id', 'id'),
+              patch.object(maiApi.config, 'df_client_secret', 'secret'),
+              patch.object(maiApi, '_divingfish_access_token', AsyncMock(side_effect=DivingFishOAuthNotBoundError())),
+              patch.object(maiApi, 'upload_user_records', AsyncMock()) as fish,
+              patch.object(sync.userstore, 'get', return_value=SimpleNamespace(access_token='')),
+              patch.object(LxnsAPI, 'upload_scores_personal', AsyncMock()) as lxns):
+            result = await sync.upload_bound_sources('123456', sync.snapshot_from_official(data()), before_upload=reserve)
+        self.assertEqual(result, ['请发送「绑定水鱼」或「绑定落雪」完成绑定。'])
+        fish.assert_not_awaited()
+        lxns.assert_not_awaited()
+        reserve.assert_not_awaited()
+
+    async def test_single_unbound_source_only_prompts_for_that_provider(self):
+        for unbound in ('水鱼', '落雪'):
+            with self.subTest(unbound=unbound):
+                token = AsyncMock(side_effect=DivingFishOAuthNotBoundError()) if unbound == '水鱼' else AsyncMock(return_value='token')
+                user = SimpleNamespace(access_token='lx' if unbound == '水鱼' else '', refresh_token='r')
+                with (patch.object(sync, 'upload_records', return_value=([{}], [{}])),
+                      patch.object(maiApi.config, 'df_client_id', 'id'),
+                      patch.object(maiApi.config, 'df_client_secret', 'secret'),
+                      patch.object(maiApi, '_divingfish_access_token', token),
+                      patch.object(maiApi, 'upload_user_records', AsyncMock()) as fish,
+                      patch.object(sync.userstore, 'get', return_value=user),
+                      patch.object(LxnsAPI, 'upload_scores_personal', AsyncMock()) as lxns):
+                    result = await sync.upload_bound_sources('123456', sync.snapshot_from_official(data()))
+                other = '落雪' if unbound == '水鱼' else '水鱼'
+                self.assertEqual(result, [f'{other}：上传成功，共上传 1 条成绩。', f'请发送「绑定{unbound}」完成绑定。'])
+                (fish if unbound == '水鱼' else lxns).assert_not_awaited()
+                (lxns if unbound == '水鱼' else fish).assert_awaited_once()
 
     async def test_fish_failure_does_not_prevent_lxns_and_unbound_is_skipped(self):
         for failure in (RuntimeError('secret'), DivingFishOAuthNotBoundError()):

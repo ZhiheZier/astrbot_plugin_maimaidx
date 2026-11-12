@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .maimaidx_api_data import maiApi
 from .maimaidx_error import DivingFishOAuthNotBoundError
@@ -29,11 +29,18 @@ class OfficialScore(BaseModel):
     model_config = ConfigDict(allow_inf_nan=False)
     song_id: int = Field(gt=0, strict=True)
     level_index: int = Field(ge=0, le=10, strict=True)
-    achievements: float = Field(ge=0, le=101)
+    achievements: float = Field(ge=0, le=202)
     dx_score: int = Field(ge=0, strict=True)
     combo: int = Field(ge=0, le=4, strict=True)
     sync: int = Field(ge=0, le=5, strict=True)
     play_count: int | None = Field(default=None, ge=0, strict=True)
+
+    @model_validator(mode='after')
+    def validate_achievement_range(self):
+        # BUDDY utage records combine both players' achievement rates.
+        if self.song_id < 100000 and self.achievements > 101:
+            raise ValueError('regular achievement exceeds 101 percent')
+        return self
 
 
 class PCSnapshot(BaseModel):
@@ -152,27 +159,35 @@ def upload_records(snapshot: PCSnapshot):
 
     fish, lxns = [], []
     for score in snapshot.scores:
+        utage = score.song_id >= 100000
+        if not utage and not is_regular_chart(score.song_id, score.level_index):
+            continue
+        level_index = 0 if utage else score.level_index
         song = mai.get_song(score.song_id)
-        if score.level_index > 4 or song is None or mai.get_difficulty(score.song_id, score.level_index) is None:
+        if song is None or mai.get_difficulty(score.song_id, level_index) is None:
             continue
         if song.type not in ('SD', 'DX'):
             continue
-        fish.append({'title': 'Link(CoF)' if score.song_id == 383 else song.song_name,
-                     'type': song.type, 'level_index': score.level_index,
+        title = 'Link(CoF)' if score.song_id == 383 else song.song_name
+        kanji = getattr(song, 'kanji', None)
+        if utage and kanji and not title.startswith(f'[{kanji}]'):
+            title = f'[{kanji}]' + title
+        fish.append({'title': title,
+                     'type': song.type, 'level_index': level_index,
                      'achievements': score.achievements, 'dxScore': score.dx_score,
                      'fc': FC[score.combo], 'fs': FS[score.sync]})
-        lxns.append({'id': score.song_id % 10000, 'type': 'dx' if song.type == 'DX' else 'standard',
-                     'level_index': score.level_index, 'achievements': score.achievements,
+        lxns.append({'id': score.song_id if utage else score.song_id % 10000,
+                     'type': 'utage' if utage else ('dx' if song.type == 'DX' else 'standard'),
+                     'level_index': level_index, 'achievements': score.achievements,
                      'dx_score': score.dx_score, 'fc': FC[score.combo] or None, 'fs': FS[score.sync] or None})
     return fish, lxns
 
 
 async def upload_bound_sources(qqid: str, snapshot: PCSnapshot, *, before_upload=None) -> list[str]:
     fish, lxns = upload_records(snapshot)
-    skipped = len(snapshot.scores) - len(fish)
     if not fish:
-        return ['曲库未匹配到可上传的普通谱面，请先更新曲库；PC 数据仍已保留。']
-    result = []
+        return ['曲库未匹配到可上传的谱面，请先更新曲库；PC 数据仍已保留。']
+    result, unbound = [], []
     reserved = False
 
     async def reserve_upload():
@@ -193,7 +208,7 @@ async def upload_bound_sources(qqid: str, snapshot: PCSnapshot, *, before_upload
                 submitted += len(batch)
             result.append(f'水鱼：上传成功，共上传 {submitted} 条成绩。')
         except DivingFishOAuthNotBoundError:
-            result.append('水鱼：未绑定，已跳过。')
+            unbound.append('水鱼')
         except OfficialError:
             raise
         except Exception:
@@ -220,9 +235,10 @@ async def upload_bound_sources(qqid: str, snapshot: PCSnapshot, *, before_upload
             result.append('落雪：上传失败；' + partial + '请检查网络及 '
                           'write_player 权限，必要时重新「绑定落雪」。')
     else:
-        result.append('落雪：未绑定 OAuth，已跳过；仅按 QQ 查询的开发者模式不会代传。')
-    if skipped:
-        result.append('部分成绩因曲库未收录或暂不支持已跳过，原始 PC 数据仍保留。')
+        unbound.append('落雪')
+    if unbound:
+        commands = '或'.join(f'「绑定{provider}」' for provider in unbound)
+        result.append(f'请发送{commands}完成绑定。')
     return result
 
 

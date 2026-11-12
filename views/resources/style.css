@@ -35,8 +35,10 @@
 .activity-pager{display:flex;align-items:center;gap:5px;margin:10px 0;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
 #activity-count{margin-right:auto}.activity-pager .icon-button{width:26px;height:26px;min-height:26px;padding:4px}
 .activity-events{list-style:none;padding:0;margin:0}.activity-events li{border-top:1px solid var(--line);padding:12px 0}
-.activity-line{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.activity-line{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px;font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.activity-line time{white-space:nowrap}
 .activity-status{margin-left:auto}.activity-status[data-state=error]{color:var(--danger)}.activity-status[data-state=completed]{color:var(--good)}
 .activity-label{font-size:12px;line-height:1.7;margin-top:4px;overflow-wrap:anywhere}
 .activity-detail{font-size:10px;line-height:1.8;color:var(--muted);margin-top:3px;overflow-wrap:anywhere}
+#notice[data-ok=true]{color:var(--good);border-color:var(--good)}
 @media(max-width:1050px){.console-layout{grid-template-columns:minmax(0,1fr);gap:0}.task-column{position:static;border-left:0;border-top:1px solid var(--line);padding:20px 0;max-height:none;scrollbar-gutter:auto}.activity-events{max-height:430px;overflow:auto}.task-summary{padding-bottom:16px}}

@@ -107,10 +107,10 @@ async def sync_command_handler(event, service):
             else:
                 await service.begin(event)
                 yield event.plain_result(
-                    '请在 180 秒内于本会话发送完整 SGID 字符串（SGWCMAID 开头）、官方玩家二维码链接，或玩家二维码图片。\n'
+                    '请在 180 秒内于本会话发送完整 SGID 字符串、官方玩家二维码链接，或玩家二维码图片。\n'
                     '仅同步你自己的账号，请先退出机台。SGID 属于敏感登录凭据，请勿转发给他人；'
-                    '也可直接发送「更新b50 SGID」或「更新b50 官方二维码链接」，将占位内容替换为自己的实际凭据。\n'
-                    '首次成功更新会将游戏账号绑定到当前 QQ；更换账号须由管理员在玩家管理中解绑。\n'
+                    '也可发送「更新b50 SGID/官方二维码链接」。\n'
+                    '首次成功更新绑定当前 QQ，换号需管理员在玩家管理中解绑。\n'
                     '发送「取消成绩更新」可取消。'
                 )
     except OfficialError as exc:

@@ -6,6 +6,7 @@ import getpass
 import importlib
 import importlib.util
 import sys
+from collections import Counter
 from pathlib import Path
 
 
@@ -33,11 +34,50 @@ def load_module(name):
     return importlib.import_module(f'{package}.libraries.{name}')
 
 
+def validation_summary(data, sync):
+    """Report schema failures, never player identifiers, scores or raw payloads."""
+    from pydantic import ValidationError
+
+    failures = Counter()
+    seen = {}
+    fields = {'song_id', 'level_index', 'achievements', 'dx_score', 'combo', 'sync', 'play_count'}
+    for detail in data.details:
+        try:
+            if type(detail.get('achievement')) is not int:
+                failures['achievement.integer_required'] += 1
+                continue
+            dx = next(detail[key] for key in ('deluxscoreMax', 'deluxeScoreMax', 'deluxScoreMax',
+                                              'dxScore', 'dx_score') if detail.get(key) is not None)
+            score = sync.OfficialScore(
+                song_id=detail['musicId'], level_index=detail['level'],
+                achievements=detail['achievement'] / 10000, dx_score=dx,
+                combo=detail['comboStatus'], sync=detail['syncStatus'], play_count=detail.get('playCount'),
+            )
+            key = score.song_id, score.level_index
+            if key in seen and seen[key] != score:
+                failures['conflicting_duplicate'] += 1
+            seen[key] = score
+        except ValidationError as exc:
+            for error in exc.errors(include_input=False, include_context=False, include_url=False):
+                field = error['loc'][0] if error['loc'] else 'record'
+                failures[(field if field in fields else 'record') + '.' + error['type']] += 1
+        except KeyError as exc:
+            field = exc.args[0]
+            failures['missing.' + (field if field in {'musicId', 'level', 'comboStatus', 'syncStatus'}
+                                   else 'field')] += 1
+        except StopIteration:
+            failures['missing.dx_score'] += 1
+        except (TypeError, AttributeError):
+            failures['invalid_record_type'] += 1
+    return {'records': len(data.details), 'schema_errors': dict(failures)}
+
+
 async def diagnose(args):
     official = load_module('maimaidx_official')
     client = official.OfficialClient(args.data_dir, {
         'official_sync_enabled': True, 'official_client_id': args.client_id,
         'official_place_id': args.place_id,
+        'official_http_proxy': getattr(args, 'proxy', ''),
     })
     tls = await client.check_available()
     print('HTTPS dependencies and certificate verification: OK')
@@ -46,7 +86,8 @@ async def diagnose(args):
     if args.network_check or args.fetch:
         servers = await client.login_server_order()
         for index, host in enumerate(official.LOGIN_HOSTS):
-            print(f'Login server {index + 1} {host}: DNS {"OK" if index in servers else "FAILED"}')
+            state = 'resolved by proxy' if getattr(args, 'proxy', '') else ('OK' if index in servers else 'FAILED')
+            print(f'Login server {index + 1} {host}: DNS {state}')
         async with client.http_session(tls, timeout=15) as http:
             reachable = []
             for index in servers:
@@ -71,7 +112,18 @@ async def diagnose(args):
             result = await client.fetch(credential)
         finally:
             credential = ''
-        snapshot = load_module('maimaidx_sync').snapshot_from_official(result)
+        sync = load_module('maimaidx_sync')
+        while True:
+            try:
+                snapshot = sync.snapshot_from_official(result)
+                break
+            except official.OfficialError:
+                import json
+                print('Schema diagnostic (counts only): ' + json.dumps(validation_summary(result, sync)))
+                if not getattr(args, 'retry_validation', False):
+                    raise
+                input('Data is in memory only. Update parser, then press Enter to validate without fetching again: ')
+                sync = importlib.reload(sync)
         counts = [score.play_count for score in snapshot.scores if score.play_count is not None]
         print(f'Official fetch: {len(snapshot.scores)} charts; {len(counts)} charts with PC; total PC={sum(counts)}')
         print('No prober uploads performed. No SGID, session token or player ID saved.')
@@ -83,7 +135,10 @@ def main():
     parser.add_argument('--install', action='store_true', help='legacy option; no files are downloaded')
     parser.add_argument('--probe', action='store_true', help='check Python dependencies and TLS setup, without SGID')
     parser.add_argument('--fetch', action='store_true', help='verified HTTPS preflight and hidden SGID prompt; fetch only')
+    parser.add_argument('--retry-validation', action='store_true',
+                        help='keep fetched data in memory to retry validation after a parser update; no refetch')
     parser.add_argument('--network-check', action='store_true', help='verify HTTPS login health and official settings')
+    parser.add_argument('--proxy', default='', help='explicit HTTP proxy for official requests only')
     parser.add_argument('--client-id', default='')
     parser.add_argument('--place-id', type=int, default=3496)
     args = parser.parse_args()

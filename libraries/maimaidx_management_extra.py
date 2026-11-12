@@ -14,7 +14,7 @@ from .maimaidx_nearcade import CatalogShop, NearcadeClient
 from .maimaidx_user import ServiceName, Theme, User, userstore
 
 
-KINDS = {'mappings', 'players', 'rankings', 'pc', 'notices', 'cache', 'limits'}
+KINDS = {'mappings', 'players', 'rankings', 'pc', 'notices', 'cache', 'limits', 'tunnel'}
 
 
 async def publish(writer, value, callback):
@@ -52,7 +52,7 @@ class ExtraManagement:
         kind = query.get('kind')
         if kind not in KINDS:
             raise ManagementError('请选择有效的管理模块。')
-        keyword = '' if kind == 'cache' else text(query.get('q', ''), '搜索词', 150, empty=True).casefold()
+        keyword = '' if kind in ('cache', 'tunnel') else text(query.get('q', ''), '搜索词', 150, empty=True).casefold()
         rows, meta = await getattr(self, f'list_{kind}')(query)
         if keyword:
             keys = {'mappings': ('entry', 'local', 'alias', 'shop', 'game'), 'players': ('id',),
@@ -66,6 +66,16 @@ class ExtraManagement:
         if kind not in KINDS:
             raise ManagementError('请选择有效的管理模块。')
         return await getattr(self, f'change_{kind}')(body)
+
+    async def list_tunnel(self, query):
+        from .maimaidx_tunnel import environment
+        return [], await asyncio.to_thread(environment)
+
+    async def change_tunnel(self, body):
+        from .maimaidx_tunnel import generate_script
+        if body.get('action') != 'generate':
+            raise ManagementError('请选择生成连接脚本。')
+        return await asyncio.to_thread(generate_script, body)
 
     async def detail(self, query):
         if query.get('kind') == 'pc':

@@ -23,7 +23,12 @@ async function load() {
       const item = node('li', '');
       const heading = node('div', 'activity-line');
       const date = new Date(row.at * 1000);
-      const at = node('time', '', date.toLocaleTimeString('zh-CN', {hour12: false})); at.title = date.toLocaleString('zh-CN');
+      const at = node('time', '', date.toLocaleString('zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+      }));
+      if (Number.isFinite(date.getTime())) at.dateTime = date.toISOString();
+      at.title = at.textContent;
       const status = node('span', 'activity-status', statuses[row.status] || '—'); status.dataset.state = row.status;
       heading.append(at, node('span', 'activity-scope', scopes[row.scope] || ''), status);
       const detail = [row.actor ? `QQ ${row.actor}` : '', row.group ? `群 ${row.group}` : row.actor ? '私聊' : '', row.bot ? `BOT ${row.bot}` : '', row.duration_ms ? `${row.duration_ms} ms` : ''].filter(Boolean).join(' · ');

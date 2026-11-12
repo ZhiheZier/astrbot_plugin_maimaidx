@@ -1,9 +1,11 @@
 import {enhanceSelects} from './select.js';
 import {renderPagination} from './pagination.js';
+import {copyText} from './clipboard.js';
+import {showNotice} from './notice.js';
 
 const $ = id => document.getElementById(id);
 const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
-const titles = {mappings: '机台映射', players: '玩家设置', rankings: '群排行榜', pc: 'PC 数据', notices: '更新通知', cache: '缓存维护', limits: '同步额度'};
+const titles = {mappings: '机台映射', players: '玩家设置', rankings: '群排行榜', pc: 'PC 数据', notices: '更新通知', cache: '缓存维护', limits: '同步额度', tunnel: 'SSH 隧道'};
 let kind = 'mappings', page = 1, state = null, busy = false, generation = 0, timer = null, renderedKind = '';
 let selected = null, editorRevision = '', dialogKind = '';
 let maintenanceKind = 'mappings';
@@ -14,7 +16,7 @@ function button(icon, label, handler, compact = false) {
   const img = node('img'); img.src = `./icons/${icon}.svg`; img.alt = ''; item.append(img);
   if (!compact) item.append(document.createTextNode(label)); item.disabled = busy; item.addEventListener('click', handler); return item;
 }
-function message(text = '', ok = false, modal = false) {const item = $(modal ? 'extra-error' : 'manage-notice'); item.hidden = !text; item.textContent = text; item.dataset.ok = String(ok);}
+function message(text = '', ok = false, modal = false) {showNotice($(modal ? 'extra-error' : 'manage-notice'), text, ok);}
 function time(value) {return value ? new Date(value * 1000).toLocaleString('zh-CN', {hour12: false}) : '—';}
 function bytes(value) {return value > 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${(value / 1024).toFixed(1)} KB`;}
 function shortId(row) {const item = node('div', 'extra-id', row.id.length > 24 ? `${row.id.slice(0, 12)}…${row.id.slice(-8)}` : row.id); item.title = row.id; return item;}
@@ -34,14 +36,15 @@ function controlsDisabled(value) {
   if (!value && $('player-unbind-official')) $('player-unbind-official').disabled = !selected?.official_user_id;
 }
 
-async function post(body, modal = false) {
+async function post(body, modal = false, noticeTarget = null) {
   if (!bridge || busy) return null;
-  busy = true; message('', false, modal); controlsDisabled(true);
+  const report = (text = '', ok = false) => noticeTarget ? showNotice(noticeTarget, text, ok) : message(text, ok, modal);
+  busy = true; report(); controlsDisabled(true);
   try {
     const result = await bridge.apiPost('manage/extra', {kind: dialogKind || kind, ...body});
-    message(result.message || '操作完成。', true, modal);
+    report(result.message || '操作完成。', true);
     return result;
-  } catch (error) {message(error.message || '操作失败。', false, modal); return null;}
+  } catch (error) {report(error.message || '操作失败。'); return null;}
   finally {busy = false; controlsDisabled(false); enhanceSelects();}
 }
 async function destructive(row, action, expected, description, extra = {}) {
@@ -102,6 +105,11 @@ function renderTable(data) {
 }
 
 function renderRows(data) {
+  $('extra-table-wrap').hidden = kind === 'tunnel';
+  if (kind === 'tunnel') {
+    for (const suffix of ['-top', '']) {$(`extra-pages${suffix}`).hidden = true; $(`extra-pages${suffix}`).replaceChildren();}
+    return;
+  }
   const notices = kind === 'notices';
   renderTable(data);
   for (const suffix of ['-top', '']) {
@@ -117,8 +125,9 @@ function renderRows(data) {
 
 function renderMeta(data) {
   $('extra-title').textContent = titles[kind]; $('extra-source-label').hidden = kind !== 'mappings'; $('extra-add').hidden = kind !== 'mappings';
-  $('extra-search').hidden = kind === 'cache';
+  $('extra-search').hidden = ['cache', 'tunnel'].includes(kind);
   const actions = $('extra-actions'); actions.replaceChildren(); const meta = $('extra-meta'); meta.replaceChildren();
+  if (kind === 'tunnel') renderTunnel(data.meta, meta);
   if (kind === 'limits') actions.append(button('pencil', '限流设置', editLimitSettings));
   if (kind === 'cache') {
     actions.append(button('refresh-cw', '刷新曲库与别名', async () => {if (await post({action: 'refresh_music'})) await load();}),
@@ -156,7 +165,8 @@ async function load() {
     $('extra-title').textContent = titles[kind]; $('extra-head').replaceChildren(); $('extra-body').replaceChildren();
     $('extra-actions').replaceChildren(); $('extra-meta').replaceChildren(); $('extra-pages').replaceChildren(); $('extra-pages-top').replaceChildren();
     $('extra-pages').hidden = true; $('extra-pages-top').hidden = true;
-    $('extra-add').hidden = true; $('extra-source-label').hidden = kind !== 'mappings'; $('extra-search').hidden = kind === 'cache';
+    $('extra-add').hidden = true; $('extra-source-label').hidden = kind !== 'mappings'; $('extra-search').hidden = ['cache', 'tunnel'].includes(kind);
+    $('extra-table-wrap').hidden = kind === 'tunnel';
     const placeholders = {mappings: '映射 / 机台别名 / ID', players: 'QQ 号', rankings: '玩家昵称 / QQ / 群号', pc: '玩家昵称 / 快照编号', limits: '身份记录编号', notices: '版本号 / 更新内容'};
     $('extra-q').placeholder = placeholders[kind] || '';
     $('extra-q').setAttribute('aria-label', placeholders[kind] || '搜索管理记录');
@@ -169,6 +179,53 @@ async function load() {
     state = data; page = data.page; renderRows(data); renderMeta(data); enhanceSelects();
     if (kind === 'cache' && data.job?.phase === 'running') timer = setTimeout(load, 1500);
   } catch (error) {message(error.message || '读取管理数据失败。');}
+}
+
+function renderTunnel(environment, target) {
+  const status = node('dl', 'notice-state');
+  for (const [label, value] of [['部署系统', `${environment.system} / ${environment.architecture}`], ['运行方式', environment.container ? '容器' : '直接运行']]) {
+    const item = node('div'); item.append(node('dt', '', label), node('dd', '', value)); status.append(item);
+  }
+  target.append(status);
+  if (environment.warning) target.append(node('p', 'extra-alert', environment.warning));
+  target.append(node('p', 'source-note', '在可正常连接官方服务的 Windows 电脑运行，需 Python 3.10+、OpenSSH 和 SSH 私钥。保持电脑联网、窗口开启；服务器需 Python 3.10+，无需开放额外公网端口。'));
+  const form = node('form', 'extra-editor-form tunnel-form');
+  form.append(field('SSH 用户@服务器地址', 'tunnel-server', `ubuntu@${location.hostname}`),
+    field('SSH 端口', 'tunnel-ssh-port', '22', 'number'),
+    field('服务器入口 IPv4', 'tunnel-bridge', environment.bridge),
+    field('AstrBot 来源 IPv4', 'tunnel-source', environment.source),
+    field('服务器入口端口', 'tunnel-bridge-port', '17890', 'number'),
+    field('SSH 回环端口', 'tunnel-remote-port', '17891', 'number'));
+  const output = node('section', 'tunnel-output'); output.hidden = true;
+  const label = node('label', 'tunnel-script-label', '本机 PowerShell 连接脚本');
+  const script = node('textarea', 'tunnel-script'); script.id = 'tunnel-script'; script.readOnly = true; script.rows = 12; script.spellcheck = false;
+  label.append(script);
+  const proxy = node('code', 'tunnel-proxy'); proxy.id = 'tunnel-proxy';
+  const config = node('div', 'tunnel-config'); config.append(node('span', '', '官方取数专用代理'), proxy);
+  const copy = (text, success) => async () => {
+    try {await copyText(text()); message(success, true);}
+    catch {message('浏览器禁止复制，请在脚本或代理地址中手动选择文本复制。'); script.focus(); script.select();}
+  };
+  const outputActions = node('div', 'extra-editor-actions');
+  outputActions.append(button('copy', '复制连接脚本', copy(() => script.value, '连接脚本已复制，请在电脑的 PowerShell 中运行。')),
+    button('copy', '复制代理地址', copy(() => proxy.textContent, '代理地址已复制，连接成功后填入插件配置并重载插件。')));
+  output.append(config, label, outputActions,
+    node('p', 'source-note', '首次连接请核对服务器指纹。脚本仅安装 SSH 用户目录下的辅助文件，不修改插件配置或系统路由；连接断开后自动重试，关闭窗口即停止。容器重建后请重新生成。'));
+  const generationNotice = node('div', 'notice tunnel-notice'); generationNotice.id = 'tunnel-generation-notice';
+  generationNotice.setAttribute('role', 'status'); generationNotice.hidden = true;
+  const generate = button('settings', '生成连接脚本', async () => {
+    output.hidden = true;
+    const result = await post({action: 'generate', server: $('tunnel-server').value.trim(), bridge: $('tunnel-bridge').value.trim(),
+      source: $('tunnel-source').value.trim(), ssh_port: $('tunnel-ssh-port').value,
+      bridge_port: $('tunnel-bridge-port').value, remote_port: $('tunnel-remote-port').value}, false, generationNotice);
+    if (result && kind === 'tunnel' && target.contains(output)) {
+      script.value = result.script; proxy.textContent = result.proxy; output.hidden = false;
+    }
+  });
+  const actions = node('div', 'extra-editor-actions'); actions.append(generate); form.append(actions, generationNotice);
+  form.addEventListener('submit', event => {event.preventDefault(); generate.click();});
+  form.addEventListener('input', () => {output.hidden = true; showNotice(generationNotice);});
+  target.append(form, output);
 }
 
 function editMapping(row = null) {

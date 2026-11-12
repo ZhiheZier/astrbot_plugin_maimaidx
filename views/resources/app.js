@@ -1,3 +1,6 @@
+import {copyText} from './clipboard.js';
+import {showNotice} from './notice.js';
+
 const $ = (id) => document.getElementById(id);
 const bridge = window.AstrBotPluginView || window.AstrBotPluginPage;
 let state = null;
@@ -28,9 +31,8 @@ function iconButton(icon, title, handler) {
   return button;
 }
 
-function notice(message = '') {
-  $('notice').textContent = message;
-  $('notice').hidden = !message;
+function notice(message = '', ok = false) {
+  showNotice($('notice'), message, ok);
 }
 
 function bytes(value) {
@@ -187,7 +189,10 @@ $('cancel').addEventListener('click', () => bridge && bridge.apiPost('resources/
 $('retry').addEventListener('click', () => { const pack = state?.sources.find(pack => pack.id === state.job.source_id); if (pack) download(pack); });
 $('choose-file').addEventListener('click', () => $('file-input').click());
 $('file-input').addEventListener('change', () => { const file = $('file-input').files[0]; $('file-input').value = ''; upload(file); });
-$('copy-path').addEventListener('click', async () => { try { await navigator.clipboard.writeText(state?.inventory.path || ''); } catch { notice('复制失败，请从资源目录栏选择文本复制。'); } });
+$('copy-path').addEventListener('click', async () => {
+  try { await copyText(state?.inventory.path || ''); notice('资源目录已复制。', true); }
+  catch { notice('浏览器禁止复制，请从资源目录栏选择文本复制。'); }
+});
 for (const name of ['dragenter', 'dragover']) $('drop-zone').addEventListener(name, (event) => { event.preventDefault(); if (!state?.busy && !pending) $('drop-zone').classList.add('dragging'); });
 for (const name of ['dragleave', 'drop']) $('drop-zone').addEventListener(name, (event) => { event.preventDefault(); $('drop-zone').classList.remove('dragging'); if (name === 'drop') upload(event.dataTransfer.files[0]); });
 window.addEventListener('beforeunload', () => { disposed = true; clearTimeout(timer); });

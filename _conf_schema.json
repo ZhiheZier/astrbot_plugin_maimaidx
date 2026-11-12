@@ -97,6 +97,12 @@
         "type": "bool",
         "default": false
       },
+      "official_http_proxy": {
+        "description": "官方取数专用代理",
+        "hint": "可选 HTTP 代理，例如 http://内网地址:17890。仅用于官方授权与取数，不影响水鱼、落雪等请求。留空直连；SSH 通道需保持在线。",
+        "type": "string",
+        "default": ""
+      },
       "official_client_id": {
         "description": "连接标识（高级）",
         "hint": "通常留空，非必要请勿修改。",

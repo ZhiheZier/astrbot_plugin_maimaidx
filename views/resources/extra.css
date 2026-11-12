@@ -3,6 +3,8 @@
 .notice-state{display:flex;gap:16px 32px;flex-wrap:wrap;margin:0 0 14px}.notice-state>div{min-width:100px}
 .notice-state dt{font-size:11px;color:var(--muted);margin-bottom:5px}.notice-state dd{font-size:13px;margin:0;line-height:1.7;overflow-wrap:anywhere}
 .notice-full-preview{max-height:none;font-family:inherit;font-size:13px;line-height:1.9}.extra-meta-section>.manage-toolbar{margin-top:16px}
+.tunnel-form{max-width:760px;row-gap:16px}.tunnel-form>label{display:grid;gap:7px;font-size:12px}.tunnel-form>.extra-editor-actions{margin-top:0}.tunnel-output{border-top:1px solid var(--line);margin-top:24px;padding-top:20px}.tunnel-script-label{display:grid;gap:10px;font-size:12px}.tunnel-script{box-sizing:border-box;width:100%;min-height:220px;resize:vertical;font:12px/1.7 ui-monospace,Consolas,monospace;white-space:pre;overflow:auto;border:1px solid var(--line);border-radius:4px;padding:12px;color:var(--text);background:var(--surface)}.tunnel-config{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px;font-size:12px}.tunnel-proxy{overflow-wrap:anywhere;user-select:text}
+.tunnel-notice{grid-column:1/-1;margin:0}.tunnel-notice[data-ok=true]{color:var(--good);border-color:var(--good)}
 .extra-table[data-kind=notices] th:first-child{width:120px}.extra-table[data-kind=notices] th:nth-child(3){width:100px}.extra-table[data-kind=notices] th:last-child{width:80px}
 .player-actions{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:stretch;align-content:start}
 .player-actions button{grid-column:span 2;min-width:0;min-height:38px}

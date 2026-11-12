@@ -65,7 +65,7 @@ class BindingRoutingTest(unittest.IsolatedAsyncioTestCase):
         self.redeem.assert_awaited_once_with('12345678', 'BCDF-GHJK-MNPQ')
         self.lx_class.assert_not_called()
         self.update.assert_awaited_once_with('12345678', service=ServiceName.DIVINGFISH)
-        self.assertIn('水鱼查分器绑定成功', messages[0])
+        self.assertEqual(messages[0], '授权完成！已绑定水鱼账号，数据源已切换为水鱼。')
         self.assertNotIn('撤回', messages[0])
         self.assertFalse(self.sessions.active(self.sessions.key(make_event())))
 
@@ -118,7 +118,7 @@ class BindingRoutingTest(unittest.IsolatedAsyncioTestCase):
     async def test_same_sender_can_submit_in_private_chat_after_group_binding(self):
         self.start(ServiceName.DIVINGFISH)
         messages = await replies(make_event('水鱼授权码 BCDF-GHJK-MNPQ', group=None))
-        self.assertIn('绑定成功', messages[0])
+        self.assertIn('授权完成！已绑定水鱼账号', messages[0])
         self.redeem.assert_awaited_once()
 
     async def test_failed_divingfish_code_does_not_fall_back_to_lxns(self):
@@ -142,7 +142,37 @@ class BindingRoutingTest(unittest.IsolatedAsyncioTestCase):
             replies(make_event('水鱼授权码 BCDF-GHJK-MNPQ')) for _ in range(2)
         ])
         self.redeem.assert_awaited_once()
-        self.assertEqual(sum('绑定成功' in messages[0] for messages in results), 1)
+        self.assertEqual(sum('授权完成！已绑定水鱼账号' in messages[0] for messages in results), 1)
+
+    async def test_binding_guides_share_layout_but_keep_provider_specific_details(self):
+        binding = {'verification_uri_complete': 'https://example.test/water', 'expires_in': 600}
+        with (patch.object(mai_base, 'get_botname', return_value='TestBot'),
+              patch.object(mai_base, '_authorize_url', return_value='https://example.test/snow'),
+              patch.object(maiApi, 'start_divingfish_binding', AsyncMock(return_value=binding))):
+            water = [reply async for reply in mai_base.bind_divingfish_handler(make_event())]
+            snow = [reply async for reply in mai_base.bind_lxns_handler(make_event())]
+        for label, messages, url in (('水鱼', water, 'https://example.test/water'), ('落雪', snow, 'https://example.test/snow')):
+            self.assertEqual(len(messages), 1)
+            text = messages[0]
+            self.assertTrue(text.startswith('请点击以下链接进行授权，\n'))
+            self.assertIn(f'允许「TestBot BOT」访问你的{label}查分器数据：', text)
+            self.assertIn(f'=======================\n{url}\n=======================', text)
+            self.assertIn(f'请在 10 分钟内发送「{label}授权码 XXXX-XXXX-XXXX」完成绑定。', text)
+            self.assertIn('仅使用自己授权页面显示的授权码。', text)
+            self.assertEqual(text.count('======================='), 3)
+            self.assertNotIn('撤回', text)
+        self.assertIn(maiApi.mask_qq('12345678'), water[0])
+        self.assertIn('发起绑定的当前账号', water[0])
+        self.assertIn('隐私设置', snow[0])
+
+    async def test_divingfish_binding_prompt_uses_actual_expiry_and_fallback_url(self):
+        with patch.object(maiApi, 'start_divingfish_binding', AsyncMock(return_value={
+                'verification_uri': 'https://example.test/device', 'expires_in': 95})):
+            messages = [reply async for reply in mai_base.bind_divingfish_handler(make_event())]
+        self.assertIn('请在 95 秒内发送「水鱼授权码', messages[0])
+        self.assertIn('https://example.test/device', messages[0])
+        session = self.sessions.active(self.sessions.key(make_event()))[ServiceName.DIVINGFISH]
+        self.assertIsNotNone(session)
 
     async def test_client_change_requires_new_binding(self):
         self.start(ServiceName.DIVINGFISH)

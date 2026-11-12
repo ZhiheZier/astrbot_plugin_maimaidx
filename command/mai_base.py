@@ -454,6 +454,22 @@ async def theme_handler(event: AstrMessageEvent):
     yield event.plain_result(f'主题已切换为：「{theme_.value}」')
 
 
+def _binding_prompt(label: str, url: str, expires_in: int, note: str) -> str:
+    duration = f'{expires_in // 60} 分钟' if expires_in % 60 == 0 else f'{expires_in} 秒'
+    return (
+        '请点击以下链接进行授权，\n'
+        f'允许「{get_botname()} BOT」访问你的{label}查分器数据：\n'
+        '=======================\n'
+        f'{url}\n'
+        '=======================\n'
+        '授权后你会得到一个格式为「XXXX-XXXX-XXXX」的授权码，\n'
+        f'请在 {duration}内发送「{label}授权码 XXXX-XXXX-XXXX」完成绑定。\n'
+        '仅使用自己授权页面显示的授权码。\n'
+        '=======================\n'
+        f'注意：{note}'
+    )
+
+
 async def bind_lxns_handler(event: AstrMessageEvent):
     """绑定落雪/lxbind 引导 OAuth 授权"""
     cfg = maiApi.config
@@ -463,24 +479,12 @@ async def bind_lxns_handler(event: AstrMessageEvent):
             '（如管理员已配置开发者 Token，你只需在落雪绑定 QQ 号后使用「数据源 落雪」即可）'
         )
         return
-    from textwrap import dedent
     pending_bindings.start(
         pending_bindings.key(event), ServiceName.LXNS, cfg.lx_client_id,
     )
-    botname = get_botname()
-    msg = dedent(f'''
-        请点击以下链接进行授权，
-        允许「{botname} BOT」访问你的落雪查分器数据：
-        =======================
-        {_authorize_url()}
-        =======================
-        授权后你会得到一个格式为「XXXX-XXXX-XXXX」的授权码，
-        请在 10 分钟内发送「落雪授权码 XXXX-XXXX-XXXX」完成绑定。
-        仅使用自己授权页面显示的授权码。
-        =======================
-        注意：请在落雪查分器「账号设置 -> 隐私设置」中
-        开启允许读取成绩，否则 BOT 无法查询你的成绩。
-    ''').strip()
+    msg = _binding_prompt('落雪', _authorize_url(), 600,
+                          '请在落雪查分器「账号设置 -> 隐私设置」中\n'
+                          '开启允许读取成绩，否则 BOT 无法查询你的成绩。')
     yield event.plain_result(msg)
 
 
@@ -508,14 +512,11 @@ async def bind_divingfish_handler(event: AstrMessageEvent):
             pending_bindings.key(event), ServiceName.DIVINGFISH,
             maiApi.config.df_client_id, ttl=expires_in,
         )
-        yield event.plain_result(
-            f'请在 {expires_in} 秒内打开以下链接，登录水鱼账号并确认授权：\n'
-            f'{verification_uri_complete}\n'
-            f'绑定身份：{maiApi.mask_qq(qqid)}\n'
-            '请确认授权页中的绑定身份无误。网页会显示一次性授权码，\n'
-            '请由当前账号发送「水鱼授权码 XXXX-XXXX-XXXX」完成绑定。\n'
-            '仅使用自己授权页面显示的授权码，不要使用他人发来的码。'
-        )
+        yield event.plain_result(_binding_prompt(
+            '水鱼', verification_uri_complete, expires_in,
+            f'绑定身份：{maiApi.mask_qq(qqid)}，请确认授权页中的绑定身份无误。\n'
+            '请由发起绑定的当前账号提交授权码，不要使用他人发来的码。',
+        ))
     except DivingFishOAuthError as e:
         yield event.plain_result(str(e))
 
@@ -575,7 +576,7 @@ async def authcode_handler(event: AstrMessageEvent):
             await maiApi.redeem_divingfish_binding(event.get_sender_id(), code)
             pending_bindings.consume(key, provider, session)
             await userstore.update(event.get_sender_id(), service=ServiceName.DIVINGFISH)
-            yield event.plain_result('水鱼查分器绑定成功！数据源已切换为水鱼，现在可以使用完整成绩查询功能。')
+            yield event.plain_result('授权完成！已绑定水鱼账号，数据源已切换为水鱼。')
         except DivingFishOAuthBindingExpiredError as exc:
             pending_bindings.consume(key, provider, session)
             yield event.plain_result(str(exc))

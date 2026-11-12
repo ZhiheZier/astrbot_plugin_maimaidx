@@ -143,7 +143,8 @@ class ResourceWeb:
                 raise ResourceError('请求格式错误。')
             if post:
                 labels = {'mappings': '维护机台映射', 'players': '维护玩家设置', 'rankings': '维护排行榜名单',
-                          'pc': '维护PC快照', 'notices': '手动发送更新通知', 'cache': '维护曲库缓存', 'limits': '维护同步额度'}
+                          'pc': '维护PC快照', 'notices': '手动发送更新通知', 'cache': '维护曲库缓存', 'limits': '维护同步额度',
+                          'tunnel': '生成SSH连接脚本'}
                 kind = values.get('kind')
                 if isinstance(kind, str) and kind in labels:
                     audit.update(feature=f'manage_{kind}', label=labels[kind])
