@@ -2,7 +2,9 @@
 
 import asyncio
 
-from .. import log
+import astrbot.api.message_components as Comp
+
+from .. import is_reply_enabled, log
 from ..libraries.maimaidx_official import OfficialError
 from ..libraries.maimaidx_sync_input import (
     SYNC_COMMAND, credential_images, credential_text, decode_qr, read_credential_image,
@@ -135,7 +137,10 @@ async def pc_handler(event, service):
         sender = str(event.get_sender_id())
         picture = await draw_pc50(snapshot, qqid=sender if sender.isdigit() else None,
                                   theme=userstore.get(sender).theme)
-        yield event.chain_result(convert_message_segment_to_chain(picture))
+        chain = convert_message_segment_to_chain(picture)
+        if is_reply_enabled():
+            chain.insert(0, Comp.Reply(id=event.message_obj.message_id))
+        yield event.chain_result(chain)
     except OfficialError as exc:
         yield event.plain_result(str(exc))
     except Exception as exc:

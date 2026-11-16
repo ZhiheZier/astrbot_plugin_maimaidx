@@ -3,8 +3,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
 
+import astrbot.api.message_components as Comp
 from PIL import Image
 
+from .. import MessageSegment
+from ..command import mai_sync
 from ..libraries import maimaidx_pc_image as image
 from ..libraries import maimai_best_50 as b50
 from ..libraries.maimaidx_play_result import played_to_chartinfo, chartinfo_to_played
@@ -12,7 +15,47 @@ from ..libraries.maimaidx_user import Theme
 from ..libraries.maimaidx_sync import snapshot_from_official, upload_records
 from ..libraries.maimaidx_official import OfficialData
 from .test_help_image import command_decorators
-from .test_official_sync import data, detail
+from .test_official_sync import data, detail, event
+
+
+class PC50ReplyTest(unittest.IsolatedAsyncioTestCase):
+    async def test_image_reply_follows_the_existing_reply_setting(self):
+        snapshot = Mock()
+        snapshot.pc50.return_value = [object()]
+        service = SimpleNamespace(store=SimpleNamespace(load=AsyncMock(return_value=snapshot)),
+                                  identity=Mock(return_value='player'))
+        for enabled in (False, True):
+            for group in (None, '200'):
+                with (self.subTest(enabled=enabled, group=group),
+                      patch.object(mai_sync, 'is_reply_enabled', return_value=enabled),
+                      patch.object(image, 'draw_pc50', AsyncMock(return_value=MessageSegment.image(
+                          'https://example.com/pc50.png')))):
+                    messages = [result async for result in mai_sync.pc_handler(event('pc50', group=group), service)]
+                    self.assertEqual(len(messages), 1)
+                    chain = messages[0]
+                    self.assertEqual(len(chain), 2 if enabled else 1)
+                    self.assertIsInstance(chain[-1], Comp.Image)
+                    if enabled:
+                        self.assertIsInstance(chain[0], Comp.Reply)
+                        self.assertEqual(str(chain[0].id), '42')
+                    else:
+                        self.assertFalse(any(isinstance(component, Comp.Reply) for component in chain))
+
+    async def test_missing_data_and_render_errors_keep_plain_text_responses(self):
+        snapshot = Mock()
+        snapshot.pc50.return_value = [object()]
+        for saved, failure, expected in ((None, None, '尚无本地 PC 数据'),
+                                         (snapshot, RuntimeError('render failed'), 'PC50 生成失败')):
+            for enabled in (False, True):
+                service = SimpleNamespace(store=SimpleNamespace(load=AsyncMock(return_value=saved)),
+                                          identity=Mock(return_value='player'))
+                with (self.subTest(saved=saved, enabled=enabled),
+                      patch.object(mai_sync, 'is_reply_enabled', return_value=enabled),
+                      patch.object(image, 'draw_pc50', AsyncMock(side_effect=failure))):
+                    messages = [result async for result in mai_sync.pc_handler(event('pc50'), service)]
+                    self.assertEqual(len(messages), 1)
+                    self.assertIsInstance(messages[0], str)
+                    self.assertIn(expected, messages[0])
 
 
 class PC50ImageTest(unittest.IsolatedAsyncioTestCase):

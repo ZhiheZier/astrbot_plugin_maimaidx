@@ -1,3 +1,4 @@
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,18 +8,19 @@ from ..command import mai_arcade
 from ..libraries import maimaidx_arcade as a
 from ..libraries.maimaidx_arcade_catalog import NearcadeArcadeList
 from .test_arcade_games import arcade
+from .test_help_image import command_decorators
 from .test_nearcade import client, collect, event
 
 
 class ArcadeTriggerGuardTest(unittest.IsolatedAsyncioTestCase):
-    async def check_ignored(self, source, texts, handler, *, subscribed=True):
+    async def check_ignored(self, source, texts, handler, *, subscribed=True, multiple=False):
         record = arcade(id='1000')
         record.alias.append('1000')
         record.group_aliases = {'200': ['天街']}
         record.group = [200] if subscribed else []
         hidden = arcade(name='未订阅机厅', id='1001')
         hidden.alias = ['未订阅别名']
-        hidden.group = []
+        hidden.group = [200] if multiple else []
         api = client(arcade_data_source=source)
         api._request = AsyncMock()
         api.prepare_cabinet_aliases = AsyncMock()
@@ -39,6 +41,38 @@ class ArcadeTriggerGuardTest(unittest.IsolatedAsyncioTestCase):
             api._request.assert_not_awaited()
             api.prepare_cabinet_aliases.assert_not_awaited()
             api.upload_attendance.assert_not_awaited()
+
+    async def test_bare_operations_are_silent_even_with_subscribed_shops(self):
+        texts = ('+1', '+0', '+ 2', '＋1', '-1', '－1', '=3', '=-1',
+                 '加1', '设置3', '增加1', '减少1', '++', '--', '+1人', '+1卡')
+        texts = tuple(prefix + text for prefix in ('', '/', '/ ') for text in texts)
+        for source in ('local', 'nearcade'):
+            for multiple in (False, True):
+                await self.check_ignored(source, texts, mai_arcade.arcade_person_handler,
+                                         multiple=multiple)
+
+    def test_report_route_requires_a_shop_or_game_name(self):
+        pattern = command_decorators()['arcade_person'][1]
+        for text in ('+1', '+ 2', '＋1', '-1', '－1', '=3', '=-1', '加1', '设置3',
+                     '++', '--', '+1人', '+1卡'):
+            for prefix in ('', '/', '/ ', ' '):
+                with self.subTest(text=prefix + text):
+                    self.assertIsNone(re.fullmatch(pattern, prefix + text))
+        for text in ('天街+1', '/别名-1', '机厅+1', 'mai+1', 'chu=5', 'mai3',
+                     'mai3chu2', '测试机厅mai3chu2', '加油机厅+1', '+号机厅3'):
+            with self.subTest(text=text):
+                self.assertIsNotNone(re.fullmatch(pattern, text))
+
+    async def test_explicit_shop_and_game_shortcuts_still_update(self):
+        for text in ('机厅+1', 'mai+1', '天街+1', '/别名+1', '加油机厅+1', '+号机厅+1'):
+            with self.subTest(text=text):
+                record = arcade()
+                record.group_aliases = {'200': ['天街', '加油机厅', '+号机厅']}
+                with (patch.object(a.arcade, 'total', a.ArcadeList([record]), create=True),
+                      patch.object(a.ArcadeList, 'save_arcade', AsyncMock())):
+                    messages = await collect(mai_arcade.arcade_person_handler, event(text=text))
+                    self.assertTrue(messages)
+                    self.assertEqual(record.person, 3)
 
     async def test_numeric_reports_and_unknown_shops_are_silent_without_side_effects(self):
         texts = ('1000-7', '1000+1', '/1000=3', '1000mai3', '1000 mai3chu2',

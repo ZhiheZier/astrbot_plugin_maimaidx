@@ -53,9 +53,10 @@ def _attendance_text_allowed(records, text, nearcade=None, group_id=None):
     # Reject numeric IDs before resolving mappings or making any cloud requests.
     if text[:1].isdigit():
         return False
+    has_shop_prefix = text.startswith('机厅')
     text = text.removeprefix('机厅').lstrip()
     if not text or text == '机厅' or re.match(r'^(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)', text):
-        return True
+        return has_shop_prefix
     configured = _configured_games(records, nearcade, strict=False)
     games = [*ARCADE_GAMES, *(game for choices in configured.values() for game in choices if game.is_named)]
     return any(text.casefold().startswith(alias.casefold()) for game in games for alias in game.aliases)

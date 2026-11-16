@@ -1571,7 +1571,7 @@ class MaimaiDXPlugin(Star):
         async for result in search_arcade_handler(event, **options):
             yield result
 
-    @filter.regex(r'^/?(?:(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?|.+?\s*[0-9]+\s*(?:人|卡)?)$')
+    @filter.regex(r'^(?!\s*/?\s*(?:设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s*(?:-?[0-9]+|＋|\+|－|-)\s*(?:人|卡)?\s*$)/?(?:(.+?)?\s?(设置|设定|＝|=|增加|添加|加|＋|\+|减少|降低|减|－|-)\s?(-?[0-9]+|＋|\+|－|-)(人|卡)?|.+?\s*[0-9]+\s*(?:人|卡)?)$')
     @usage_logged
     async def arcade_person(self, event: AstrMessageEvent):
         """操作排卡人数"""
